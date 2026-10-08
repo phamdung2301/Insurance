@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Builder
 public class Insured {
-    private String InsuredId;
+    private String insuredId;
     private String name;
     private String type;
     private String email;
