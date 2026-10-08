@@ -8,6 +8,8 @@ import { DashboardPage } from './pages/DashboardPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { ApiTesterPage } from './pages/ApiTesterPage';
+import { PolicyLocationsPage } from './pages/PolicyLocationsPage';
+import { PolicyListPage } from './pages/PolicyListPage';
 
 function App() {
   return (
@@ -21,6 +23,8 @@ function App() {
               <main style={{ flex: 1 }}>
                 <Routes>
                   <Route path="/" element={<DashboardPage />} />
+                  <Route path="/policies" element={<PolicyListPage />} />
+                  <Route path="/policies/locations" element={<PolicyLocationsPage />} />
                   <Route path="/profile" element={<ProfilePage />} />
                   <Route path="/change-password" element={<ChangePasswordPage />} />
                   <Route path="/api-tester" element={<ApiTesterPage />} />

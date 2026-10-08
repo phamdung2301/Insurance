@@ -85,4 +85,42 @@ export const userService = {
   },
 };
 
+// P02, P03: Policy Search, Filter, Page & Sort APIs
+export const policyService = {
+  searchPolicies: async (params = {}) => {
+    return api.get('/policies', { params });
+  },
+
+  getPolicyById: async (policyId) => {
+    return api.get(`/policies/${policyId}`);
+  },
+
+  createPolicy: async (policyData) => {
+    return api.post('/policies', policyData);
+  },
+};
+
+// P04: Nested Location in Policy APIs
+export const policyLocationService = {
+  getLocations: async (policyId) => {
+    return api.get(`/policies/${policyId}/locations`);
+  },
+
+  getLocationById: async (policyId, locationId) => {
+    return api.get(`/policies/${policyId}/locations/${locationId}`);
+  },
+
+  addLocation: async (policyId, locationData) => {
+    return api.post(`/policies/${policyId}/locations`, locationData);
+  },
+
+  updateLocation: async (policyId, locationId, locationData) => {
+    return api.put(`/policies/${policyId}/locations/${locationId}`, locationData);
+  },
+
+  removeLocation: async (policyId, locationId) => {
+    return api.delete(`/policies/${policyId}/locations/${locationId}`);
+  },
+};
+
 export default api;

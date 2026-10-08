@@ -83,8 +83,8 @@ export const ApiTesterPage = () => {
       <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
         <button
           onClick={() => selectPreset('GET', '/user/profile')}
-          className={`btn ${method === 'GET' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ fontSize: '0.825rem', padding: '0.5rem 1rem' }}
+          className={`btn ${url === '/user/profile' && method === 'GET' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem' }}
         >
           GET /user/profile
         </button>
@@ -97,8 +97,8 @@ export const ApiTesterPage = () => {
               '{\n  "fullName": "Nguyen Van B",\n  "phone": "0912345678",\n  "address": "456 Nguyen Hue, TP.HCM"\n}'
             )
           }
-          className={`btn ${method === 'PUT' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ fontSize: '0.825rem', padding: '0.5rem 1rem' }}
+          className={`btn ${url === '/user/profile' && method === 'PUT' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem' }}
         >
           PUT /user/profile
         </button>
@@ -111,10 +111,64 @@ export const ApiTesterPage = () => {
               '{\n  "oldPassword": "Password123!",\n  "newPassword": "NewPassword456!",\n  "confirmPassword": "NewPassword456!"\n}'
             )
           }
-          className={`btn ${method === 'POST' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ fontSize: '0.825rem', padding: '0.5rem 1rem' }}
+          className={`btn ${url === '/user/change-password' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem' }}
         >
           POST /user/change-password
+        </button>
+
+        {/* P02, P03 Presets */}
+        <button
+          onClick={() => selectPreset('GET', '/policies?status=DRAFT&page=0&size=10&sortBy=createdAt&sortDirection=DESC')}
+          className={`btn ${url.includes('/policies?') && method === 'GET' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem', borderColor: '#10b981' }}
+        >
+          GET Search Policies (P02, P03)
+        </button>
+
+        {/* P04 Presets */}
+        <button
+          onClick={() => selectPreset('GET', '/policies/POL-2026-001/locations')}
+          className={`btn ${url.includes('/locations') && method === 'GET' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem', borderColor: 'var(--primary)' }}
+        >
+          GET /policies/:id/locations (P04)
+        </button>
+
+        <button
+          onClick={() =>
+            selectPreset(
+              'POST',
+              '/policies/POL-2026-001/locations',
+              '{\n  "address": "Tòa nhà Landmark 81, Quận Bình Thạnh, TP.HCM",\n  "coverages": [\n    {\n      "coverageCode": "FIRE-01",\n      "coverageName": "Bảo hiểm cháy nổ",\n      "coverageType": "STANDARD",\n      "limit": 1000000000,\n      "deductible": 20000000,\n      "termMonths": 12,\n      "premium": 1500000\n    }\n  ]\n}'
+            )
+          }
+          className={`btn ${url.includes('/locations') && method === 'POST' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem', borderColor: 'var(--primary)' }}
+        >
+          POST Add Location (P04)
+        </button>
+
+        <button
+          onClick={() =>
+            selectPreset(
+              'PUT',
+              '/policies/POL-2026-001/locations/1',
+              '{\n  "address": "123 Đường Nguyễn Huệ (Cập nhật), Quận 1, TP.HCM",\n  "coverages": [\n    {\n      "coverageCode": "FIRE-01",\n      "coverageName": "Bảo hiểm cháy nổ nâng cao",\n      "coverageType": "ENHANCED",\n      "limit": 600000000,\n      "deductible": 10000000,\n      "termMonths": 12,\n      "premium": 900000\n    }\n  ]\n}'
+            )
+          }
+          className={`btn ${url.includes('/locations/1') && method === 'PUT' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem', borderColor: 'var(--primary)' }}
+        >
+          PUT Update Location (P04)
+        </button>
+
+        <button
+          onClick={() => selectPreset('DELETE', '/policies/POL-2026-001/locations/2')}
+          className={`btn ${method === 'DELETE' ? 'btn-danger' : 'btn-secondary'}`}
+          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem' }}
+        >
+          DELETE Location (P04)
         </button>
       </div>
 
