@@ -1,9 +1,12 @@
 package com.dungphd.insuranceass.controller;
 
 import com.dungphd.insuranceass.dto.request.CreatePolicyRequest;
+import com.dungphd.insuranceass.dto.request.PolicySearchCriteria;
 import com.dungphd.insuranceass.dto.request.UpdatePolicyRequest;
 import com.dungphd.insuranceass.dto.response.ApiResponse;
+import com.dungphd.insuranceass.dto.response.PageResponse;
 import com.dungphd.insuranceass.dto.response.PolicyResponse;
+import com.dungphd.insuranceass.model.Policy;
 import com.dungphd.insuranceass.service.PolicyService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -12,13 +15,25 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("policies")
+@RequestMapping({"/policies", "/api/policies"})
 @RequiredArgsConstructor
 public class PolicyController {
     private final PolicyService policyService;
 
     // ==========================================
-    // 2.1 Policy Core CRUD (P01)
+    // Dynamic Search, Filter, Page & Sort (P02, P03)
+    // ==========================================
+
+    @GetMapping
+    public ResponseEntity<ApiResponse<PageResponse<Policy>>> searchPolicies(
+            @ModelAttribute PolicySearchCriteria criteria
+    ) {
+        PageResponse<Policy> response = policyService.searchPolicies(criteria);
+        return ResponseEntity.ok(ApiResponse.success(response, "Policies retrieved successfully"));
+    }
+
+    // ==========================================
+    // Policy Core CRUD (P01)
     // ==========================================
 
     @PostMapping
