@@ -4,14 +4,18 @@ import com.dungphd.insuranceass.dto.CoverageDto;
 import com.dungphd.insuranceass.dto.InsuredDto;
 import com.dungphd.insuranceass.dto.LocationDto;
 import com.dungphd.insuranceass.dto.request.CreatePolicyRequest;
+import com.dungphd.insuranceass.dto.request.UpdatePolicyRequest;
 import com.dungphd.insuranceass.dto.response.PolicyResponse;
 import com.dungphd.insuranceass.exception.DuplicateResourceException;
 import com.dungphd.insuranceass.exception.InvalidRequestException;
+import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.Coverage;
 import com.dungphd.insuranceass.model.Insured;
 import com.dungphd.insuranceass.model.Location;
 import com.dungphd.insuranceass.model.Policy;
 import com.dungphd.insuranceass.model.PolicyStatus;
+import com.dungphd.insuranceass.model.PolicyTransaction;
+import com.dungphd.insuranceass.model.TransactionType;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyTransactionRepository;
 import com.dungphd.insuranceass.service.PolicyService;
@@ -56,6 +60,69 @@ public class PolicyServiceImpl implements PolicyService {
         policy.recalculateTotalPremium();
         Policy savedPolicy = policyRepository.save(policy);
         return mapToPolicyResponse(savedPolicy);
+    }
+
+    @Override
+    public PolicyResponse getPolicyByNumber(String policyNumber) {
+        Policy policy = policyRepository.findByPolicyNumber(policyNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
+        return mapToPolicyResponse(policy);
+    }
+
+    @Override
+    public PolicyResponse updatePolicy(String policyNumber, UpdatePolicyRequest request) {
+        Policy policy = policyRepository.findByPolicyNumber(policyNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
+
+        if (policy.getStatus() == PolicyStatus.ACTIVE) {
+            throw new InvalidRequestException("Direct modifications are not allowed on ACTIVE policies. Please use the Endorsement process to preserve historical integrity.");
+        }
+        if (policy.getStatus() == PolicyStatus.CANCELLED || policy.getStatus() == PolicyStatus.EXPIRED) {
+            throw new InvalidRequestException("Cannot modify policy in " + policy.getStatus() + " status.");
+        }
+
+        if (request.getInsured() != null) {
+            policy.setInsured(mapToInsured(request.getInsured()));
+        }
+        if (request.getEffectiveDate() != null) {
+            policy.setEffectiveDate(request.getEffectiveDate());
+        }
+        if (request.getExpirationDate() != null) {
+            policy.setExpirationDate(request.getExpirationDate());
+        }
+
+        if (policy.getEffectiveDate() != null && policy.getExpirationDate() != null
+                && policy.getEffectiveDate().isAfter(policy.getExpirationDate())) {
+            throw new InvalidRequestException("Effective date must be before expiration date");
+        }
+
+        policy.setVersion(policy.getVersion() != null ? policy.getVersion() + 1 : 2);
+        policy.setUpdatedAt(Instant.now());
+        policy.recalculateTotalPremium();
+        Policy updatedPolicy = policyRepository.save(policy);
+
+        PolicyTransaction txn = PolicyTransaction.builder()
+                .policyNumber(policyNumber)
+                .version(policy.getVersion())
+                .transactionType(TransactionType.UPDATE_POLICY)
+                .actor("System")
+                .description("Updated policy terms in " + policy.getStatus() + " status")
+                .timestamp(Instant.now())
+                .build();
+        policyTransactionRepository.save(txn);
+
+        return mapToPolicyResponse(updatedPolicy);
+    }
+
+    @Override
+    public void deletePolicy(String policyNumber) {
+        Policy policy = policyRepository.findByPolicyNumber(policyNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
+
+        if (policy.getStatus() != PolicyStatus.DRAFT) {
+            throw new InvalidRequestException("Only policies in DRAFT status can be deleted. Current status is " + policy.getStatus());
+        }
+        policyRepository.delete(policy);
     }
 
     private PolicyResponse mapToPolicyResponse(Policy policy) {

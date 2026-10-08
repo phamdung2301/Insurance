@@ -1,6 +1,7 @@
 package com.dungphd.insuranceass.controller;
 
 import com.dungphd.insuranceass.dto.request.CreatePolicyRequest;
+import com.dungphd.insuranceass.dto.request.UpdatePolicyRequest;
 import com.dungphd.insuranceass.dto.response.ApiResponse;
 import com.dungphd.insuranceass.dto.response.PolicyResponse;
 import com.dungphd.insuranceass.service.PolicyService;
@@ -17,7 +18,7 @@ public class PolicyController {
     private final PolicyService policyService;
 
     // ==========================================
-    // 2.1 Policy Core CRUD (P01) - Create
+    // 2.1 Policy Core CRUD (P01)
     // ==========================================
 
     @PostMapping
@@ -25,5 +26,25 @@ public class PolicyController {
         PolicyResponse response = policyService.createPolicy(request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(response, "Policy created successfully"));
+    }
+
+    @GetMapping("/{policyNumber}")
+    public ResponseEntity<ApiResponse<PolicyResponse>> getPolicyByNumber(@PathVariable String policyNumber) {
+        PolicyResponse response = policyService.getPolicyByNumber(policyNumber);
+        return ResponseEntity.ok(ApiResponse.success(response, "Policy retrieved successfully"));
+    }
+
+    @PutMapping("/{policyNumber}")
+    public ResponseEntity<ApiResponse<PolicyResponse>> updatePolicy(
+            @PathVariable String policyNumber,
+            @Valid @RequestBody UpdatePolicyRequest request) {
+        PolicyResponse response = policyService.updatePolicy(policyNumber, request);
+        return ResponseEntity.ok(ApiResponse.success(response, "Policy updated successfully"));
+    }
+
+    @DeleteMapping("/{policyNumber}")
+    public ResponseEntity<ApiResponse<Void>> deletePolicy(@PathVariable String policyNumber) {
+        policyService.deletePolicy(policyNumber);
+        return ResponseEntity.ok(ApiResponse.success(null, "Policy deleted successfully"));
     }
 }
