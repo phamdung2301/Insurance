@@ -1,0 +1,21 @@
+# Dependencies & Build
+node_modules/
+dist/
+target/
+.mvn/wrapper/maven-wrapper.jar
+
+# Local Data & Temp
+mongodb_data/
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.settings/
+.classpath
+.project
