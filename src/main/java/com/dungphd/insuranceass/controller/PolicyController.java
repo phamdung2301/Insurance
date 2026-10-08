@@ -26,4 +26,14 @@ public class PolicyController {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(response, "Policy created successfully"));
     }
+
+    // ==========================================
+    // 2.1 Policy Core CRUD (P01) - Read
+    // ==========================================
+
+    @GetMapping("/{policyNumber}")
+    public ResponseEntity<ApiResponse<PolicyResponse>> getPolicyByNumber(@PathVariable String policyNumber) {
+        PolicyResponse response = policyService.getPolicyByNumber(policyNumber);
+        return ResponseEntity.ok(ApiResponse.success(response, "Policy retrieved successfully"));
+    }
 }

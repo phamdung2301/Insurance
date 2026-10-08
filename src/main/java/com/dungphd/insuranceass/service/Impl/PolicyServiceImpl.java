@@ -7,6 +7,7 @@ import com.dungphd.insuranceass.dto.request.CreatePolicyRequest;
 import com.dungphd.insuranceass.dto.response.PolicyResponse;
 import com.dungphd.insuranceass.exception.DuplicateResourceException;
 import com.dungphd.insuranceass.exception.InvalidRequestException;
+import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.Coverage;
 import com.dungphd.insuranceass.model.Insured;
 import com.dungphd.insuranceass.model.Location;
@@ -56,6 +57,13 @@ public class PolicyServiceImpl implements PolicyService {
         policy.recalculateTotalPremium();
         Policy savedPolicy = policyRepository.save(policy);
         return mapToPolicyResponse(savedPolicy);
+    }
+
+    @Override
+    public PolicyResponse getPolicyByNumber(String policyNumber) {
+        Policy policy = policyRepository.findByPolicyNumber(policyNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
+        return mapToPolicyResponse(policy);
     }
 
     private PolicyResponse mapToPolicyResponse(Policy policy) {

@@ -5,4 +5,5 @@ import com.dungphd.insuranceass.dto.response.PolicyResponse;
 
 public interface PolicyService {
     PolicyResponse createPolicy(CreatePolicyRequest policyRequest);
+    PolicyResponse getPolicyByNumber(String policyNumber);
 }
