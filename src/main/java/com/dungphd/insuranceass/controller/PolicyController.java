@@ -18,7 +18,7 @@ public class PolicyController {
     private final PolicyService policyService;
 
     // ==========================================
-    // 2.1 Policy Core CRUD (P01) - Create
+    // 2.1 Policy Core CRUD (P01)
     // ==========================================
 
     @PostMapping
@@ -28,19 +28,11 @@ public class PolicyController {
                 .body(ApiResponse.success(response, "Policy created successfully"));
     }
 
-    // ==========================================
-    // 2.1 Policy Core CRUD (P01) - Read
-    // ==========================================
-
     @GetMapping("/{policyNumber}")
     public ResponseEntity<ApiResponse<PolicyResponse>> getPolicyByNumber(@PathVariable String policyNumber) {
         PolicyResponse response = policyService.getPolicyByNumber(policyNumber);
         return ResponseEntity.ok(ApiResponse.success(response, "Policy retrieved successfully"));
     }
-
-    // ==========================================
-    // 2.1 Policy Core CRUD (P01) - Update
-    // ==========================================
 
     @PutMapping("/{policyNumber}")
     public ResponseEntity<ApiResponse<PolicyResponse>> updatePolicy(
@@ -48,5 +40,11 @@ public class PolicyController {
             @Valid @RequestBody UpdatePolicyRequest request) {
         PolicyResponse response = policyService.updatePolicy(policyNumber, request);
         return ResponseEntity.ok(ApiResponse.success(response, "Policy updated successfully"));
+    }
+
+    @DeleteMapping("/{policyNumber}")
+    public ResponseEntity<ApiResponse<Void>> deletePolicy(@PathVariable String policyNumber) {
+        policyService.deletePolicy(policyNumber);
+        return ResponseEntity.ok(ApiResponse.success(null, "Policy deleted successfully"));
     }
 }

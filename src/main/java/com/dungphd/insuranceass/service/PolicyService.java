@@ -8,4 +8,5 @@ public interface PolicyService {
     PolicyResponse createPolicy(CreatePolicyRequest policyRequest);
     PolicyResponse getPolicyByNumber(String policyNumber);
     PolicyResponse updatePolicy(String policyNumber, UpdatePolicyRequest request);
+    void deletePolicy(String policyNumber);
 }

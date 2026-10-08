@@ -114,6 +114,17 @@ public class PolicyServiceImpl implements PolicyService {
         return mapToPolicyResponse(updatedPolicy);
     }
 
+    @Override
+    public void deletePolicy(String policyNumber) {
+        Policy policy = policyRepository.findByPolicyNumber(policyNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
+
+        if (policy.getStatus() != PolicyStatus.DRAFT) {
+            throw new InvalidRequestException("Only policies in DRAFT status can be deleted. Current status is " + policy.getStatus());
+        }
+        policyRepository.delete(policy);
+    }
+
     private PolicyResponse mapToPolicyResponse(Policy policy) {
         return PolicyResponse.builder()
                 .id(policy.getId())
