@@ -1,0 +1,29 @@
+package com.dungphd.insuranceass.controller;
+
+import com.dungphd.insuranceass.dto.request.CreatePolicyRequest;
+import com.dungphd.insuranceass.dto.response.ApiResponse;
+import com.dungphd.insuranceass.dto.response.PolicyResponse;
+import com.dungphd.insuranceass.service.PolicyService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("policies")
+@RequiredArgsConstructor
+public class PolicyController {
+    private final PolicyService policyService;
+
+    // ==========================================
+    // 2.1 Policy Core CRUD (P01) - Create
+    // ==========================================
+
+    @PostMapping
+    public ResponseEntity<ApiResponse<PolicyResponse>> createPolicy(@Valid @RequestBody CreatePolicyRequest request) {
+        PolicyResponse response = policyService.createPolicy(request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(response, "Policy created successfully"));
+    }
+}
