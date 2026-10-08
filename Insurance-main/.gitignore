@@ -4,16 +4,6 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-# Node & Frontend
-node_modules/
-dist/
-
-# Local Data & Temp
-mongodb_data/
-*.log
-.DS_Store
-Thumbs.db
-
 ### STS ###
 .apt_generated
 .classpath
