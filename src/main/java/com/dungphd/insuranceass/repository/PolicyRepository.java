@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface PolicyRepository extends MongoRepository<Policy, String> {
+public interface PolicyRepository extends MongoRepository<Policy, String>, PolicyCustomRepository {
     Optional<Policy> findByPolicyNumber(String policyNumber);
 
     boolean existsByPolicyNumber(String policyNumber);

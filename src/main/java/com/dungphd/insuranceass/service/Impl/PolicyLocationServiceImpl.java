@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -83,6 +84,7 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
 
         policy.getLocations().add(newLocation);
         policy.recalculateTotalPremium();
+        policy.setUpdatedAt(Instant.now());
 
         log.info("Added location {} to policy {}", newLocationId, policy.getPolicyNumber());
         return policyRepository.save(policy);
@@ -107,6 +109,7 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
         }
 
         policy.recalculateTotalPremium();
+        policy.setUpdatedAt(Instant.now());
         log.info("Updated location {} in policy {}", locationId, policy.getPolicyNumber());
         return policyRepository.save(policy);
     }
@@ -126,6 +129,7 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
         }
 
         policy.recalculateTotalPremium();
+        policy.setUpdatedAt(Instant.now());
         log.info("Removed location {} from policy {}", locationId, policy.getPolicyNumber());
         return policyRepository.save(policy);
     }
