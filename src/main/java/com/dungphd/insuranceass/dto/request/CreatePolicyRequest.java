@@ -4,7 +4,6 @@ import com.dungphd.insuranceass.dto.InsuredDto;
 import com.dungphd.insuranceass.dto.LocationDto;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -23,7 +22,6 @@ public class CreatePolicyRequest {
     @NotBlank(message = "Policy number is required")
     private String policyNumber;
 
-    @NotNull(message = "Insured information is required")
     @Valid
     private InsuredDto insured;
 
@@ -31,12 +29,9 @@ public class CreatePolicyRequest {
     @Builder.Default
     private List<LocationDto> locations = new ArrayList<>();
 
-    @NotNull(message = "Effective date is required")
     @com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = com.dungphd.insuranceass.config.FlexibleInstantDeserializer.class)
     private Instant effectiveDate;
 
-    @NotNull(message = "Expiration date is required")
     @com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = com.dungphd.insuranceass.config.FlexibleInstantDeserializer.class)
     private Instant expirationDate;
 }
-
