@@ -1,5 +1,6 @@
 package com.dungphd.insuranceass.service;
 
+import com.dungphd.insuranceass.dto.LocationDto;
 import com.dungphd.insuranceass.dto.request.CreatePolicyRequest;
 import com.dungphd.insuranceass.dto.request.PolicySearchCriteria;
 import com.dungphd.insuranceass.dto.request.UpdatePolicyRequest;
