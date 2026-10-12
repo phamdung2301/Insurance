@@ -28,6 +28,9 @@ public class PolicyCoverageServiceImpl implements PolicyCoverageService {
     private final PolicyRepository policyRepository;
     private final PremiumCalculationService premiumCalculationService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.dungphd.insuranceass.service.TransactionLedgerService transactionLedgerService;
+
     @Override
     public List<Coverage> getCoverages(String policyIdOrNumber, String locationId) {
         Policy policy = findPolicy(policyIdOrNumber);
@@ -74,7 +77,17 @@ public class PolicyCoverageServiceImpl implements PolicyCoverageService {
         policy.setUpdatedAt(Instant.now());
 
         log.info("Added coverage {} to location {} on policy {}", code, locationId, policy.getPolicyNumber());
-        return policyRepository.save(policy);
+        Policy saved = policyRepository.save(policy);
+        if (transactionLedgerService != null) {
+            transactionLedgerService.recordTransaction(
+                    saved.getPolicyNumber(),
+                    saved.getVersion(),
+                    com.dungphd.insuranceass.model.TransactionType.ADD_COVERAGE,
+                    "System",
+                    "Added coverage " + code + " to location " + locationId
+            );
+        }
+        return saved;
     }
 
     @Override
@@ -114,7 +127,17 @@ public class PolicyCoverageServiceImpl implements PolicyCoverageService {
         policy.setUpdatedAt(Instant.now());
 
         log.info("Updated coverage {} in location {} on policy {}", coverageCode, locationId, policy.getPolicyNumber());
-        return policyRepository.save(policy);
+        Policy saved = policyRepository.save(policy);
+        if (transactionLedgerService != null) {
+            transactionLedgerService.recordTransaction(
+                    saved.getPolicyNumber(),
+                    saved.getVersion(),
+                    com.dungphd.insuranceass.model.TransactionType.UPDATE_COVERAGE,
+                    "System",
+                    "Updated coverage " + coverageCode + " in location " + locationId
+            );
+        }
+        return saved;
     }
 
     @Override
@@ -136,7 +159,17 @@ public class PolicyCoverageServiceImpl implements PolicyCoverageService {
         policy.setUpdatedAt(Instant.now());
 
         log.info("Removed coverage {} from location {} on policy {}", coverageCode, locationId, policy.getPolicyNumber());
-        return policyRepository.save(policy);
+        Policy saved = policyRepository.save(policy);
+        if (transactionLedgerService != null) {
+            transactionLedgerService.recordTransaction(
+                    saved.getPolicyNumber(),
+                    saved.getVersion(),
+                    com.dungphd.insuranceass.model.TransactionType.REMOVE_COVERAGE,
+                    "System",
+                    "Removed coverage " + coverageCode + " from location " + locationId
+            );
+        }
+        return saved;
     }
 
     private Policy findPolicy(String policyIdOrNumber) {

@@ -28,6 +28,9 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
 
     private final PolicyRepository policyRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.dungphd.insuranceass.service.TransactionLedgerService transactionLedgerService;
+
     @Override
     public List<Location> getLocations(String policyIdOrNumber) {
         Policy policy = findPolicy(policyIdOrNumber);
@@ -87,7 +90,17 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
         policy.setUpdatedAt(Instant.now());
 
         log.info("Added location {} to policy {}", newLocationId, policy.getPolicyNumber());
-        return policyRepository.save(policy);
+        Policy saved = policyRepository.save(policy);
+        if (transactionLedgerService != null) {
+            transactionLedgerService.recordTransaction(
+                    saved.getPolicyNumber(),
+                    saved.getVersion(),
+                    com.dungphd.insuranceass.model.TransactionType.ADD_LOCATION,
+                    "System",
+                    "Added location " + newLocationId + ": " + newLocation.getAddress()
+            );
+        }
+        return saved;
     }
 
     @Override
@@ -111,7 +124,17 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
         policy.recalculateTotalPremium();
         policy.setUpdatedAt(Instant.now());
         log.info("Updated location {} in policy {}", locationId, policy.getPolicyNumber());
-        return policyRepository.save(policy);
+        Policy saved = policyRepository.save(policy);
+        if (transactionLedgerService != null) {
+            transactionLedgerService.recordTransaction(
+                    saved.getPolicyNumber(),
+                    saved.getVersion(),
+                    com.dungphd.insuranceass.model.TransactionType.UPDATE_LOCATION,
+                    "System",
+                    "Updated location " + locationId
+            );
+        }
+        return saved;
     }
 
     @Override
@@ -131,7 +154,17 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
         policy.recalculateTotalPremium();
         policy.setUpdatedAt(Instant.now());
         log.info("Removed location {} from policy {}", locationId, policy.getPolicyNumber());
-        return policyRepository.save(policy);
+        Policy saved = policyRepository.save(policy);
+        if (transactionLedgerService != null) {
+            transactionLedgerService.recordTransaction(
+                    saved.getPolicyNumber(),
+                    saved.getVersion(),
+                    com.dungphd.insuranceass.model.TransactionType.REMOVE_LOCATION,
+                    "System",
+                    "Removed location " + locationId
+            );
+        }
+        return saved;
     }
 
     private Policy findPolicy(String policyIdOrNumber) {

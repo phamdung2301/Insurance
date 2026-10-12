@@ -6,6 +6,7 @@ export const Sidebar = () => {
   const navItems = [
     { to: '/', label: 'Bảng điều khiển', icon: LayoutDashboard },
     { to: '/policies', label: 'Tra cứu Hợp đồng (P02, P03)', icon: FileText },
+    { to: '/policies/create', label: 'Tạo Hợp đồng (UI03)', icon: Sparkles },
     { to: '/policies/locations', label: 'Địa điểm Hợp đồng (P04)', icon: MapPin },
     { to: '/profile', label: 'Hồ sơ cá nhân', icon: User },
     { to: '/change-password', label: 'Đổi mật khẩu', icon: KeyRound },
