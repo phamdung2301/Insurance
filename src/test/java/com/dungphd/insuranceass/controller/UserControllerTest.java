@@ -125,6 +125,44 @@ class UserControllerTest {
     }
 
     @Test
+    void updateProfile_PartialUpdate_Success() throws Exception {
+        UserProfileResponse responseDto = UserProfileResponse.builder()
+                .id("usr-123")
+                .email("user@example.com")
+                .fullName("Original Name")
+                .phone("0912345678")
+                .build();
+
+        when(userService.updateProfile(eq("user@example.com"), any(UpdateProfileRequest.class)))
+                .thenReturn(responseDto);
+
+        // Omit fullName for partial update
+        String partialRequestJson = "{\"phone\":\"0912345678\"}";
+
+        mockMvc.perform(put("/user/profile")
+                        .principal(() -> "user@example.com")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(partialRequestJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.phone").value("0912345678"));
+    }
+
+    @Test
+    void updateProfile_PhoneWithPipeSyntax_FailsValidation() throws Exception {
+        // "0|12345678" should be rejected by corrected [35789] regex
+        String invalidPhoneJson = "{\"phone\":\"0|12345678\"}";
+
+        mockMvc.perform(put("/user/profile")
+                        .principal(() -> "user@example.com")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(invalidPhoneJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data.phone").exists());
+    }
+
+    @Test
     void changePassword_Success() throws Exception {
         doNothing().when(userService).changePassword(eq("user@example.com"), any(ChangePasswordRequest.class));
 

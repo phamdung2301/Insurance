@@ -39,7 +39,7 @@ public class PolicyController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<Policy>>> searchPolicies(
-            @ModelAttribute PolicySearchCriteria criteria
+            @Valid @ModelAttribute PolicySearchCriteria criteria
     ) {
         PageResponse<Policy> response = policyService.searchPolicies(criteria);
         return ResponseEntity.ok(ApiResponse.success(response, "Policies retrieved successfully"));

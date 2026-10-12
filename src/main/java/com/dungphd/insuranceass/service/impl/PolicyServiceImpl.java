@@ -34,6 +34,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -47,6 +48,22 @@ public class PolicyServiceImpl implements PolicyService {
     private final PremiumCalculationService premiumCalculationService;
     private final PolicyTransactionRepository policyTransactionRepository;
     private final TransactionLedgerService transactionLedgerService;
+
+    public static final int DEFAULT_PAGE_SIZE = 10;
+    public static final int MAX_PAGE_SIZE = 100;
+
+    public static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
+            "createdAt",
+            "updatedAt",
+            "policyNumber",
+            "status",
+            "totalPremium",
+            "effectiveDate",
+            "expirationDate",
+            "boundDate",
+            "paymentDueDate",
+            "version"
+    );
 
     @Override
     public PolicyResponse createPolicy(CreatePolicyRequest request) {
@@ -191,10 +208,18 @@ public class PolicyServiceImpl implements PolicyService {
         }
 
         int page = Math.max(criteria.getPage(), 0);
-        int size = criteria.getSize() > 0 ? criteria.getSize() : 10;
-        String sortBy = criteria.getSortBy() != null && !criteria.getSortBy().isBlank()
-                ? criteria.getSortBy()
-                : "createdAt";
+        int rawSize = criteria.getSize() > 0 ? criteria.getSize() : DEFAULT_PAGE_SIZE;
+        int size = Math.min(rawSize, MAX_PAGE_SIZE);
+
+        String sortBy = "createdAt";
+        if (criteria.getSortBy() != null && !criteria.getSortBy().isBlank()) {
+            String requestedSort = criteria.getSortBy().trim();
+            if (!ALLOWED_SORT_FIELDS.contains(requestedSort)) {
+                throw new BadRequestException("Invalid sortBy field: '" + requestedSort + "'. Allowed sort fields are: " + ALLOWED_SORT_FIELDS);
+            }
+            sortBy = requestedSort;
+        }
+
         Sort.Direction direction = "ASC".equalsIgnoreCase(criteria.getSortDirection())
                 ? Sort.Direction.ASC
                 : Sort.Direction.DESC;

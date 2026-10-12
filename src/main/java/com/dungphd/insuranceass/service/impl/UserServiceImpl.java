@@ -30,7 +30,11 @@ public class UserServiceImpl implements UserService {
         User user = getUserByEmail(email);
 
         if (request.getFullName() != null) {
-            user.setFullName(request.getFullName().trim());
+            String trimmedName = request.getFullName().trim();
+            if (trimmedName.isEmpty()) {
+                throw new BadRequestException("Full name cannot be blank");
+            }
+            user.setFullName(trimmedName);
         }
         if (request.getPhone() != null) {
             user.setPhone(request.getPhone().trim());
