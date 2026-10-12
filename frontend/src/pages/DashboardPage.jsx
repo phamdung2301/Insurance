@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
-import { User, KeyRound, ShieldCheck, Database, CheckCircle, ArrowRight, Activity, Terminal } from 'lucide-react';
+import { User, KeyRound, ShieldCheck, Database, CheckCircle, ArrowRight, Activity, Terminal, FileText } from 'lucide-react';
 
 export const DashboardPage = () => {
   const { user, userEmail } = useAuth();
@@ -20,7 +20,7 @@ export const DashboardPage = () => {
           overflow: 'hidden',
         }}
       >
-        <div style={{ maxWidth: '650px', position: 'relative', zIndex: 2 }}>
+        <div style={{ maxWidth: '680px', position: 'relative', zIndex: 2 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
             <span className="badge badge-success">
               <CheckCircle size={12} /> Hệ thống sẵn sàng
@@ -30,14 +30,18 @@ export const DashboardPage = () => {
             Xin chào, {user?.fullName || userEmail || 'Quý khách'}! 👋
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: 1.6 }}>
-            Chào mừng bạn đến với Cổng quản lý Hồ sơ & Bảo mật Bảo hiểm. Bạn có thể dễ dàng quản lý thông tin cá nhân, cập nhật mật khẩu, và kiểm thử tương tác API trực tiếp.
+            Chào mừng bạn đến với Cổng quản lý Hồ sơ & Hợp đồng Bảo hiểm. Bạn có thể tra cứu nhanh, quản lý danh sách hợp đồng, cập nhật hồ sơ cá nhân và kiểm thử API trực tiếp.
           </p>
 
           <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem', flexWrap: 'wrap' }}>
-            <Link to="/profile" className="btn btn-primary">
-              <User size={18} />
-              <span>Quản lý hồ sơ</span>
+            <Link to="/policies" className="btn btn-primary">
+              <FileText size={18} />
+              <span>Policy Management Dashboard</span>
               <ArrowRight size={16} />
+            </Link>
+            <Link to="/profile" className="btn btn-secondary">
+              <User size={18} />
+              <span>Hồ sơ cá nhân</span>
             </Link>
             <Link to="/change-password" className="btn btn-secondary">
               <KeyRound size={18} />
@@ -104,6 +108,38 @@ export const DashboardPage = () => {
 
       {/* Quick Access Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
+        <Link to="/policies" style={{ textDecoration: 'none' }}>
+          <div className="glass-card" style={{ height: '100%', cursor: 'pointer', borderColor: 'rgba(99, 102, 241, 0.3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+              <div
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '12px',
+                  background: 'var(--primary-gradient)',
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <FileText size={24} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '1.1rem', color: 'var(--text-primary)' }}>Policy Management Dashboard</h3>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Bảng hiển thị, Quick search, Filter, Paging</span>
+              </div>
+            </div>
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+              Tra cứu nhanh đa tiêu chí, lọc trạng thái và ngày hiệu lực, bảng dữ liệu sắp xếp & phân trang động, Endorsement và PDF.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--primary)', fontWeight: 600, fontSize: '0.85rem' }}>
+              <span>Mở Policy Dashboard</span>
+              <ArrowRight size={14} />
+            </div>
+          </div>
+        </Link>
+
         <Link to="/profile" style={{ textDecoration: 'none' }}>
           <div className="glass-card" style={{ height: '100%', cursor: 'pointer' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
