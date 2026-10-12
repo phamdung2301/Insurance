@@ -1070,16 +1070,19 @@ export const PolicyListPage = () => {
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span
+                          <Link
+                            to={`/policies/${policy.policyNumber}`}
                             style={{
                               fontFamily: 'var(--font-mono)',
                               fontWeight: 700,
                               color: 'var(--primary)',
                               fontSize: '0.95rem',
+                              textDecoration: 'none',
                             }}
+                            title="Xem chi tiết hợp đồng, chuyển trạng thái & audit log"
                           >
                             {policy.policyNumber}
-                          </span>
+                          </Link>
                           <span
                             style={{
                               fontSize: '0.7rem',
@@ -1165,6 +1168,16 @@ export const PolicyListPage = () => {
                         }}
                       >
                         <Link
+                          to={`/policies/${policy.policyNumber}`}
+                          className="btn btn-secondary"
+                          style={{ padding: '0.4rem 0.6rem', fontSize: '0.775rem', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)' }}
+                          title="Xem chi tiết hợp đồng, chuyển trạng thái & audit log (P06-P09)"
+                        >
+                          <Eye size={13} />
+                          <span>Chi tiết</span>
+                        </Link>
+
+                        <Link
                           to={`/policies/edit/${policy.policyNumber}`}
                           className="btn btn-secondary"
                           style={{ padding: '0.4rem 0.6rem', fontSize: '0.775rem', color: '#818cf8', borderColor: 'rgba(99, 102, 241, 0.3)' }}
@@ -1237,16 +1250,19 @@ export const PolicyListPage = () => {
               {/* Left Column: Number, Insured, Status */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1, minWidth: '250px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <span
+                  <Link
+                    to={`/policies/${policy.policyNumber}`}
                     style={{
                       fontFamily: 'var(--font-mono)',
                       fontWeight: 700,
                       fontSize: '1.05rem',
                       color: 'var(--primary)',
+                      textDecoration: 'none',
                     }}
+                    title="Xem chi tiết hợp đồng, chuyển trạng thái & audit log"
                   >
                     {policy.policyNumber}
-                  </span>
+                  </Link>
                   {getStatusBadge(policy.status)}
                   <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>
                     v{policy.version || 1}
@@ -1292,6 +1308,16 @@ export const PolicyListPage = () => {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <Link
+                    to={`/policies/${policy.policyNumber}`}
+                    className="btn btn-secondary"
+                    style={{ padding: '0.45rem 0.75rem', fontSize: '0.8rem', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)' }}
+                    title="Xem chi tiết hợp đồng, chuyển trạng thái & audit log (P06-P09)"
+                  >
+                    <Eye size={14} />
+                    <span>Chi tiết</span>
+                  </Link>
+
                   <Link
                     to={`/policies/edit/${policy.policyNumber}`}
                     className="btn btn-secondary"

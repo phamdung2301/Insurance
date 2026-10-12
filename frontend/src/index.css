@@ -603,3 +603,190 @@ a:hover {
 .status-dot-expired {
   background: #94a3b8;
 }
+
+/* =========================================
+   POLICY DETAIL & LIFECYCLE STEPPER STYLES
+   ========================================= */
+.stepper-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  width: 100%;
+  padding: 1.25rem 0.5rem;
+}
+
+.stepper-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  z-index: 2;
+  flex: 1;
+}
+
+.stepper-circle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 2px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  transition: all var(--transition-base);
+  box-shadow: var(--shadow-sm);
+}
+
+.stepper-item.completed .stepper-circle {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: #10b981;
+  color: #10b981;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.35);
+}
+
+.stepper-item.current .stepper-circle {
+  background: var(--primary-gradient);
+  border-color: var(--primary);
+  color: #ffffff;
+  box-shadow: var(--shadow-glow);
+  transform: scale(1.1);
+}
+
+.stepper-line {
+  position: absolute;
+  top: 32px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  z-index: 1;
+}
+
+.stepper-line-progress {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1 0%, #10b981 100%);
+  transition: width 0.4s ease;
+}
+
+.stepper-label {
+  margin-top: 0.6rem;
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.stepper-item.current .stepper-label {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.stepper-sub {
+  font-size: 0.725rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+  text-align: center;
+}
+
+/* =========================================
+   AUDIT LOG TIMELINE VIEW (P09)
+   ========================================= */
+.timeline-track {
+  position: relative;
+  padding-left: 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.timeline-track::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: 17px;
+  width: 2px;
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.6) 0%, rgba(255, 255, 255, 0.08) 100%);
+}
+
+.timeline-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.timeline-bullet {
+  position: absolute;
+  left: -2.5rem;
+  top: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 2px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-fast);
+}
+
+.timeline-node:hover .timeline-bullet {
+  transform: scale(1.15);
+  box-shadow: var(--shadow-glow);
+}
+
+.timeline-card {
+  background: rgba(17, 24, 39, 0.7);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-fast);
+}
+
+.timeline-card:hover {
+  border-color: rgba(99, 102, 241, 0.35);
+  background: rgba(23, 31, 51, 0.85);
+  box-shadow: var(--shadow-md);
+}
+
+/* =========================================
+   VERSION DIFF COMPARISON STYLES
+   ========================================= */
+.diff-item {
+  display: grid;
+  grid-template-columns: 200px 1fr 1fr;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-size: 0.825rem;
+  align-items: center;
+}
+
+.diff-old {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid #ef4444;
+  word-break: break-all;
+}
+
+.diff-new {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid #10b981;
+  word-break: break-all;
+}
+

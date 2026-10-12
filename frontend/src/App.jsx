@@ -11,6 +11,7 @@ import { ApiTesterPage } from './pages/ApiTesterPage';
 import { PolicyLocationsPage } from './pages/PolicyLocationsPage';
 import { PolicyListPage } from './pages/PolicyListPage';
 import { DynamicPolicyFormPage } from './pages/DynamicPolicyFormPage';
+import { PolicyDetailPage } from './pages/PolicyDetailPage';
 
 function App() {
   return (
@@ -28,6 +29,7 @@ function App() {
                   <Route path="/policies/create" element={<DynamicPolicyFormPage />} />
                   <Route path="/policies/edit/:policyNumber" element={<DynamicPolicyFormPage />} />
                   <Route path="/policies/locations" element={<PolicyLocationsPage />} />
+                  <Route path="/policies/:policyNumber" element={<PolicyDetailPage />} />
                   <Route path="/profile" element={<ProfilePage />} />
                   <Route path="/change-password" element={<ChangePasswordPage />} />
                   <Route path="/api-tester" element={<ApiTesterPage />} />
