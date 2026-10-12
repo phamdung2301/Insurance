@@ -21,10 +21,17 @@ import {
   ShieldAlert,
   X,
   FileText,
+  Sparkles,
+  Edit3,
+  History,
 } from 'lucide-react';
+import { PolicyHistoryAndEndorsementModal } from '../components/PolicyHistoryAndEndorsementModal';
 
 export const PolicyListPage = () => {
   const { showToast } = useToast();
+
+  // History & Endorsement Modal State (P08 & P09)
+  const [historyModalPolicy, setHistoryModalPolicy] = useState(null);
 
   // Filters State
   const [filters, setFilters] = useState({
@@ -242,16 +249,27 @@ export const PolicyListPage = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setNewPolicyForm((p) => ({ ...p, policyNumber: 'POL-' + Date.now().toString().slice(-6) }));
-            setIsCreateModalOpen(true);
-          }}
-          className="btn btn-primary"
-        >
-          <Plus size={18} />
-          <span>Tạo Hợp đồng mới</span>
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <Link
+            to="/policies/create"
+            className="btn btn-primary"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: 'var(--shadow-glow)' }}
+          >
+            <Sparkles size={16} />
+            <span>Tạo Hợp đồng (Form Động UI03)</span>
+          </Link>
+
+          <button
+            onClick={() => {
+              setNewPolicyForm((p) => ({ ...p, policyNumber: 'POL-' + Date.now().toString().slice(-6) }));
+              setIsCreateModalOpen(true);
+            }}
+            className="btn btn-secondary"
+          >
+            <Plus size={16} />
+            <span>Tạo nhanh</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter Control Box */}
@@ -526,14 +544,36 @@ export const PolicyListPage = () => {
                   </span>
                 </div>
 
-                <Link
-                  to={`/policies/locations`}
-                  className="btn btn-secondary"
-                  style={{ padding: '0.5rem 0.9rem', fontSize: '0.825rem' }}
-                >
-                  <Eye size={15} />
-                  <span>Xem & Sửa Địa điểm</span>
-                </Link>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <Link
+                    to={`/policies/edit/${policy.policyNumber}`}
+                    className="btn btn-secondary"
+                    style={{ padding: '0.45rem 0.75rem', fontSize: '0.8rem', color: '#818cf8', borderColor: 'rgba(99, 102, 241, 0.3)' }}
+                    title="Chỉnh sửa toàn diện (Dynamic Form UI03)"
+                  >
+                    <Edit3 size={14} />
+                    <span>Sửa (UI03)</span>
+                  </Link>
+
+                  <button
+                    onClick={() => setHistoryModalPolicy(policy)}
+                    className="btn btn-secondary"
+                    style={{ padding: '0.45rem 0.75rem', fontSize: '0.8rem' }}
+                    title="Xem sổ cái giao dịch & quản lý phụ lục phiên bản (P08/P09)"
+                  >
+                    <History size={14} />
+                    <span>Lịch sử & Phụ lục</span>
+                  </button>
+
+                  <Link
+                    to={`/policies/locations`}
+                    className="btn btn-secondary"
+                    style={{ padding: '0.45rem 0.75rem', fontSize: '0.8rem' }}
+                  >
+                    <Eye size={14} />
+                    <span>Địa điểm</span>
+                  </Link>
+                </div>
               </div>
             </div>
           ))}
@@ -730,6 +770,19 @@ export const PolicyListPage = () => {
           </div>
         </div>
       )}
+
+      {/* History and Endorsement Modal (P08, P09) */}
+      <PolicyHistoryAndEndorsementModal
+        policy={historyModalPolicy}
+        isOpen={Boolean(historyModalPolicy)}
+        onClose={() => setHistoryModalPolicy(null)}
+        onPolicyUpdated={(updated) => {
+          fetchPolicies();
+          if (historyModalPolicy) {
+            setHistoryModalPolicy(updated);
+          }
+        }}
+      />
     </div>
   );
 };

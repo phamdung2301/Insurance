@@ -98,6 +98,43 @@ export const policyService = {
   createPolicy: async (policyData) => {
     return api.post('/policies', policyData);
   },
+
+  updatePolicy: async (policyNumber, policyData) => {
+    return api.put(`/policies/${policyNumber}`, policyData);
+  },
+
+  deletePolicy: async (policyNumber) => {
+    return api.delete(`/policies/${policyNumber}`);
+  },
+
+  // P06, P07: Status Transition API
+  transitionStatus: async (policyNumber, transitionData) => {
+    return api.post(`/policies/${policyNumber}/status-transitions`, transitionData);
+  },
+
+  // P08 (F06): Endorsement Engine APIs
+  applyEndorsement: async (policyNumber, endorsementData) => {
+    return api.post(`/policies/${policyNumber}/endorsements`, endorsementData);
+  },
+
+  getVersions: async (policyNumber) => {
+    return api.get(`/policies/${policyNumber}/versions`);
+  },
+
+  getVersion: async (policyNumber, version) => {
+    return api.get(`/policies/${policyNumber}/versions/${version}`);
+  },
+
+  compareVersions: async (policyNumber, v1, v2) => {
+    return api.get(`/policies/${policyNumber}/versions/compare`, {
+      params: { v1, v2 },
+    });
+  },
+
+  // P09 (F07): Transaction Ledger History API
+  getHistory: async (policyNumber) => {
+    return api.get(`/policies/${policyNumber}/history`);
+  },
 };
 
 // P04: Nested Location in Policy APIs
@@ -123,4 +160,28 @@ export const policyLocationService = {
   },
 };
 
+// P05: Nested Coverage in Location APIs
+export const policyCoverageService = {
+  getCoverages: async (policyId, locationId) => {
+    return api.get(`/policies/${policyId}/locations/${locationId}/coverages`);
+  },
+
+  getCoverageByCode: async (policyId, locationId, coverageCode) => {
+    return api.get(`/policies/${policyId}/locations/${locationId}/coverages/${coverageCode}`);
+  },
+
+  addCoverage: async (policyId, locationId, coverageData) => {
+    return api.post(`/policies/${policyId}/locations/${locationId}/coverages`, coverageData);
+  },
+
+  updateCoverage: async (policyId, locationId, coverageCode, coverageData) => {
+    return api.put(`/policies/${policyId}/locations/${locationId}/coverages/${coverageCode}`, coverageData);
+  },
+
+  removeCoverage: async (policyId, locationId, coverageCode) => {
+    return api.delete(`/policies/${policyId}/locations/${locationId}/coverages/${coverageCode}`);
+  },
+};
+
 export default api;
+
