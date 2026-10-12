@@ -5,6 +5,7 @@ import com.dungphd.insuranceass.dto.InsuredDto;
 import com.dungphd.insuranceass.dto.LocationDto;
 import com.dungphd.insuranceass.dto.request.CreatePolicyRequest;
 import com.dungphd.insuranceass.dto.request.PolicySearchCriteria;
+import com.dungphd.insuranceass.dto.request.StatusTransitionRequest;
 import com.dungphd.insuranceass.dto.request.UpdatePolicyRequest;
 import com.dungphd.insuranceass.dto.response.PageResponse;
 import com.dungphd.insuranceass.dto.response.PolicyResponse;
@@ -17,6 +18,7 @@ import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyTransactionRepository;
 import com.dungphd.insuranceass.service.PolicyService;
 import com.dungphd.insuranceass.service.PremiumCalculationService;
+import com.dungphd.insuranceass.service.TransactionLedgerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -44,6 +46,7 @@ public class PolicyServiceImpl implements PolicyService {
     private final MongoTemplate mongoTemplate;
     private final PremiumCalculationService premiumCalculationService;
     private final PolicyTransactionRepository policyTransactionRepository;
+    private final TransactionLedgerService transactionLedgerService;
 
     @Override
     public PolicyResponse createPolicy(CreatePolicyRequest request) {
@@ -71,6 +74,15 @@ public class PolicyServiceImpl implements PolicyService {
 
         policy.recalculateTotalPremium();
         Policy savedPolicy = policyRepository.save(policy);
+
+        transactionLedgerService.recordTransaction(
+                savedPolicy.getPolicyNumber(),
+                savedPolicy.getVersion(),
+                TransactionType.CREATE_POLICY,
+                "System",
+                "Created new insurance policy in DRAFT status"
+        );
+
         return mapToPolicyResponse(savedPolicy);
     }
 
@@ -219,15 +231,13 @@ public class PolicyServiceImpl implements PolicyService {
         policy.recalculateTotalPremium();
         Policy updatedPolicy = policyRepository.save(policy);
 
-        PolicyTransaction txn = PolicyTransaction.builder()
-                .policyNumber(policyNumber)
-                .version(policy.getVersion())
-                .transactionType(TransactionType.UPDATE_POLICY)
-                .actor("System")
-                .description("Updated policy terms in " + policy.getStatus() + " status")
-                .timestamp(Instant.now())
-                .build();
-        policyTransactionRepository.save(txn);
+        transactionLedgerService.recordTransaction(
+                policyNumber,
+                policy.getVersion(),
+                TransactionType.UPDATE_POLICY,
+                "System",
+                "Updated policy terms in " + policy.getStatus() + " status"
+        );
 
         return mapToPolicyResponse(updatedPolicy);
     }
@@ -240,7 +250,75 @@ public class PolicyServiceImpl implements PolicyService {
         if (policy.getStatus() != PolicyStatus.DRAFT) {
             throw new InvalidRequestException("Only policies in DRAFT status can be deleted. Current status is " + policy.getStatus());
         }
+
+        transactionLedgerService.recordTransaction(
+                policyNumber,
+                policy.getVersion(),
+                TransactionType.CANCEL_POLICY,
+                "System",
+                "Deleted policy in DRAFT status"
+        );
+
         policyRepository.delete(policy);
+    }
+
+    @Override
+    public PolicyResponse transitionStatus(String policyNumber, StatusTransitionRequest request, String actor) {
+        Policy policy = policyRepository.findByPolicyNumber(policyNumber)
+                .or(() -> policyRepository.findById(policyNumber))
+                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
+
+        PolicyStatus currentStatus = policy.getStatus() != null ? policy.getStatus() : PolicyStatus.DRAFT;
+        PolicyStatus targetStatus = request.getTargetStatus();
+
+        if (!currentStatus.canTransitionTo(targetStatus)) {
+            throw new BadRequestException("Invalid state transition from " + currentStatus + " to " + targetStatus);
+        }
+
+        // Rule for QUOTED: must have at least 1 Location and each Location must have at least 1 Coverage
+        if (targetStatus == PolicyStatus.QUOTED) {
+            if (policy.getLocations() == null || policy.getLocations().isEmpty()) {
+                throw new BadRequestException("Policy must contain at least 1 location to transition to QUOTED");
+            }
+            boolean allHaveCoverages = policy.getLocations().stream()
+                    .allMatch(loc -> loc.getCoverages() != null && !loc.getCoverages().isEmpty());
+            if (!allHaveCoverages) {
+                throw new BadRequestException("Each location in policy must have at least 1 coverage to transition to QUOTED");
+            }
+        }
+
+        // Set boundDate and paymentDueDate when BOUND
+        if (targetStatus == PolicyStatus.BOUND) {
+            policy.setBoundDate(Instant.now());
+            Instant dueDate = request.getPaymentDueDate() != null
+                    ? request.getPaymentDueDate()
+                    : Instant.now().plus(7, java.time.temporal.ChronoUnit.DAYS);
+            policy.setPaymentDueDate(dueDate);
+        }
+
+        // Set effectiveDate and expirationDate when ACTIVE
+        if (targetStatus == PolicyStatus.ACTIVE) {
+            Instant effective = policy.getEffectiveDate() != null ? policy.getEffectiveDate() : Instant.now();
+            policy.setEffectiveDate(effective);
+            policy.setExpirationDate(effective.plus(365, java.time.temporal.ChronoUnit.DAYS));
+        }
+
+        policy.setStatus(targetStatus);
+        policy.setUpdatedAt(Instant.now());
+        Policy savedPolicy = policyRepository.save(policy);
+
+        String desc = "Status transitioned from " + currentStatus + " to " + targetStatus
+                + (request.getReason() != null && !request.getReason().isBlank() ? ": " + request.getReason() : "");
+        transactionLedgerService.recordTransaction(
+                savedPolicy.getPolicyNumber(),
+                savedPolicy.getVersion(),
+                TransactionType.STATUS_TRANSITION,
+                actor,
+                desc
+        );
+
+        log.info("Transitioned policy {} from {} to {}", savedPolicy.getPolicyNumber(), currentStatus, targetStatus);
+        return mapToPolicyResponse(savedPolicy);
     }
 
     private PolicyResponse mapToPolicyResponse(Policy policy) {
