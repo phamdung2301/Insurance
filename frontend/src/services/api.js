@@ -183,5 +183,70 @@ export const policyCoverageService = {
   },
 };
 
-export default api;
+// P08: Endorsement Engine & History Versioning APIs
+export const endorsementService = {
+  createEndorsement: async (policyNumber, endorsementData) => {
+    return api.post(`/policies/${policyNumber}/endorsements`, endorsementData);
+  },
 
+  getVersions: async (policyNumber) => {
+    return api.get(`/policies/${policyNumber}/versions`);
+  },
+
+  getVersion: async (policyNumber, version) => {
+    return api.get(`/policies/${policyNumber}/versions/${version}`);
+  },
+
+  getHistory: async (policyNumber) => {
+    return api.get(`/policies/${policyNumber}/history`);
+  },
+
+  compareVersions: async (policyNumber, v1, v2) => {
+    return api.get(`/policies/${policyNumber}/versions/compare`, {
+      params: { v1, v2 },
+    });
+  },
+};
+
+// P10: Document Generation Engine (PDF Certificate & Policy Summary APIs)
+export const documentService = {
+  getDocuments: async (policyNumber) => {
+    return api.get(`/policies/${policyNumber}/documents`);
+  },
+
+  downloadCertificate: async (policyNumber, version) => {
+    const params = version ? { version } : {};
+    const response = await axios.get(`/policies/${policyNumber}/documents/certificate`, {
+      params,
+      responseType: 'blob',
+    });
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Certificate_${policyNumber}${version ? '_v' + version : ''}.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.parentNode.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  },
+
+  downloadSummary: async (policyNumber, version) => {
+    const params = version ? { version } : {};
+    const response = await axios.get(`/policies/${policyNumber}/documents/summary`, {
+      params,
+      responseType: 'blob',
+    });
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Policy_Summary_${policyNumber}${version ? '_v' + version : ''}.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.parentNode.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  },
+};
+
+export default api;

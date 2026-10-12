@@ -138,6 +138,18 @@ public class PolicyServiceImpl implements PolicyService {
             criteriaList.add(Criteria.where("status").is(criteria.getStatus()));
         }
 
+        if (criteria.getKeyword() != null && !criteria.getKeyword().isBlank()) {
+            String sanitized = Pattern.quote(criteria.getKeyword().trim());
+            Criteria keywordCriteria = new Criteria().orOperator(
+                    Criteria.where("policyNumber").regex(sanitized, "i"),
+                    Criteria.where("insured.name").regex(sanitized, "i"),
+                    Criteria.where("insured.email").regex(sanitized, "i"),
+                    Criteria.where("insured.phone").regex(sanitized, "i"),
+                    Criteria.where("locations.address").regex(sanitized, "i")
+            );
+            criteriaList.add(keywordCriteria);
+        }
+
         if (criteria.getInsuredName() != null && !criteria.getInsuredName().isBlank()) {
             String sanitized = Pattern.quote(criteria.getInsuredName().trim());
             criteriaList.add(Criteria.where("insured.name").regex(sanitized, "i"));

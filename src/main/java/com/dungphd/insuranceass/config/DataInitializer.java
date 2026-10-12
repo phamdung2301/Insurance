@@ -2,6 +2,8 @@ package com.dungphd.insuranceass.config;
 
 import com.dungphd.insuranceass.model.*;
 import com.dungphd.insuranceass.repository.PolicyRepository;
+import com.dungphd.insuranceass.repository.PolicyTransactionRepository;
+import com.dungphd.insuranceass.repository.PolicyVersionRepository;
 import com.dungphd.insuranceass.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +25,8 @@ public class DataInitializer {
 
     private final UserRepository userRepository;
     private final PolicyRepository policyRepository;
+    private final PolicyVersionRepository policyVersionRepository;
+    private final PolicyTransactionRepository policyTransactionRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Bean
@@ -130,8 +134,33 @@ public class DataInitializer {
                             .build();
 
                     samplePolicy.recalculateTotalPremium();
-                    policyRepository.save(samplePolicy);
-                    log.info("Sample policy created: POL-2026-001 with totalPremium = {}", samplePolicy.getTotalPremium());
+                    Policy saved = policyRepository.save(samplePolicy);
+                    log.info("Sample policy created: POL-2026-001 with totalPremium = {}", saved.getTotalPremium());
+
+                    PolicyVersion v1 = PolicyVersion.builder()
+                            .policyNumber(saved.getPolicyNumber())
+                            .version(1)
+                            .policySnapshot(saved)
+                            .endorsementReason("Initial Policy Baseline (v1)")
+                            .endorsementType("BASELINE")
+                            .endorsementEffectiveDate(saved.getEffectiveDate())
+                            .premiumChange(0.0)
+                            .totalPremium(saved.getTotalPremium())
+                            .status(saved.getStatus())
+                            .createdBy("System")
+                            .createdAt(saved.getCreatedAt())
+                            .build();
+                    policyVersionRepository.save(v1);
+
+                    PolicyTransaction txn = PolicyTransaction.builder()
+                            .policyNumber(saved.getPolicyNumber())
+                            .version(1)
+                            .transactionType(TransactionType.CREATE_POLICY)
+                            .actor("System")
+                            .description("Initial policy creation and baseline versioning")
+                            .timestamp(Instant.now())
+                            .build();
+                    policyTransactionRepository.save(txn);
                 }
             } catch (Exception e) {
                 log.warn("Could not initialize sample data (MongoDB may be offline): {}", e.getMessage());

@@ -1,7 +1,6 @@
 package com.dungphd.insuranceass.model;
 
 import lombok.AllArgsConstructor;
-import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -31,9 +30,20 @@ public class PolicyVersion {
 
     private Policy policySnapshot;
 
+    private String endorsementReason;
+
+    private String endorsementType;
+
+    private Instant endorsementEffectiveDate;
+
+    private Double premiumChange;
+
+    private Double totalPremium;
+
+    private PolicyStatus status;
+
     private String createdBy;
 
     @CreatedDate
     private Instant createdAt;
 }
-

@@ -19,6 +19,8 @@ public class PolicySearchCriteria {
 
     private String insuredName;
 
+    private String keyword;
+
     private String location;
 
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
