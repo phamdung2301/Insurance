@@ -273,4 +273,85 @@ export const documentService = {
   },
 };
 
+// Section 4.6: Excel Pricing Matrix & Calculation APIs
+export const excelService = {
+  downloadTemplate: async () => {
+    const response = await axios.get('/excel/template', { responseType: 'blob' });
+    const blob = new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `InsurancePricingMatrix_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    document.body.appendChild(link);
+    link.click();
+    link.parentNode.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  },
+
+  importRates: async (formData) => {
+    return api.post('/excel/import-rates', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  calculate: async (payload) => {
+    return api.post('/excel/calculate', payload);
+  },
+
+  downloadPolicyBreakdown: async (policyNumber) => {
+    const response = await axios.get(`/excel/policy/${policyNumber}/download`, { responseType: 'blob' });
+    const blob = new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `PremiumCalc_${policyNumber}.xlsx`);
+    document.body.appendChild(link);
+    link.click();
+    link.parentNode.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  },
+
+  getRates: async () => {
+    return api.get('/excel/rates');
+  },
+};
+
+// Section 4.7: MongoDB Aggregation Reports APIs
+export const reportService = {
+  getPolicyCountByStatus: async () => {
+    return api.get('/reports/policy-count-by-status');
+  },
+
+  getTotalPremiumByStatus: async () => {
+    return api.get('/reports/total-premium-by-status');
+  },
+
+  getTopPremiumPolicies: async () => {
+    return api.get('/reports/top-premium-policies');
+  },
+
+  getPremiumByEffectiveMonth: async () => {
+    return api.get('/reports/premium-by-effective-month');
+  },
+};
+
+// Section 4.8: 50k Records Performance Benchmarking APIs
+export const benchmarkService = {
+  generate50k: async (count = 50000) => {
+    return api.post(`/benchmark/generate-50k?count=${count}`);
+  },
+
+  runBenchmark: async () => {
+    return api.get('/benchmark/run');
+  },
+
+  getStats: async () => {
+    return api.get('/benchmark/stats');
+  },
+};
+
 export default api;

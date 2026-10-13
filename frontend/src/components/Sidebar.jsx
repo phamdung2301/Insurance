@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { User, KeyRound, LayoutDashboard, Terminal, Shield, MapPin, FileText, Sparkles, LogIn, ShoppingBag } from 'lucide-react';
+import { User, KeyRound, LayoutDashboard, Terminal, Shield, MapPin, FileText, Sparkles, LogIn, ShoppingBag, BarChart3, FileSpreadsheet, Gauge } from 'lucide-react';
 
 export const Sidebar = () => {
   const navItems = [
@@ -10,6 +10,9 @@ export const Sidebar = () => {
     { to: '/policies', label: 'Quản lý Hợp đồng (Dashboard)', icon: FileText },
     { to: '/policies/create', label: 'Tạo Hợp đồng (UI03)', icon: Sparkles },
     { to: '/policies/locations', label: 'Địa điểm Hợp đồng (P04)', icon: MapPin },
+    { to: '/reports', label: 'Báo cáo Thống kê (4.7)', icon: BarChart3 },
+    { to: '/pricing', label: 'Định phí Excel (4.6)', icon: FileSpreadsheet },
+    { to: '/benchmark', label: 'Kiểm chuẩn 50k (4.8)', icon: Gauge },
     { to: '/profile', label: 'Hồ sơ cá nhân', icon: User },
     { to: '/change-password', label: 'Đổi mật khẩu', icon: KeyRound },
     { to: '/api-tester', label: 'Test API Console', icon: Terminal },
