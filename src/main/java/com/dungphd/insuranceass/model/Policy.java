@@ -23,8 +23,17 @@ import java.util.List;
 @Builder
 @Document(collection = "policies")
 @CompoundIndexes({
+        @CompoundIndex(name = "status_createdAt_idx", def = "{'status': 1, 'createdAt': -1}"),
         @CompoundIndex(name = "status_effectiveDate_idx", def = "{'status': 1, 'effectiveDate': 1}"),
-        @CompoundIndex(name = "status_insuredName_idx", def = "{'status': 1, 'insured.name': 1}")
+        @CompoundIndex(name = "status_totalPremium_idx", def = "{'status': 1, 'totalPremium': 1}"),
+        @CompoundIndex(name = "status_insuredName_idx", def = "{'status': 1, 'insured.name': 1}"),
+        @CompoundIndex(name = "policy_location_idx", def = "{'policyNumber': 1, 'locations.locationId': 1}"),
+        @CompoundIndex(name = "status_covCode_elem_idx", def = "{'status': 1, 'locations.coverages.coverageCode': 1}"),
+        @CompoundIndex(name = "status_covType_elem_idx", def = "{'status': 1, 'locations.coverages.coverageType': 1}"),
+        @CompoundIndex(name = "locations_locId_elem_idx", def = "{'locations.locationId': 1}"),
+        @CompoundIndex(name = "locations_covCode_elem_idx", def = "{'locations.coverages.coverageCode': 1}"),
+        @CompoundIndex(name = "locations_covType_elem_idx", def = "{'locations.coverages.coverageType': 1}"),
+        @CompoundIndex(name = "locations_address_idx", def = "{'locations.address': 1}")
 })
 public class Policy {
 
@@ -61,6 +70,7 @@ public class Policy {
     private Long versionLock;
 
     @CreatedDate
+    @Indexed
     private Instant createdAt;
 
     @LastModifiedDate

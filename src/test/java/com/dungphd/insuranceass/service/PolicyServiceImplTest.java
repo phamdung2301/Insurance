@@ -98,4 +98,46 @@ class PolicyServiceImplTest {
         // Verifies the query's page size is clamped to MAX_PAGE_SIZE (100)
         assertNotNull(capturedQuery);
     }
+
+    @Test
+    void searchPolicies_WithCoverageCode_BuildsElemMatchCriteria() {
+        PolicySearchCriteria criteria = PolicySearchCriteria.builder()
+                .coverageCode("FIRE-01")
+                .build();
+
+        ArgumentCaptor<Query> queryCaptor = ArgumentCaptor.forClass(Query.class);
+        when(mongoTemplate.count(any(Query.class), eq(Policy.class))).thenReturn(1L);
+        when(mongoTemplate.find(queryCaptor.capture(), eq(Policy.class)))
+                .thenReturn(List.of(Policy.builder().policyNumber("POL-ELEM-1").build()));
+
+        PageResponse<Policy> result = policyService.searchPolicies(criteria);
+
+        assertNotNull(result);
+        Query capturedQuery = queryCaptor.getValue();
+        String queryStr = capturedQuery.getQueryObject().toJson();
+        assertTrue(queryStr.contains("$elemMatch"));
+        assertTrue(queryStr.contains("FIRE-01"));
+    }
+
+    @Test
+    void searchPolicies_WithCoverageCodeAndType_BuildsNestedElemMatchCriteria() {
+        PolicySearchCriteria criteria = PolicySearchCriteria.builder()
+                .coverageCode("FIRE-01")
+                .coverageType("STANDARD")
+                .build();
+
+        ArgumentCaptor<Query> queryCaptor = ArgumentCaptor.forClass(Query.class);
+        when(mongoTemplate.count(any(Query.class), eq(Policy.class))).thenReturn(1L);
+        when(mongoTemplate.find(queryCaptor.capture(), eq(Policy.class)))
+                .thenReturn(List.of(Policy.builder().policyNumber("POL-ELEM-2").build()));
+
+        PageResponse<Policy> result = policyService.searchPolicies(criteria);
+
+        assertNotNull(result);
+        Query capturedQuery = queryCaptor.getValue();
+        String queryStr = capturedQuery.getQueryObject().toJson();
+        assertTrue(queryStr.contains("$elemMatch"));
+        assertTrue(queryStr.contains("FIRE-01"));
+        assertTrue(queryStr.contains("STANDARD"));
+    }
 }

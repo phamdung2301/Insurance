@@ -1,0 +1,803 @@
+{
+	"info": {
+		"_postman_id": "b8a92351-8419-4f76-9281-insurance-platform-v1",
+		"name": "Insurance Policy Management System API",
+		"description": "Comprehensive API Collection for InsurTech Enterprise Platform with Authentication, Policy Lifecycle, Nested Locations/Coverages, State Transitions, Endorsements, PDF Document Generation, Rate Limiting and MongoDB Index Audit.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{jwt_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080",
+			"type": "string"
+		},
+		{
+			"key": "jwt_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "policyNumber",
+			"value": "POL-2026-001",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "1. Authentication & OTP",
+			"item": [
+				{
+					"name": "Send OTP (Gmail / Dev Log)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"customer@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/send-otp",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "send-otp"]
+						},
+						"description": "Requests a 6-digit OTP code to the given email with 300s TTL and 60s resend cooldown."
+					}
+				},
+				{
+					"name": "Verify OTP & Obtain JWT",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.data && jsonData.data.token) {",
+									"        pm.collectionVariables.set('jwt_token', jsonData.data.token);",
+									"        console.log('JWT Token successfully stored in collection variable');",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"customer@example.com\",\n  \"otp\": \"123456\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/verify-otp",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "verify-otp"]
+						},
+						"description": "Verifies 6-digit OTP code. Automatically saves JWT token into {{jwt_token}}."
+					}
+				},
+				{
+					"name": "Login Quick Switch (Admin Role)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.data && jsonData.data.token) {",
+									"        pm.collectionVariables.set('jwt_token', jsonData.data.token);",
+									"        console.log('Admin JWT Token stored in collection variable');",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@insurtech.vn\",\n  \"role\": \"ROLE_ADMIN\",\n  \"fullName\": \"Quản Trị Viên Hệ Thống\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						},
+						"description": "Dev Quick Switch to ROLE_ADMIN. Automatically sets {{jwt_token}}."
+					}
+				},
+				{
+					"name": "Login Quick Switch (User Role)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.data && jsonData.data.token) {",
+									"        pm.collectionVariables.set('jwt_token', jsonData.data.token);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"user@insurtech.vn\",\n  \"role\": \"ROLE_USER\",\n  \"fullName\": \"Khách Hàng Thử Nghiệm\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Get Authenticated User Info (GET /auth/me)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/auth/me",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "me"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "2. Policy Management & $elemMatch Search",
+			"item": [
+				{
+					"name": "Search Policies (Paging, Sort & $elemMatch)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies?page=0&size=10&status=ACTIVE&coverageCode=FIRE-01&sortBy=createdAt&sortDirection=DESC",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies"],
+							"query": [
+								{
+									"key": "page",
+									"value": "0"
+								},
+								{
+									"key": "size",
+									"value": "10"
+								},
+								{
+									"key": "status",
+									"value": "ACTIVE"
+								},
+								{
+									"key": "coverageCode",
+									"value": "FIRE-01",
+									"description": "Utilizes tuned MongoDB $elemMatch multikey index scan"
+								},
+								{
+									"key": "coverageType",
+									"value": "STANDARD",
+									"disabled": true
+								},
+								{
+									"key": "keyword",
+									"value": "",
+									"disabled": true
+								},
+								{
+									"key": "minPremium",
+									"value": "100000",
+									"disabled": true
+								},
+								{
+									"key": "sortBy",
+									"value": "createdAt"
+								},
+								{
+									"key": "sortDirection",
+									"value": "DESC"
+								}
+							]
+						},
+						"description": "Dynamic search with whitelisted sort fields and index-tuned $elemMatch queries on nested locations & coverages."
+					}
+				},
+				{
+					"name": "Create New Policy (Wizard)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    var res = pm.response.json();",
+									"    if (res.data && res.data.policyNumber) {",
+									"        pm.collectionVariables.set('policyNumber', res.data.policyNumber);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"policyNumber\": \"POL-2026-999\",\n  \"insured\": {\n    \"name\": \"Công Ty Cổ Phần Công Nghệ InsurTech\",\n    \"email\": \"contact@insurtech.vn\",\n    \"phone\": \"0988776655\",\n    \"address\": \"Tòa nhà Landmark 81, Quận Bình Thạnh, TP. Hồ Chí Minh\"\n  },\n  \"effectiveDate\": \"2026-10-15T00:00:00Z\",\n  \"expirationDate\": \"2027-10-15T00:00:00Z\",\n  \"locations\": [\n    {\n      \"locationId\": 1,\n      \"address\": \"Trụ sở chính: 720A Điện Biên Phủ, TP. Hồ Chí Minh\",\n      \"coverages\": [\n        {\n          \"coverageCode\": \"PROP-FIRE\",\n          \"coverageName\": \"Bảo hiểm Cháy nổ & Hỏa hoạn\",\n          \"coverageType\": \"STANDARD\",\n          \"limit\": 1000000000.0,\n          \"deductible\": 20000000.0,\n          \"termMonths\": 12,\n          \"baseRate\": 0.0015\n        }\n      ]\n    }\n  ]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/policies",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies"]
+						}
+					}
+				},
+				{
+					"name": "Get Policy By Number",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}"]
+						}
+					}
+				},
+				{
+					"name": "Update Policy Details",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"insured\": {\n    \"name\": \"Công Ty Cổ Phần InsurTech Việt Nam (Đã Cập Nhật)\",\n    \"email\": \"contact@insurtech.vn\",\n    \"phone\": \"0988776655\",\n    \"address\": \"Tòa nhà Landmark 81, TP. Hồ Chí Minh\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete Policy",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "3. Nested Location Management",
+			"item": [
+				{
+					"name": "Get All Locations of Policy",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/locations",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "locations"]
+						}
+					}
+				},
+				{
+					"name": "Get Location by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/locations/1",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "locations", "1"]
+						}
+					}
+				},
+				{
+					"name": "Add Nested Location (Atomic Push)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"address\": \"Chi nhánh Hà Nội: 54 Liễu Giai, Ba Đình, Hà Nội\",\n  \"coverages\": []\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/locations",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "locations"]
+						}
+					}
+				},
+				{
+					"name": "Update Nested Location",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"address\": \"Chi nhánh Hà Nội (Tầng 12, Tòa Lotte Center), Ba Đình, Hà Nội\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/locations/1",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "locations", "1"]
+						}
+					}
+				},
+				{
+					"name": "Delete Nested Location (Atomic Pull)",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/locations/2",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "locations", "2"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "4. Nested Coverage Management & Auto Premium",
+			"item": [
+				{
+					"name": "Get Coverages in Location",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/locations/1/coverages",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "locations", "1", "coverages"]
+						}
+					}
+				},
+				{
+					"name": "Add Coverage into Location (Auto Premium Recalculation)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"coverageCode\": \"GEN-LIAB\",\n  \"coverageName\": \"Bảo hiểm Trách nhiệm Dân sự Chung\",\n  \"coverageType\": \"STANDARD\",\n  \"limit\": 500000000.0,\n  \"deductible\": 10000000.0,\n  \"termMonths\": 12,\n  \"baseRate\": 0.001\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/locations/1/coverages",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "locations", "1", "coverages"]
+						}
+					}
+				},
+				{
+					"name": "Update Coverage in Location",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"coverageName\": \"Bảo hiểm Trách nhiệm Dân sự Mở rộng\",\n  \"coverageType\": \"ENHANCED\",\n  \"limit\": 750000000.0,\n  \"deductible\": 10000000.0,\n  \"termMonths\": 12,\n  \"baseRate\": 0.0012\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/locations/1/coverages/GEN-LIAB",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "locations", "1", "coverages", "GEN-LIAB"]
+						}
+					}
+				},
+				{
+					"name": "Delete Coverage from Location",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/locations/1/coverages/GEN-LIAB",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "locations", "1", "coverages", "GEN-LIAB"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "5. Policy State Machine & Transitions",
+			"item": [
+				{
+					"name": "Transition: DRAFT -> BOUND",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"targetStatus\": \"BOUND\",\n  \"reason\": \"Khách hàng đã chấp thuận bảng báo giá và điều khoản hợp đồng\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/status-transitions",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "status-transitions"]
+						}
+					}
+				},
+				{
+					"name": "Transition: BOUND -> ACTIVE",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"targetStatus\": \"ACTIVE\",\n  \"reason\": \"Thanh toán đợt đầu đã hoàn tất, hợp đồng chính thức có hiệu lực\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/status-transitions",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "status-transitions"]
+						}
+					}
+				},
+				{
+					"name": "Transition: ACTIVE -> CANCELLED",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"targetStatus\": \"CANCELLED\",\n  \"reason\": \"Chấm dứt hợp đồng trước hạn theo yêu cầu của người tham gia bảo hiểm\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/status-transitions",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "status-transitions"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "6. Endorsements & Versioning Engine",
+			"item": [
+				{
+					"name": "Apply Endorsement (Sửa đổi & Tăng Version)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"endorsementType\": \"GENERAL_AMENDMENT\",\n  \"reason\": \"Mở rộng hạn mức bồi thường và bổ sung danh mục bảo hiểm tài sản\",\n  \"effectiveDate\": \"2026-11-01T00:00:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/endorsements",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "endorsements"]
+						}
+					}
+				},
+				{
+					"name": "Get Version History Snapshots",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/versions",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "versions"]
+						}
+					}
+				},
+				{
+					"name": "Get Specific Version Snapshot",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/versions/1",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "versions", "1"]
+						}
+					}
+				},
+				{
+					"name": "Compare Two Policy Versions (Diff)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/versions/compare?v1=1&v2=2",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "versions", "compare"],
+							"query": [
+								{
+									"key": "v1",
+									"value": "1"
+								},
+								{
+									"key": "v2",
+									"value": "2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "7. Immutable Transaction Ledger",
+			"item": [
+				{
+					"name": "Get Policy Transaction Audit History",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/history",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "history"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "8. PDF Legal Documents (OpenPDF)",
+			"item": [
+				{
+					"name": "Get Available Documents Metadata",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/documents",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "documents"]
+						}
+					}
+				},
+				{
+					"name": "Download Certificate of Insurance (COI) PDF",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/documents/certificate?version=1",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "documents", "certificate"],
+							"query": [
+								{
+									"key": "version",
+									"value": "1",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Downloads the high-resolution Certificate of Insurance (COI) PDF. Protected by 15 req/min Rate Limiting."
+					}
+				},
+				{
+					"name": "Download Policy Summary Schedule PDF",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/policies/{{policyNumber}}/documents/summary?version=1",
+							"host": ["{{baseUrl}}"],
+							"path": ["policies", "{{policyNumber}}", "documents", "summary"],
+							"query": [
+								{
+									"key": "version",
+									"value": "1",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Downloads the complete multi-page Policy Summary Schedule PDF."
+					}
+				}
+			]
+		},
+		{
+			"name": "9. User Profile & Password",
+			"item": [
+				{
+					"name": "Get User Profile",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/user/profile",
+							"host": ["{{baseUrl}}"],
+							"path": ["user", "profile"]
+						}
+					}
+				},
+				{
+					"name": "Update User Profile",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"fullName\": \"Nguyễn Văn An\",\n  \"phone\": \"0987654321\",\n  \"address\": \"Số 123 Đường Lê Lợi, Quận 1, TP. Hồ Chí Minh\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/user/profile",
+							"host": ["{{baseUrl}}"],
+							"path": ["user", "profile"]
+						}
+					}
+				},
+				{
+					"name": "Change Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"oldPassword\": \"Password123!\",\n  \"newPassword\": \"NewSecurePass2026!\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/user/change-password",
+							"host": ["{{baseUrl}}"],
+							"path": ["user", "change-password"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "10. Admin & MongoDB Index Audit",
+			"item": [
+				{
+					"name": "Audit MongoDB Indexes & $elemMatch Report",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/indexes/audit",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "admin", "indexes", "audit"]
+						},
+						"description": "Audits all MongoDB collection indexes, verifying multikey $elemMatch, compound indexes, and ensuring zero redundant prefix indexes."
+					}
+				},
+				{
+					"name": "Synchronize & Ensure Optimized Indexes",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/indexes/sync",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "admin", "indexes", "sync"]
+						},
+						"description": "Re-ensures and synchronizes all optimized MongoDB compound and multikey $elemMatch indexes programmatically."
+					}
+				}
+			]
+		}
+	]
+}
