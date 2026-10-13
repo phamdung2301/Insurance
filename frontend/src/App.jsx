@@ -13,6 +13,7 @@ import { PolicyListPage } from './pages/PolicyListPage';
 import { DynamicPolicyFormPage } from './pages/DynamicPolicyFormPage';
 import { PolicyDetailPage } from './pages/PolicyDetailPage';
 import { LoginPage } from './pages/LoginPage';
+import { BuyInsurancePage } from './pages/BuyInsurancePage';
 
 function App() {
   return (
@@ -27,6 +28,8 @@ function App() {
                 <Routes>
                   <Route path="/" element={<DashboardPage />} />
                   <Route path="/login" element={<LoginPage />} />
+                  <Route path="/buy" element={<BuyInsurancePage />} />
+                  <Route path="/buy-insurance" element={<BuyInsurancePage />} />
                   <Route path="/policies" element={<PolicyListPage />} />
                   <Route path="/policies/create" element={<DynamicPolicyFormPage />} />
                   <Route path="/policies/edit/:policyNumber" element={<DynamicPolicyFormPage />} />
