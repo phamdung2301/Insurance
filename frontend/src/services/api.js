@@ -102,6 +102,11 @@ export const userService = {
     const params = email ? { email } : {};
     return api.post('/user/change-password', passwordData, { params });
   },
+
+  getActivity: async (email) => {
+    const params = email ? { email } : {};
+    return api.get('/user/activity', { params });
+  },
 };
 
 // P02, P03: Policy Search, Filter, Page & Sort APIs

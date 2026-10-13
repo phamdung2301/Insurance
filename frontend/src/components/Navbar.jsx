@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, User as UserIcon, LogOut, LogIn, KeyRound, Sparkles } from 'lucide-react';
+import { ShieldCheck, User as UserIcon, LogOut, LogIn, KeyRound, Sparkles, ShoppingBag } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { NavLink, useNavigate } from 'react-router-dom';
 
@@ -61,6 +61,24 @@ export const Navbar = () => {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        {/* Quick E-Commerce Buy Link */}
+        <NavLink
+          to="/buy"
+          className="btn"
+          style={{
+            background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.25) 100%)',
+            border: '1px solid rgba(99, 102, 241, 0.4)',
+            color: '#c7d2fe',
+            padding: '0.45rem 0.95rem',
+            fontSize: '0.825rem',
+            borderRadius: 'var(--radius-md)',
+            textDecoration: 'none',
+          }}
+        >
+          <ShoppingBag size={15} color="#818cf8" />
+          <span>Mua Bảo Hiểm (E-Commerce)</span>
+        </NavLink>
+
         {isAuthenticated ? (
           <>
             {/* User Info Capsule */}

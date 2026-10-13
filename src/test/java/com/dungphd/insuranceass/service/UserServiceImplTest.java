@@ -30,6 +30,9 @@ class UserServiceImplTest {
     private UserRepository userRepository;
 
     @Mock
+    private com.dungphd.insuranceass.repository.PolicyTransactionRepository policyTransactionRepository;
+
+    @Mock
     private PasswordEncoder passwordEncoder;
 
     @InjectMocks
@@ -185,5 +188,30 @@ class UserServiceImplTest {
         BadRequestException ex = assertThrows(BadRequestException.class,
                 () -> userService.changePassword("test@example.com", request));
         assertEquals("New password cannot be the same as current password", ex.getMessage());
+    }
+
+    @Test
+    void getUserTransactions_Success() {
+        com.dungphd.insuranceass.model.PolicyTransaction txn = com.dungphd.insuranceass.model.PolicyTransaction.builder()
+                .policyNumber("POL-100")
+                .actor("test@example.com")
+                .description("Sample action")
+                .build();
+
+        when(policyTransactionRepository.findByActorOrderByTimestampDesc("test@example.com"))
+                .thenReturn(List.of(txn));
+
+        List<com.dungphd.insuranceass.model.PolicyTransaction> results = userService.getUserTransactions("test@example.com");
+
+        assertNotNull(results);
+        assertEquals(1, results.size());
+        assertEquals("POL-100", results.get(0).getPolicyNumber());
+    }
+
+    @Test
+    void getUserTransactions_NullEmail_ReturnsEmptyList() {
+        List<com.dungphd.insuranceass.model.PolicyTransaction> results = userService.getUserTransactions(null);
+        assertNotNull(results);
+        assertTrue(results.isEmpty());
     }
 }

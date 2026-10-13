@@ -5,6 +5,7 @@ import com.dungphd.insuranceass.dto.request.UpdateProfileRequest;
 import com.dungphd.insuranceass.dto.response.ApiResponse;
 import com.dungphd.insuranceass.dto.response.UserProfileResponse;
 import com.dungphd.insuranceass.exception.BadRequestException;
+import com.dungphd.insuranceass.model.PolicyTransaction;
 import com.dungphd.insuranceass.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +14,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
+import java.util.List;
 
 @RestController
 @RequestMapping({"/user", "/api/user"})
@@ -66,6 +68,22 @@ public class UserController {
         String email = resolveEmail(principal, headerEmail, paramEmail);
         userService.changePassword(email, request);
         return ResponseEntity.ok(ApiResponse.success(null, "Password changed successfully"));
+    }
+
+    /**
+     * GET /user/activity
+     * GET /user/transactions
+     * Fetch user transaction history and activity logs
+     */
+    @GetMapping({"/activity", "/transactions"})
+    public ResponseEntity<ApiResponse<List<PolicyTransaction>>> getUserActivity(
+            Principal principal,
+            @RequestHeader(value = "X-User-Email", required = false) String headerEmail,
+            @RequestParam(value = "email", required = false) String paramEmail
+    ) {
+        String email = resolveEmail(principal, headerEmail, paramEmail);
+        List<PolicyTransaction> transactions = userService.getUserTransactions(email);
+        return ResponseEntity.ok(ApiResponse.success(transactions, "User activity retrieved successfully"));
     }
 
     private String resolveEmail(Principal principal, String headerEmail, String paramEmail) {
