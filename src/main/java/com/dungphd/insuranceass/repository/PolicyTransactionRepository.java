@@ -10,4 +10,6 @@ import java.util.List;
 public interface PolicyTransactionRepository extends MongoRepository<PolicyTransaction, String> {
 
     List<PolicyTransaction> findByPolicyNumberOrderByTimestampDesc(String policyNumber);
+
+    List<PolicyTransaction> findByActorOrderByTimestampDesc(String actor);
 }
