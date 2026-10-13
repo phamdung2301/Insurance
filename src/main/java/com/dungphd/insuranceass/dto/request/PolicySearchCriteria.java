@@ -35,9 +35,12 @@ public class PolicySearchCriteria {
 
     private Double maxPremium;
 
+    @jakarta.validation.constraints.Min(value = 0, message = "Page index must be greater than or equal to 0")
     @Builder.Default
     private int page = 0;
 
+    @jakarta.validation.constraints.Min(value = 1, message = "Page size must be at least 1")
+    @jakarta.validation.constraints.Max(value = 100, message = "Page size cannot exceed 100")
     @Builder.Default
     private int size = 10;
 

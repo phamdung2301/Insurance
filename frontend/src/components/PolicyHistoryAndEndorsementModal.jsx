@@ -141,6 +141,7 @@ export const PolicyHistoryAndEndorsementModal = ({ policy, isOpen, onClose, onPo
     try {
       setTransitioning(true);
       await policyService.transitionStatus(policy.policyNumber, {
+        targetStatus: targetStatus,
         toStatus: targetStatus,
         reason: `Chuyển trạng thái sang ${targetStatus} để kiểm thử luồng nghiệp vụ`,
       });

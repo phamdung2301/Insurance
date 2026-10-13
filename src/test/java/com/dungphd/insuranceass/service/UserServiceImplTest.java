@@ -91,6 +91,37 @@ class UserServiceImplTest {
     }
 
     @Test
+    void updateProfile_PartialUpdate_WithoutFullName_KeepsOriginalName() {
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(sampleUser));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UpdateProfileRequest request = UpdateProfileRequest.builder()
+                .phone("0912345678")
+                .address("New Address Only")
+                .build();
+
+        UserProfileResponse response = userService.updateProfile("test@example.com", request);
+
+        assertNotNull(response);
+        assertEquals("Nguyen Van A", response.getFullName()); // Kept original
+        assertEquals("0912345678", response.getPhone());
+        assertEquals("New Address Only", response.getAddress());
+    }
+
+    @Test
+    void updateProfile_BlankFullName_ThrowsBadRequestException() {
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(sampleUser));
+
+        UpdateProfileRequest request = UpdateProfileRequest.builder()
+                .fullName("   ")
+                .build();
+
+        BadRequestException ex = assertThrows(BadRequestException.class,
+                () -> userService.updateProfile("test@example.com", request));
+        assertEquals("Full name cannot be blank", ex.getMessage());
+    }
+
+    @Test
     void changePassword_Success() {
         when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(sampleUser));
         when(passwordEncoder.matches("OldPassword123!", "encodedOldPassword")).thenReturn(true);
