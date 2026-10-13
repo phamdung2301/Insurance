@@ -1,10 +1,11 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { User, KeyRound, LayoutDashboard, Terminal, Shield, MapPin, FileText, Sparkles } from 'lucide-react';
+import { User, KeyRound, LayoutDashboard, Terminal, Shield, MapPin, FileText, Sparkles, LogIn } from 'lucide-react';
 
 export const Sidebar = () => {
   const navItems = [
     { to: '/', label: 'Bảng điều khiển', icon: LayoutDashboard },
+    { to: '/login', label: 'Đăng nhập OTP (Gmail)', icon: LogIn },
     { to: '/policies', label: 'Quản lý Hợp đồng (Dashboard)', icon: FileText },
     { to: '/policies/create', label: 'Tạo Hợp đồng (UI03)', icon: Sparkles },
     { to: '/policies/locations', label: 'Địa điểm Hợp đồng (P04)', icon: MapPin },

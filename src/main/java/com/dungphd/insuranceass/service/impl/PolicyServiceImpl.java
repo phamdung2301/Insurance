@@ -156,7 +156,7 @@ public class PolicyServiceImpl implements PolicyService {
         }
 
         if (criteria.getKeyword() != null && !criteria.getKeyword().isBlank()) {
-            String sanitized = Pattern.quote(criteria.getKeyword().trim());
+            String sanitized = sanitizePattern(criteria.getKeyword());
             Criteria keywordCriteria = new Criteria().orOperator(
                     Criteria.where("policyNumber").regex(sanitized, "i"),
                     Criteria.where("insured.name").regex(sanitized, "i"),
@@ -168,18 +168,45 @@ public class PolicyServiceImpl implements PolicyService {
         }
 
         if (criteria.getInsuredName() != null && !criteria.getInsuredName().isBlank()) {
-            String sanitized = Pattern.quote(criteria.getInsuredName().trim());
+            String sanitized = sanitizePattern(criteria.getInsuredName());
             criteriaList.add(Criteria.where("insured.name").regex(sanitized, "i"));
         }
 
         if (criteria.getLocation() != null && !criteria.getLocation().isBlank()) {
-            String sanitized = Pattern.quote(criteria.getLocation().trim());
+            String sanitized = sanitizePattern(criteria.getLocation());
             criteriaList.add(Criteria.where("locations.address").regex(sanitized, "i"));
         }
 
         if (criteria.getPolicyNumber() != null && !criteria.getPolicyNumber().isBlank()) {
-            String sanitized = Pattern.quote(criteria.getPolicyNumber().trim());
+            String sanitized = sanitizePattern(criteria.getPolicyNumber());
             criteriaList.add(Criteria.where("policyNumber").regex(sanitized, "i"));
+        }
+
+        // --- $elemMatch Query on Nested Locations & Coverages (Index-Tuned) ---
+        if (criteria.getCoverageCode() != null && !criteria.getCoverageCode().isBlank()) {
+            String covCode = sanitizeInput(criteria.getCoverageCode());
+            if (criteria.getCoverageType() != null && !criteria.getCoverageType().isBlank()) {
+                String covType = sanitizePattern(criteria.getCoverageType());
+                criteriaList.add(Criteria.where("locations").elemMatch(
+                        Criteria.where("coverages").elemMatch(
+                                Criteria.where("coverageCode").is(covCode)
+                                        .and("coverageType").regex(covType, "i")
+                        )
+                ));
+            } else {
+                criteriaList.add(Criteria.where("locations").elemMatch(
+                        Criteria.where("coverages").elemMatch(
+                                Criteria.where("coverageCode").is(covCode)
+                        )
+                ));
+            }
+        } else if (criteria.getCoverageType() != null && !criteria.getCoverageType().isBlank()) {
+            String covType = sanitizePattern(criteria.getCoverageType());
+            criteriaList.add(Criteria.where("locations").elemMatch(
+                    Criteria.where("coverages").elemMatch(
+                            Criteria.where("coverageType").regex(covType, "i")
+                    )
+            ));
         }
 
         if (criteria.getEffectiveDateFrom() != null && criteria.getEffectiveDateTo() != null) {
@@ -459,5 +486,23 @@ public class PolicyServiceImpl implements PolicyService {
                 .baseRate(entity.getBaseRate())
                 .premium(entity.getPremium())
                 .build();
+    }
+
+    private String sanitizePattern(String input) {
+        if (input == null) return "";
+        String trimmed = input.trim();
+        if (trimmed.length() > 100) {
+            trimmed = trimmed.substring(0, 100);
+        }
+        return Pattern.quote(trimmed);
+    }
+
+    private String sanitizeInput(String input) {
+        if (input == null) return "";
+        String trimmed = input.trim();
+        if (trimmed.length() > 100) {
+            trimmed = trimmed.substring(0, 100);
+        }
+        return trimmed;
     }
 }

@@ -28,7 +28,15 @@ public class JwtTokenProvider {
 
     @PostConstruct
     public void init() {
-        this.key = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
+        byte[] secretBytes = jwtSecret.getBytes(StandardCharsets.UTF_8);
+        if (secretBytes.length < 32) {
+            log.error("[SECURITY VULNERABILITY] JWT secret key length is less than 256 bits (32 bytes). Keys must be strong HMAC-SHA256.");
+            throw new IllegalArgumentException("JWT Secret key must be at least 256 bits (32 bytes) long.");
+        }
+        if ("9a3f8c7e2b1d4a6f8c0e2b4d6f8a1c3e5a7b9d1f3e5a7b9c1d3e5f7a9b1c3d5e".equals(jwtSecret)) {
+            log.warn("[SECURITY ADVISORY] Application is using the default development JWT Secret key. Please configure APP_JWT_SECRET in production!");
+        }
+        this.key = Keys.hmacShaKeyFor(secretBytes);
     }
 
     public String generateToken(String email, List<String> roles, String fullName) {

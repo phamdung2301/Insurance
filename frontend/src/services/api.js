@@ -67,6 +67,25 @@ api.interceptors.response.use(
   }
 );
 
+// Authentication & OTP APIs (Gmail OTP, Dev Quick-Switch, Current User)
+export const authService = {
+  sendOtp: async (email) => {
+    return api.post('/auth/send-otp', { email });
+  },
+
+  verifyOtp: async (email, otp) => {
+    return api.post('/auth/verify-otp', { email, otp });
+  },
+
+  login: async (credentials) => {
+    return api.post('/auth/login', credentials);
+  },
+
+  getMe: async () => {
+    return api.get('/auth/me');
+  },
+};
+
 // User Profile & Password APIs
 export const userService = {
   getProfile: async (email) => {

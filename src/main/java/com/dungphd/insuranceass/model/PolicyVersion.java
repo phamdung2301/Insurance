@@ -23,7 +23,6 @@ public class PolicyVersion {
     @Id
     private String id;
 
-    @Indexed
     private String policyNumber;
 
     private Integer version;
