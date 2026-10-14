@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.Document;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -36,6 +38,11 @@ public class BenchmarkServiceImpl implements BenchmarkService {
         long startTime = System.currentTimeMillis();
 
         log.info("Starting generation of {} benchmark test policies in batches of {}...", count, batchSize);
+        try {
+            mongoTemplate.remove(new Query(Criteria.where("policyNumber").regex("^POL-BENCH-")), "policies");
+        } catch (Exception e) {
+            log.warn("Could not clean old benchmark policies: {}", e.getMessage());
+        }
         Random random = new Random();
         PolicyStatus[] statuses = PolicyStatus.values();
         String[] covCodes = {"PROP_FIRE", "PROP_THEFT", "GL", "EL", "WC", "CYBER"};

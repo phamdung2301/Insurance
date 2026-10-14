@@ -23,6 +23,18 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      '/benchmark': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/excel': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/reports': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
