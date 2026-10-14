@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useToast } from '../context/ToastContext';
-import { policyService, documentService } from '../services/api';
+import { policyService, documentService, excelService } from '../services/api';
 import { PolicyHistoryAndEndorsementModal } from '../components/PolicyHistoryAndEndorsementModal';
+import { PaymentModal } from '../components/PaymentModal';
 import {
   Search,
   ArrowUpDown,
@@ -31,6 +32,7 @@ import {
   FileSpreadsheet,
   SlidersHorizontal,
   Shield,
+  QrCode,
 } from 'lucide-react';
 
 export const PolicyListPage = () => {
@@ -79,6 +81,7 @@ export const PolicyListPage = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [historyModalPolicy, setHistoryModalPolicy] = useState(null);
+  const [paymentModalPolicy, setPaymentModalPolicy] = useState(null);
   const [newPolicyForm, setNewPolicyForm] = useState({
     policyNumber: '',
     insuredName: '',
@@ -1202,6 +1205,41 @@ export const PolicyListPage = () => {
                           <span>PDF</span>
                         </button>
 
+                        {policy.status === 'BOUND' && (
+                          <button
+                            onClick={() => setPaymentModalPolicy(policy)}
+                            className="btn btn-primary"
+                            style={{
+                              padding: '0.4rem 0.65rem',
+                              fontSize: '0.775rem',
+                              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                              borderColor: '#10b981',
+                            }}
+                            title="Thanh toán QR Code & Kích hoạt hợp đồng (FR-PAY-01/02/03)"
+                          >
+                            <QrCode size={13} />
+                            <span>QR Pay</span>
+                          </button>
+                        )}
+
+                        <button
+                          onClick={async () => {
+                            try {
+                              showToast(`Đang xuất bảng tính phí Excel cho ${policy.policyNumber}...`, 'info');
+                              await excelService.downloadPolicyBreakdown(policy.policyNumber);
+                              showToast('Đã tải xuống bảng tính phí Excel thành công!', 'success');
+                            } catch (err) {
+                              showToast(err.message || 'Lỗi xuất Excel', 'error');
+                            }
+                          }}
+                          className="btn btn-secondary"
+                          style={{ padding: '0.4rem 0.6rem', fontSize: '0.775rem', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.3)' }}
+                          title="Xuất bảng tính phí bảo hiểm ra Excel (FR-CALC-04)"
+                        >
+                          <FileSpreadsheet size={13} />
+                          <span>Excel</span>
+                        </button>
+
                         <button
                           onClick={() => setHistoryModalPolicy(policy)}
                           className="btn btn-secondary"
@@ -1341,6 +1379,41 @@ export const PolicyListPage = () => {
                   >
                     <Download size={14} color="var(--primary)" />
                     <span>Tải PDF</span>
+                  </button>
+
+                  {policy.status === 'BOUND' && (
+                    <button
+                      onClick={() => setPaymentModalPolicy(policy)}
+                      className="btn btn-primary"
+                      style={{
+                        padding: '0.45rem 0.75rem',
+                        fontSize: '0.8rem',
+                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        borderColor: '#10b981',
+                      }}
+                      title="Thanh toán QR Code & Kích hoạt hợp đồng (FR-PAY-01/02/03)"
+                    >
+                      <QrCode size={14} />
+                      <span>Thanh toán QR</span>
+                    </button>
+                  )}
+
+                  <button
+                    onClick={async () => {
+                      try {
+                        showToast(`Đang xuất bảng tính phí Excel cho ${policy.policyNumber}...`, 'info');
+                        await excelService.downloadPolicyBreakdown(policy.policyNumber);
+                        showToast('Đã tải xuống bảng tính phí Excel thành công!', 'success');
+                      } catch (err) {
+                        showToast(err.message || 'Lỗi xuất Excel', 'error');
+                      }
+                    }}
+                    className="btn btn-secondary"
+                    style={{ padding: '0.45rem 0.75rem', fontSize: '0.8rem', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.3)' }}
+                    title="Xuất bảng tính phí bảo hiểm ra Excel (FR-CALC-04)"
+                  >
+                    <FileSpreadsheet size={14} />
+                    <span>Excel</span>
                   </button>
 
                   <button
@@ -1638,6 +1711,17 @@ export const PolicyListPage = () => {
           if (historyModalPolicy) {
             setHistoryModalPolicy(updated);
           }
+        }}
+      />
+
+      {/* Payment Modal (FR-PAY-01/02/03) */}
+      <PaymentModal
+        policy={paymentModalPolicy}
+        isOpen={Boolean(paymentModalPolicy)}
+        onClose={() => setPaymentModalPolicy(null)}
+        onPaymentSuccess={() => {
+          setPaymentModalPolicy(null);
+          fetchPolicies();
         }}
       />
     </div>

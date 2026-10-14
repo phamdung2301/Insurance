@@ -238,7 +238,7 @@ public class PolicyServiceImpl implements PolicyService {
         int rawSize = criteria.getSize() > 0 ? criteria.getSize() : DEFAULT_PAGE_SIZE;
         int size = Math.min(rawSize, MAX_PAGE_SIZE);
 
-        String sortBy = "createdAt";
+        String sortBy = "updatedAt";
         if (criteria.getSortBy() != null && !criteria.getSortBy().isBlank()) {
             String requestedSort = criteria.getSortBy().trim();
             if (!ALLOWED_SORT_FIELDS.contains(requestedSort)) {

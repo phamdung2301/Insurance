@@ -24,6 +24,8 @@ import java.util.List;
 @Document(collection = "policies")
 @CompoundIndexes({
         @CompoundIndex(name = "status_createdAt_idx", def = "{'status': 1, 'createdAt': -1}"),
+        @CompoundIndex(name = "status_updatedAt_idx", def = "{'status': 1, 'updatedAt': -1}"),
+        @CompoundIndex(name = "effectiveDate_idx", def = "{'effectiveDate': 1}"),
         @CompoundIndex(name = "status_effectiveDate_idx", def = "{'status': 1, 'effectiveDate': 1}"),
         @CompoundIndex(name = "status_totalPremium_idx", def = "{'status': 1, 'totalPremium': 1}"),
         @CompoundIndex(name = "status_insuredName_idx", def = "{'status': 1, 'insured.name': 1}"),

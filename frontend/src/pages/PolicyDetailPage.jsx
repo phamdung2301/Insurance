@@ -26,11 +26,14 @@ import {
   ExternalLink,
   GitCommit,
   Check,
+  QrCode,
+  FileSpreadsheet,
 } from 'lucide-react';
-import { policyService, endorsementService, documentService } from '../services/api';
+import { policyService, endorsementService, documentService, excelService } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import { EndorsementModal } from '../components/EndorsementModal';
 import { StatusTransitionModal } from '../components/StatusTransitionModal';
+import { PaymentModal } from '../components/PaymentModal';
 
 export const PolicyDetailPage = () => {
   const { policyNumber } = useParams();
@@ -57,6 +60,7 @@ export const PolicyDetailPage = () => {
   // Modals
   const [showEndorsementModal, setShowEndorsementModal] = useState(false);
   const [showTransitionModal, setShowTransitionModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [transitionTarget, setTransitionTarget] = useState(null);
 
   // Fetch Policy Details
@@ -164,6 +168,16 @@ export const PolicyDetailPage = () => {
       await documentService.downloadSummary(policy.policyNumber, version || policy.version);
     } catch (err) {
       showToast(err.message || 'Lỗi khi tải Summary PDF', 'error');
+    }
+  };
+
+  const handleDownloadExcelBreakdown = async () => {
+    try {
+      showToast(`Đang xuất bảng tính phí Excel cho ${policy.policyNumber}...`, 'info');
+      await excelService.downloadPolicyBreakdown(policy.policyNumber);
+      showToast('Đã tải xuống bảng tính phí Excel thành công!', 'success');
+    } catch (err) {
+      showToast(err.message || 'Lỗi khi xuất bảng tính phí Excel', 'error');
     }
   };
 
@@ -351,6 +365,16 @@ export const PolicyDetailPage = () => {
               <span>Summary PDF</span>
             </button>
 
+            <button
+              onClick={handleDownloadExcelBreakdown}
+              className="btn btn-secondary"
+              title="Xuất Bảng tính phí bảo hiểm ra Excel (FR-CALC-04)"
+              style={{ padding: '0.5rem 0.85rem' }}
+            >
+              <FileSpreadsheet size={15} color="#10b981" />
+              <span>Excel Bảng phí</span>
+            </button>
+
             <Link
               to="/policies/locations"
               className="btn btn-secondary"
@@ -450,17 +474,33 @@ export const PolicyDetailPage = () => {
                   Hủy bỏ (CANCELLED)
                 </button>
                 <button
-                  onClick={() => handleOpenTransition('ACTIVE')}
+                  onClick={() => setShowPaymentModal(true)}
                   className="btn btn-primary"
                   style={{
                     fontSize: '0.825rem',
-                    padding: '0.45rem 1rem',
+                    padding: '0.45rem 1.1rem',
                     background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                     borderColor: '#10b981',
+                    boxShadow: '0 0 15px rgba(16, 185, 129, 0.35)',
                   }}
+                  title="Mở hướng dẫn thanh toán QR Code và kích hoạt 2 kênh (FR-PAY-01/02/03)"
+                >
+                  <QrCode size={15} />
+                  <span>Thanh toán QR & Kích hoạt</span>
+                </button>
+                <button
+                  onClick={() => handleOpenTransition('ACTIVE')}
+                  className="btn btn-secondary"
+                  style={{
+                    fontSize: '0.825rem',
+                    padding: '0.45rem 0.95rem',
+                    borderColor: '#10b981',
+                    color: '#34d399',
+                  }}
+                  title="Chuyển trạng thái trực tiếp sang ACTIVE"
                 >
                   <CheckCircle2 size={15} />
-                  <span>Kích hoạt Hiệu lực (ACTIVE)</span>
+                  <span>Kích hoạt nhanh</span>
                 </button>
               </>
             )}
@@ -1350,6 +1390,14 @@ export const PolicyDetailPage = () => {
         isOpen={showEndorsementModal}
         onClose={() => setShowEndorsementModal(false)}
         onSuccess={handlePolicyUpdated}
+      />
+
+      {/* 3. Payment Instructions & Activation Modal (FR-PAY-01/02/03) */}
+      <PaymentModal
+        policy={policy}
+        isOpen={showPaymentModal}
+        onClose={() => setShowPaymentModal(false)}
+        onPaymentSuccess={handlePolicyUpdated}
       />
     </div>
   );
