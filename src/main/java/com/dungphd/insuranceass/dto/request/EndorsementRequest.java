@@ -17,6 +17,8 @@ import java.util.List;
 @Builder
 public class EndorsementRequest {
 
+    private String policyNumber;
+
     @NotBlank(message = "Endorsement reason is required")
     private String reason;
 

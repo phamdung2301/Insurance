@@ -62,6 +62,8 @@ public class MongoIndexAuditService {
 
             // Compound index for sorted search: status + createdAt (prevents in-memory sort)
             policyOps.ensureIndex(new Index().on("status", Sort.Direction.ASC).on("createdAt", Sort.Direction.DESC).named("status_createdAt_idx"));
+            policyOps.ensureIndex(new Index().on("status", Sort.Direction.ASC).on("updatedAt", Sort.Direction.DESC).named("status_updatedAt_idx"));
+            policyOps.ensureIndex(new Index().on("effectiveDate", Sort.Direction.ASC).named("effectiveDate_idx"));
 
             // Compound index: status + effectiveDate
             policyOps.ensureIndex(new Index().on("status", Sort.Direction.ASC).on("effectiveDate", Sort.Direction.ASC).named("status_effectiveDate_idx"));

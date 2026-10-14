@@ -20,7 +20,7 @@ public class BenchmarkController {
      * POST /benchmark/generate-50k
      * FR-BENCH-01: Trigger generation of 50,000 random Policy records in MongoDB
      */
-    @PostMapping("/generate-50k")
+    @PostMapping({"/generate-50k", "/generate"})
     public ResponseEntity<ApiResponse<Map<String, Object>>> generate50kPolicies(
             @RequestParam(value = "count", defaultValue = "50000") int count
     ) {
@@ -29,10 +29,10 @@ public class BenchmarkController {
     }
 
     /**
-     * GET /benchmark/run
+     * GET /benchmark/run, GET /benchmark/report
      * FR-BENCH-02, FR-BENCH-03: Run benchmark for three critical queries and generate metrics report
      */
-    @GetMapping("/run")
+    @GetMapping({"/run", "/report"})
     public ResponseEntity<ApiResponse<BenchmarkReportDto>> runBenchmark() {
         BenchmarkReportDto report = benchmarkService.runBenchmarkSuite();
         return ResponseEntity.ok(ApiResponse.success(report, "Thực thi kiểm chuẩn hiệu năng truy vấn thành công"));
