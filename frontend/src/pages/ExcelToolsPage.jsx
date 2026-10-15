@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Download, Upload, FileSpreadsheet, Calculator, Info } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Download, Upload, FileSpreadsheet, Calculator, Info, TableProperties } from 'lucide-react';
 import { excelService, downloadBlob } from '../services/api';
 import { BACKEND_TODO_HINT, isBackendMissing } from '../utils/backend';
 import { formatMoney } from '../utils/format';
@@ -296,7 +296,71 @@ export function ExcelToolsPage() {
           )}
           {calcMissing && <MissingAlert />}
         </div>
+
+        {/* (e) Bảng giá hiện hành */}
+        <RateMatrix />
       </div>
+    </div>
+  );
+}
+
+/** (e) Bảng giá hiện hành từ backend. */
+function RateMatrix() {
+  const [rates, setRates] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await excelService.getRates();
+        const d = res?.data;
+        setRates(Array.isArray(d) ? d : d?.rates ?? []);
+      } catch {
+        setRates([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+  return (
+    <div className="glass-card">
+      <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <TableProperties size={20} /> Bảng giá hiện hành
+      </h3>
+      <p className="form-hint" style={{ marginBottom: '1rem' }}>
+        Biểu giá gốc đang áp dụng cho từng gói bảo hiểm.
+      </p>
+      {loading ? (
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Đang tải bảng giá…</p>
+      ) : rates.length === 0 ? (
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Chưa có dữ liệu bảng giá.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Mã gói</th>
+                <th>Tên gói</th>
+                <th className="num">Tỉ lệ gốc (%)</th>
+                <th className="num">Hạn mức tối thiểu</th>
+                <th className="num">Hạn mức tối đa</th>
+                <th className="num">Khấu trừ mặc định</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rates.map((r, i) => (
+                <tr key={r.coverageCode ?? i}>
+                  <td style={{ fontFamily: 'monospace' }}>{r.coverageCode}</td>
+                  <td>{r.coverageName ?? r.description ?? '—'}</td>
+                  <td className="num">{r.baseRate ?? '—'}</td>
+                  <td className="num">{r.minLimit != null ? formatMoney(r.minLimit) : '—'}</td>
+                  <td className="num">{r.maxLimit != null ? formatMoney(r.maxLimit) : '—'}</td>
+                  <td className="num">{r.defaultDeductible != null ? formatMoney(r.defaultDeductible) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

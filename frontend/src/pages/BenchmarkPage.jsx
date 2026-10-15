@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Zap, Gauge, Info, Play } from 'lucide-react';
 import { benchmarkService } from '../services/api';
 import { EmptyState } from '../components/ui';
@@ -158,6 +158,42 @@ export function BenchmarkPage() {
             )
           )}
         </div>
+        <StatsCard />
+      </div>
+    </div>
+  );
+}
+
+/** Thống kê nhanh từ GET /benchmark/stats. */
+function StatsCard() {
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await benchmarkService.stats();
+        setStats(res?.data ?? null);
+      } catch {
+        setStats(null);
+      }
+    })();
+  }, []);
+  if (!stats || typeof stats !== 'object') return null;
+  const entries = Object.entries(stats).filter(([, v]) => v !== null && typeof v !== 'object');
+  if (entries.length === 0) return null;
+  return (
+    <div className="glass-card" style={{ marginTop: '1.25rem' }}>
+      <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <Info size={20} /> Thống kê hệ thống
+      </h3>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', marginTop: '1rem' }}>
+        {entries.map(([k, v]) => (
+          <div key={k} style={{ padding: '0.75rem 1rem', borderRadius: '0.75rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>{k}</div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 700 }}>
+              {typeof v === 'number' ? v.toLocaleString('vi-VN') : String(v)}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
