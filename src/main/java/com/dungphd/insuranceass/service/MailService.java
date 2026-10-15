@@ -19,10 +19,11 @@ public class MailService {
     private String fromEmail;
 
     public void sendOtpEmail(String toEmail, String otp) {
-        log.info("[OTP DISPATCH] Delivering OTP {} to {}", otp, toEmail);
+        String maskedEmail = maskEmail(toEmail);
+        log.info("[OTP DISPATCH] Delivering OTP to {}", maskedEmail);
 
         if (mailSender == null) {
-            log.warn("[DEV MODE] JavaMailSender not configured. Skipping SMTP dispatch. OTP for {}: {}", toEmail, otp);
+            log.warn("[DEV MODE] JavaMailSender not configured. Skipping SMTP dispatch. Dev OTP for {}: {}", maskedEmail, otp);
             return;
         }
 
@@ -54,7 +55,20 @@ public class MailService {
             mailSender.send(message);
             log.info("Successfully sent OTP email via SMTP to {}", toEmail);
         } catch (Exception e) {
-            log.warn("Failed to send OTP email via SMTP to {}: {}. [FALLBACK LOG: OTP is {}]", toEmail, e.getMessage(), otp);
+            log.warn("Failed to send OTP email via SMTP to {}: {}. [FALLBACK LOG: OTP is {}]", maskedEmail, e.getMessage(), otp);
         }
+    }
+
+    private String maskEmail(String email) {
+        if (email == null || !email.contains("@")) {
+            return "***";
+        }
+        int atIdx = email.indexOf('@');
+        String prefix = email.substring(0, atIdx);
+        String domain = email.substring(atIdx);
+        if (prefix.length() <= 2) {
+            return prefix.charAt(0) + "***" + domain;
+        }
+        return prefix.charAt(0) + "***" + prefix.charAt(prefix.length() - 1) + domain;
     }
 }
