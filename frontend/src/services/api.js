@@ -25,6 +25,11 @@ api.interceptors.response.use(
       localStorage.removeItem('iuser');
       window.dispatchEvent(new CustomEvent('auth:unauthorized'));
     }
+    if (status === 403) {
+      const err403 = new Error('Bạn không có quyền thực hiện thao tác này (yêu cầu quyền quản trị viên).');
+      err403.status = 403;
+      return Promise.reject(err403);
+    }
     const serverMessage = error.response?.data?.message;
     const validationErrors = error.response?.data?.data;
     let message = serverMessage || error.message || 'Đã xảy ra lỗi không mong đợi';
