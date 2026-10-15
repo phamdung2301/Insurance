@@ -1,16 +1,31 @@
-# React + Vite
+# InsurTech Frontend — v4.0 (xanh dương + vàng)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Giao diện web quản lý hợp đồng bảo hiểm (React 19 + Vite), kết nối backend Spring Boot qua Vite proxy.
 
-Currently, two official plugins are available:
+## Chạy dev
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm install
+npm run dev   # http://localhost:5173 — proxy API về http://localhost:8080
+```
 
-## React Compiler
+Backend phải chạy ở `http://localhost:8080`.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Đăng nhập & xác thực
 
-## Expanding the Oxlint configuration
+- **Email OTP (thật)**: nhập email → nhận mã OTP 6 số qua Gmail (`POST /auth/send-otp`) → nhập mã để lấy JWT (`POST /auth/verify-otp`).
+- **Đăng nhập dev**: tab "Đăng nhập dev" — chọn vai trò Khách hàng / Quản trị (`POST /auth/login`).
+- JWT lưu ở `localStorage` (`itoken`), tự gắn `Authorization: Bearer` cho mọi API; 401 → tự đăng xuất về `/login`.
+- Route bảo vệ: `/` (khách hàng), `/admin/*` (cần `ROLE_ADMIN`).
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## Công nghệ
+
+- `framer-motion` — chuyển trang, stagger, số đếm động, biểu đồ vẽ động
+- `three` + `@react-three/fiber`/`drei` — khiên 3D trang đăng nhập (lazy-load, fallback SVG khi không có WebGL)
+- `lucide-react` — icon, `axios` — HTTP, `react-router-dom` v7 — routing
+
+## Build
+
+```bash
+npm run build   # ra dist/
+```
