@@ -7,6 +7,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { PageShell } from './components/motion';
+import { withErrorBoundary } from './components/ErrorBoundary';
 
 // Pages (built per docs/UI-SPEC.md)
 import { LoginPage } from './pages/LoginPage';
