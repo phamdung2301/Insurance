@@ -1,0 +1,368 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Navigate } from 'react-router-dom';
+import { Mail, ShieldCheck, Hammer, BadgeCheck, Clock3, Users } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { authService } from '../services/api';
+import { isValidEmail } from '../utils/format';
+import { AnimatedNumber, FadeIn, Stagger, StaggerItem } from '../components/motion';
+
+// Lazy-load khiên 3D (three.js) để bundle chính nhẹ
+const Shield3D = React.lazy(() => import('../components/Shield3D'));
+const OTP_LEN = 6;
+const RESEND_SECONDS = 60;
+
+const TRUST_STATS = [
+  { icon: Users, value: 12840, suffix: '+', label: 'Khách hàng được bảo vệ', format: (v) => Math.round(v).toLocaleString('vi-VN') },
+  { icon: BadgeCheck, value: 98.2, suffix: '%', label: 'Hài lòng về dịch vụ', format: (v) => v.toFixed(1).replace('.', ',') },
+  { icon: Clock3, value: 24, suffix: '/7', label: 'Hỗ trợ mọi lúc', format: (v) => Math.round(v).toString() },
+];
+
+/**
+ * Trang đăng nhập — 2 cột:
+ *  trái: thương hiệu + khiên 3D động + số liệu tin cậy
+ *  phải: form (a) "Email OTP" | (b) "Đăng nhập dev"
+ */
+export function LoginPage() {
+  const { isAuthenticated } = useAuth();
+  const [tab, setTab] = useState('otp');
+
+  if (isAuthenticated) return <Navigate to="/" replace />;
+
+  return (
+    <div className="auth-split">
+      {/* Cột thương hiệu */}
+      <div className="auth-brand brand-pattern">
+        <FadeIn y={0} className="auth-brand-inner">
+          <div className="auth-brand-top">
+            <div className="sidebar-brand" style={{ padding: 0 }}>
+              <div className="logo shield-glow"><ShieldCheck size={22} /></div>
+              <div>
+                <div className="name">InsurTech</div>
+                <div className="sub">Bảo hiểm trực tuyến</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="auth-shield">
+            <React.Suspense
+              fallback={
+                <div style={{ height: 380, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '5rem' }} aria-hidden>
+                  🛡️
+                </div>
+              }
+            >
+              <Shield3D height={380} />
+            </React.Suspense>
+          </div>
+
+          <h2 className="auth-tagline">
+            Lá chắn <span className="gold-text">tài chính</span><br />cho mọi hành trình
+          </h2>
+          <p className="auth-tagline-sub">
+            Quản lý hợp đồng bảo hiểm minh bạch — từ báo giá, thanh toán
+            đến bồi thường, tất cả trong một nơi.
+          </p>
+
+          <Stagger className="trust-row" gap={0.12}>
+            {TRUST_STATS.map((s) => (
+              <StaggerItem key={s.label} className="trust-stat">
+                <s.icon size={18} className="trust-icon" />
+                <div className="trust-value">
+                  <AnimatedNumber value={s.value} format={s.format} />{s.suffix}
+                </div>
+                <div className="trust-label">{s.label}</div>
+              </StaggerItem>
+            ))}
+          </Stagger>
+        </FadeIn>
+      </div>
+
+      {/* Cột form */}
+      <div className="auth-form-col">
+        <motion.div
+          className="glass-card auth-card"
+          initial={{ opacity: 0, x: 28 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <div className="auth-logo">🛡️</div>
+          <h1 className="auth-title">Chào mừng trở lại</h1>
+          <p className="auth-sub">Đăng nhập để quản lý hợp đồng bảo hiểm của bạn</p>
+
+        <div className="tabs" role="tablist" aria-label="Hình thức đăng nhập" style={{ justifyContent: 'center', marginTop: '1.5rem' }}>
+          <button
+            type="button"
+            className={`tab${tab === 'otp' ? ' active' : ''}`}
+            onClick={() => setTab('otp')}
+            aria-selected={tab === 'otp'}
+            role="tab"
+          >
+            <Mail size={15} style={{ verticalAlign: '-2px', marginRight: 6 }} />
+            Email OTP
+          </button>
+          <button
+            type="button"
+            className={`tab${tab === 'dev' ? ' active' : ''}`}
+            onClick={() => setTab('dev')}
+            aria-selected={tab === 'dev'}
+            role="tab"
+          >
+            <Hammer size={15} style={{ verticalAlign: '-2px', marginRight: 6 }} />
+            Đăng nhập dev
+          </button>
+        </div>
+
+        {tab === 'otp' ? <OtpForm /> : <DevForm />}
+
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', marginTop: '1.5rem', flexWrap: 'wrap' }}>
+            <span className="trust-badge"><ShieldCheck size={14} /> Bảo mật OTP</span>
+            <span className="trust-badge gold"><BadgeCheck size={14} /> Được tin cậy</span>
+          </div>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- OTP tab
+function OtpForm() {
+  const { loginOtp } = useAuth();
+  const toast = useToast();
+  const [email, setEmail] = useState('');
+  const [emailSent, setEmailSent] = useState(false);
+  const [digits, setDigits] = useState(Array(OTP_LEN).fill(''));
+  const [cooldown, setCooldown] = useState(0);
+  const [sending, setSending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const inputsRef = useRef([]);
+
+  // Đếm ngược gửi lại mã
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  const focusBox = (i) => inputsRef.current[i]?.focus();
+
+  const sendOtp = async (e) => {
+    e?.preventDefault();
+    const em = email.trim().toLowerCase();
+    if (!isValidEmail(em)) {
+      toast.error('Vui lòng nhập địa chỉ email hợp lệ.');
+      return;
+    }
+    setSending(true);
+    try {
+      await authService.sendOtp(em);
+      setEmailSent(true);
+      setDigits(Array(OTP_LEN).fill(''));
+      setCooldown(RESEND_SECONDS);
+      toast.success('Đã gửi mã OTP. Vui lòng kiểm tra hộp thư email của bạn.');
+      setTimeout(() => focusBox(0), 100);
+    } catch (err) {
+      toast.error(err.message || 'Không gửi được mã OTP. Vui lòng thử lại.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const onDigit = (i, raw) => {
+    const ch = raw.replace(/\D/g, '').slice(-1); // chỉ giữ ký tự số cuối
+    const next = [...digits];
+    next[i] = ch;
+    setDigits(next);
+    if (ch && i < OTP_LEN - 1) focusBox(i + 1);
+  };
+
+  const onKeyDown = (i, e) => {
+    if (e.key === 'Backspace' && !digits[i] && i > 0) focusBox(i - 1);
+  };
+
+  const onPaste = (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData?.getData('text') || '').replace(/\D/g, '').slice(0, OTP_LEN);
+    if (!text) return;
+    const next = Array(OTP_LEN).fill('');
+    for (let i = 0; i < text.length; i++) next[i] = text[i];
+    setDigits(next);
+    focusBox(Math.min(text.length, OTP_LEN - 1));
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const otp = digits.join('');
+    if (otp.length < OTP_LEN) {
+      toast.error('Vui lòng nhập đầy đủ 6 ký tự mã OTP.');
+      return;
+    }
+    setVerifying(true);
+    try {
+      await loginOtp(email.trim().toLowerCase(), otp);
+      toast.success('Đăng nhập thành công.');
+      // AuthContext tự điều hướng sau khi đăng nhập
+    } catch (err) {
+      toast.error(err.message || 'Mã OTP không đúng hoặc đã hết hạn.');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} style={{ marginTop: '0.5rem' }}>
+      <div className="form-group">
+        <label className="form-label" htmlFor="otp-email">Địa chỉ email</label>
+        <input
+          id="otp-email"
+          type="email"
+          className="form-control"
+          placeholder="ban@example.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={sending}
+          autoComplete="email"
+        />
+      </div>
+
+      {!emailSent ? (
+        <button type="button" className="btn btn-primary btn-block" onClick={sendOtp} disabled={sending}>
+          {sending ? <span className="spinner" /> : null}
+          Gửi mã OTP
+        </button>
+      ) : (
+        <>
+          <div className="alert alert-info" style={{ marginTop: '1rem' }}>
+            <ShieldCheck size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span>Mã xác thực đã được gửi tới <strong>{email.trim()}</strong>. Mã có hiệu lực trong vài phút.</span>
+          </div>
+
+          <div className="otp-row" onPaste={onPaste} role="group" aria-label="Nhập mã OTP">
+            {digits.map((d, i) => (
+              <input
+                key={i}
+                ref={(el) => { inputsRef.current[i] = el; }}
+                className="otp-box"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={1}
+                value={d}
+                onChange={(e) => onDigit(i, e.target.value)}
+                onKeyDown={(e) => onKeyDown(i, e)}
+                aria-label={`Ký tự ${i + 1} của mã OTP`}
+              />
+            ))}
+          </div>
+
+          <button type="submit" className="btn btn-primary btn-block" disabled={verifying}>
+            {verifying ? <span className="spinner" /> : null}
+            Đăng nhập
+          </button>
+
+          <div style={{ textAlign: 'center', marginTop: '0.9rem' }}>
+            {cooldown > 0 ? (
+              <span className="form-hint">Gửi lại mã sau {cooldown}s</span>
+            ) : (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={sendOtp} disabled={sending}>
+                Gửi lại mã OTP
+              </button>
+            )}
+          </div>
+
+          <div style={{ textAlign: 'center', marginTop: '0.4rem' }}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => { setEmailSent(false); setDigits(Array(OTP_LEN).fill('')); }}
+            >
+              Đổi email khác
+            </button>
+          </div>
+        </>
+      )}
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------- Dev tab
+function DevForm() {
+  const { devLogin } = useAuth();
+  const toast = useToast();
+  const [email, setEmail] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [role, setRole] = useState('ROLE_USER');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!isValidEmail(email)) {
+      toast.error('Vui lòng nhập địa chỉ email hợp lệ.');
+      return;
+    }
+    if (!fullName.trim()) {
+      toast.error('Vui lòng nhập họ tên.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await devLogin(email, fullName, role);
+      toast.success('Đăng nhập thành công.');
+    } catch (err) {
+      toast.error(err.message || 'Đăng nhập thất bại. Vui lòng thử lại.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} style={{ marginTop: '0.5rem' }}>
+      <div className="alert alert-warn">
+        <Hammer size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+        <span><strong>Chỉ dùng khi phát triển/kiểm thử.</strong> Đăng nhập nhanh mà không cần mã OTP.</span>
+      </div>
+
+      <div className="form-group">
+        <label className="form-label" htmlFor="dev-email">Email</label>
+        <input
+          id="dev-email"
+          type="email"
+          className="form-control"
+          placeholder="dev@example.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
+        />
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="dev-name">Họ và tên</label>
+        <input
+          id="dev-name"
+          type="text"
+          className="form-control"
+          placeholder="Nguyễn Văn A"
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+          autoComplete="name"
+        />
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="dev-role">Vai trò</label>
+        <select
+          id="dev-role"
+          className="form-control"
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+        >
+          <option value="ROLE_USER">Khách hàng (ROLE_USER)</option>
+          <option value="ROLE_ADMIN">Quản trị viên (ROLE_ADMIN)</option>
+        </select>
+      </div>
+
+      <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
+        {busy ? <span className="spinner" /> : null}
+        Đăng nhập
+      </button>
+    </form>
+  );
+}
