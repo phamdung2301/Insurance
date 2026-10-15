@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useMemo } from 'react';
 import { CheckCircle2, AlertCircle, Info } from 'lucide-react';
 
 const ToastContext = createContext(null);
@@ -23,11 +23,13 @@ export const ToastProvider = ({ children }) => {
     return id;
   }, [dismiss]);
 
-  const toast = {
+  // useMemo: giữ tham chiếu ổn định giữa các lần render, tránh vòng lặp
+  // vô hạn ở các useEffect phụ thuộc vào `toast`.
+  const toast = useMemo(() => ({
     success: (m, d) => push(m, 'success', d),
     error: (m, d) => push(m, 'error', d ?? 6000),
     info: (m, d) => push(m, 'info', d),
-  };
+  }), [push]);
 
   const icons = { success: <CheckCircle2 size={20} />, error: <AlertCircle size={20} />, info: <Info size={20} /> };
 

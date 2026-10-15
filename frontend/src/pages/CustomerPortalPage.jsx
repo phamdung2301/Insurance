@@ -31,7 +31,7 @@ export function CustomerPortalPage() {
     setLoading(true);
     setFailed(false);
     try {
-      const res = await policyService.searchPolicies({ page: 0, size: 1000 });
+      const res = await policyService.searchPolicies({ page: 0, size: 100 });
       const list = res?.data?.content ?? res?.data ?? [];
       // TODO: backend chưa hỗ trợ scope hợp đồng theo người dùng,
       // tạm lọc ở phía client theo email người được bảo hiểm.

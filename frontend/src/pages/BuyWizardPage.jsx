@@ -200,7 +200,16 @@ export function BuyWizardPage() {
   const back = () => { dirRef.current = -1; setStep((s) => Math.max(s - 1, 0)); };
 
   // ---- Payload & submit ---------------------------------------------------
+  /** Sinh số hợp đồng duy nhất (backend yêu cầu client cung cấp). */
+  const genPolicyNumber = () => {
+    const d = new Date();
+    const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const rnd = Math.random().toString(36).slice(2, 6).toUpperCase();
+    return `HD-${ymd}-${rnd}`;
+  };
+
   const buildPayload = () => ({
+    policyNumber: genPolicyNumber(),
     insured: {
       name: insured.hoTen.trim(),
       email: insured.email.trim().toLowerCase(),
