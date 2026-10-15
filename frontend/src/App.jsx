@@ -19,6 +19,7 @@ import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { AdminPolicyListPage } from './pages/AdminPolicyListPage';
 import { ExcelToolsPage } from './pages/ExcelToolsPage';
 import { BenchmarkPage } from './pages/BenchmarkPage';
+import { IndexAuditPage } from './pages/IndexAuditPage';
 
 const TITLES = {
   '/': 'Hợp đồng của tôi',
@@ -86,6 +87,7 @@ function AnimatedRoutes() {
         {adminPage('/admin/hop-dong', <AdminPolicyListPage />)}
         {adminPage('/admin/excel', <ExcelToolsPage />)}
         {adminPage('/admin/benchmark', <BenchmarkPage />)}
+        {adminPage('/admin/index-audit', <IndexAuditPage />)}
         {import.meta.env.DEV && (
           <Route path="/dev/api-tester" element={<DevTester />} />
         )}

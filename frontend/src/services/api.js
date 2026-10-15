@@ -73,7 +73,7 @@ export const policyService = {
   deletePolicy: (policyNumber) => api.delete(`/policies/${policyNumber}`),
   /** Chuyển trạng thái vòng đời — backend: POST /policies/{n}/status-transitions */
   transition: (policyNumber, toStatus, extra = {}) =>
-    api.post(`/policies/${policyNumber}/status-transitions`, { targetStatus: toStatus, ...extra }),
+    api.post(`/policies/${policyNumber}/status-transitions`, { toStatus, ...extra }),
   /** Yêu cầu điều chỉnh (endorsement) — backend: POST /policies/{n}/endorsements */
   endorse: (policyNumber, payload) => api.post(`/policies/${policyNumber}/endorsements`, payload),
   getHistory: (policyNumber) => api.get(`/policies/${policyNumber}/history`),
@@ -119,6 +119,7 @@ export const excelService = {
   calculate: (payload) => api.post('/excel/calculate', payload),
   downloadBreakdown: (policyNumber) =>
     api.get(`/excel/policy/${policyNumber}/download`, { responseType: 'blob' }),
+  getRates: () => api.get('/excel/rates'),
 };
 
 // ---------------------------------------------------------------- Reports (SRS FR-REP)
@@ -133,6 +134,28 @@ export const reportService = {
 export const benchmarkService = {
   generate50k: () => api.post('/benchmark/generate-50k'),
   run: () => api.get('/benchmark/run'),
+  stats: () => api.get('/benchmark/stats'),
+};
+
+// ---------------------------------------------------------------- Policy documents
+export const documentService = {
+  list: (policyNumber) => api.get(`/policies/${policyNumber}/documents`),
+  downloadCertificate: (policyNumber, version) =>
+    api.get(`/policies/${policyNumber}/documents/certificate`, {
+      params: version ? { version } : {},
+      responseType: 'blob',
+    }),
+  downloadSummary: (policyNumber, version) =>
+    api.get(`/policies/${policyNumber}/documents/summary`, {
+      params: version ? { version } : {},
+      responseType: 'blob',
+    }),
+};
+
+// ---------------------------------------------------------------- Index audit (admin)
+export const indexAuditService = {
+  audit: () => api.get('/admin/indexes/audit'),
+  sync: () => api.post('/admin/indexes/sync'),
 };
 
 /** Tải file blob về máy. */
