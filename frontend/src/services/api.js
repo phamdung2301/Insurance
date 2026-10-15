@@ -1,357 +1,150 @@
 import axios from 'axios';
 
-// Create central Axios instance
+// Central Axios instance — uses Vite proxy (see vite.config.js)
 const api = axios.create({
-  baseURL: '', // Uses Vite proxy config (/user, /api)
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  timeout: 15000,
+  baseURL: '',
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 30000,
 });
 
-// Request Interceptor: Attach JWT Token and custom headers
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('jwt_token');
-    const userEmail = localStorage.getItem('user_email');
-
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-
-    // Attach email as header if available for seamless backend support
-    if (userEmail) {
-      config.headers['X-User-Email'] = userEmail;
-    }
-
+    const token = localStorage.getItem('itoken');
+    if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Response Interceptor: Global Error and 401 Unauthorized handling
 api.interceptors.response.use(
-  (response) => {
-    // Return backend payload directly if success
-    return response.data;
-  },
+  (response) => response.data, // backend envelope: { success, message, data }
   (error) => {
-    const status = error.response ? error.response.status : null;
-
+    const status = error.response?.status ?? null;
     if (status === 401) {
-      console.warn('Session expired or unauthorized. Logging out...');
-      localStorage.removeItem('jwt_token');
-      localStorage.removeItem('user_email');
-      localStorage.removeItem('user_data');
-      
-      // Dispatch custom event for app-wide auth synchronization
+      localStorage.removeItem('itoken');
+      localStorage.removeItem('iuser');
       window.dispatchEvent(new CustomEvent('auth:unauthorized'));
     }
-
-    // Standardize error message extraction
     const serverMessage = error.response?.data?.message;
     const validationErrors = error.response?.data?.data;
-    
-    let errorMessage = serverMessage || error.message || 'An unexpected error occurred';
-    
+    let message = serverMessage || error.message || 'Đã xảy ra lỗi không mong đợi';
     if (validationErrors && typeof validationErrors === 'object') {
-      const fieldErrors = Object.values(validationErrors).join(', ');
-      if (fieldErrors) {
-        errorMessage = `${errorMessage}: ${fieldErrors}`;
-      }
+      const fields = Object.values(validationErrors).join(', ');
+      if (fields) message = `${message}: ${fields}`;
     }
-
-    return Promise.reject(new Error(errorMessage));
+    const err = new Error(message);
+    err.status = status;
+    return Promise.reject(err);
   }
 );
 
-// Authentication & OTP APIs (Gmail OTP, Dev Quick-Switch, Current User)
+/** Lấy JWT + user từ AuthResponse — backend trả user fields phẳng (email, fullName, roles). */
+export function extractAuth(envelopeData) {
+  const d = envelopeData || {};
+  const token = d.token ?? d.accessToken ?? null;
+  let user = d.user ?? null;
+  if (!user && d.email) {
+    user = { email: d.email, fullName: d.fullName, roles: d.roles ?? [] };
+  }
+  return { token, user };
+}
+
+// ---------------------------------------------------------------- Auth
 export const authService = {
-  sendOtp: async (email) => {
-    return api.post('/auth/send-otp', { email });
-  },
-
-  verifyOtp: async (email, otp) => {
-    return api.post('/auth/verify-otp', { email, otp });
-  },
-
-  login: async (credentials) => {
-    return api.post('/auth/login', credentials);
-  },
-
-  getMe: async () => {
-    return api.get('/auth/me');
-  },
+  sendOtp: (email) => api.post('/auth/send-otp', { email }),
+  verifyOtp: (email, otp) => api.post('/auth/verify-otp', { email, otp }),
+  devLogin: (email, fullName, role) => api.post('/auth/login', { email, fullName, role }),
+  getMe: () => api.get('/auth/me'),
 };
 
-// User Profile & Password APIs
+// ---------------------------------------------------------------- User
 export const userService = {
-  getProfile: async (email) => {
-    const params = email ? { email } : {};
-    return api.get('/user/profile', { params });
-  },
-
-  updateProfile: async (profileData, email) => {
-    const params = email ? { email } : {};
-    return api.put('/user/profile', profileData, { params });
-  },
-
-  changePassword: async (passwordData, email) => {
-    const params = email ? { email } : {};
-    return api.post('/user/change-password', passwordData, { params });
-  },
-
-  getActivity: async (email) => {
-    const params = email ? { email } : {};
-    return api.get('/user/activity', { params });
-  },
+  getProfile: () => api.get('/user/profile'),
+  updateProfile: (data) => api.put('/user/profile', data),
+  changePassword: (data) => api.post('/user/change-password', data),
 };
 
-// P02, P03: Policy Search, Filter, Page & Sort APIs
+// ---------------------------------------------------------------- Policy (SRS §6)
 export const policyService = {
-  searchPolicies: async (params = {}) => {
-    return api.get('/policies', { params });
-  },
-
-  getPolicyById: async (policyId) => {
-    return api.get(`/policies/${policyId}`);
-  },
-
-  createPolicy: async (policyData) => {
-    return api.post('/policies', policyData);
-  },
-
-  updatePolicy: async (policyNumber, policyData) => {
-    return api.put(`/policies/${policyNumber}`, policyData);
-  },
-
-  deletePolicy: async (policyNumber) => {
-    return api.delete(`/policies/${policyNumber}`);
-  },
-
-  // P06, P07: Status Transition API
-  transitionStatus: async (policyNumber, transitionData) => {
-    return api.post(`/policies/${policyNumber}/status-transitions`, transitionData);
-  },
-
-  // P08 (F06): Endorsement Engine APIs
-  applyEndorsement: async (policyNumber, endorsementData) => {
-    return api.post(`/policies/${policyNumber}/endorsements`, endorsementData);
-  },
-
-  getVersions: async (policyNumber) => {
-    return api.get(`/policies/${policyNumber}/versions`);
-  },
-
-  getVersion: async (policyNumber, version) => {
-    return api.get(`/policies/${policyNumber}/versions/${version}`);
-  },
-
-  compareVersions: async (policyNumber, v1, v2) => {
-    return api.get(`/policies/${policyNumber}/versions/compare`, {
-      params: { v1, v2 },
-    });
-  },
-
-  // P09 (F07): Transaction Ledger History API
-  getHistory: async (policyNumber) => {
-    return api.get(`/policies/${policyNumber}/history`);
-  },
+  searchPolicies: (params = {}) => api.get('/policies', { params }),
+  getPolicyByNumber: (policyNumber) => api.get(`/policies/${policyNumber}`),
+  createPolicy: (data) => api.post('/policies', data),
+  updatePolicy: (policyNumber, data) => api.put(`/policies/${policyNumber}`, data),
+  deletePolicy: (policyNumber) => api.delete(`/policies/${policyNumber}`),
+  /** Chuyển trạng thái vòng đời — backend: POST /policies/{n}/status-transitions */
+  transition: (policyNumber, toStatus, extra = {}) =>
+    api.post(`/policies/${policyNumber}/status-transitions`, { targetStatus: toStatus, ...extra }),
+  /** Yêu cầu điều chỉnh (endorsement) — backend: POST /policies/{n}/endorsements */
+  endorse: (policyNumber, payload) => api.post(`/policies/${policyNumber}/endorsements`, payload),
+  getHistory: (policyNumber) => api.get(`/policies/${policyNumber}/history`),
+  getVersions: (policyNumber) => api.get(`/policies/${policyNumber}/versions`),
+  getVersion: (policyNumber, v) => api.get(`/policies/${policyNumber}/versions/${v}`),
 };
 
-// P04: Nested Location in Policy APIs
+// ---------------------------------------------------------------- Locations (nested)
 export const policyLocationService = {
-  getLocations: async (policyId) => {
-    return api.get(`/policies/${policyId}/locations`);
-  },
-
-  getLocationById: async (policyId, locationId) => {
-    return api.get(`/policies/${policyId}/locations/${locationId}`);
-  },
-
-  addLocation: async (policyId, locationData) => {
-    return api.post(`/policies/${policyId}/locations`, locationData);
-  },
-
-  updateLocation: async (policyId, locationId, locationData) => {
-    return api.put(`/policies/${policyId}/locations/${locationId}`, locationData);
-  },
-
-  removeLocation: async (policyId, locationId) => {
-    return api.delete(`/policies/${policyId}/locations/${locationId}`);
-  },
+  getLocations: (policyNumber) => api.get(`/policies/${policyNumber}/locations`),
+  getLocationById: (policyNumber, locationId) =>
+    api.get(`/policies/${policyNumber}/locations/${locationId}`),
+  addLocation: (policyNumber, data) => api.post(`/policies/${policyNumber}/locations`, data),
+  updateLocation: (policyNumber, locationId, data) =>
+    api.put(`/policies/${policyNumber}/locations/${locationId}`, data),
+  removeLocation: (policyNumber, locationId) =>
+    api.delete(`/policies/${policyNumber}/locations/${locationId}`),
 };
 
-// P05: Nested Coverage in Location APIs
+// ---------------------------------------------------------------- Coverages (nested, keyed by coverageCode)
 export const policyCoverageService = {
-  getCoverages: async (policyId, locationId) => {
-    return api.get(`/policies/${policyId}/locations/${locationId}/coverages`);
-  },
-
-  getCoverageByCode: async (policyId, locationId, coverageCode) => {
-    return api.get(`/policies/${policyId}/locations/${locationId}/coverages/${coverageCode}`);
-  },
-
-  addCoverage: async (policyId, locationId, coverageData) => {
-    return api.post(`/policies/${policyId}/locations/${locationId}/coverages`, coverageData);
-  },
-
-  updateCoverage: async (policyId, locationId, coverageCode, coverageData) => {
-    return api.put(`/policies/${policyId}/locations/${locationId}/coverages/${coverageCode}`, coverageData);
-  },
-
-  removeCoverage: async (policyId, locationId, coverageCode) => {
-    return api.delete(`/policies/${policyId}/locations/${locationId}/coverages/${coverageCode}`);
-  },
+  getCoverages: (policyNumber, locationId) =>
+    api.get(`/policies/${policyNumber}/locations/${locationId}/coverages`),
+  addCoverage: (policyNumber, locationId, data) =>
+    api.post(`/policies/${policyNumber}/locations/${locationId}/coverages`, data),
+  updateCoverage: (policyNumber, locationId, coverageCode, data) =>
+    api.put(`/policies/${policyNumber}/locations/${locationId}/coverages/${coverageCode}`, data),
+  removeCoverage: (policyNumber, locationId, coverageCode) =>
+    api.delete(`/policies/${policyNumber}/locations/${locationId}/coverages/${coverageCode}`),
 };
 
-// P08: Endorsement Engine & History Versioning APIs
-export const endorsementService = {
-  createEndorsement: async (policyNumber, endorsementData) => {
-    return api.post(`/policies/${policyNumber}/endorsements`, endorsementData);
-  },
-
-  getVersions: async (policyNumber) => {
-    return api.get(`/policies/${policyNumber}/versions`);
-  },
-
-  getVersion: async (policyNumber, version) => {
-    return api.get(`/policies/${policyNumber}/versions/${version}`);
-  },
-
-  getHistory: async (policyNumber) => {
-    return api.get(`/policies/${policyNumber}/history`);
-  },
-
-  compareVersions: async (policyNumber, v1, v2) => {
-    return api.get(`/policies/${policyNumber}/versions/compare`, {
-      params: { v1, v2 },
-    });
-  },
-};
-
-// P10: Document Generation Engine (PDF Certificate & Policy Summary APIs)
-export const documentService = {
-  getDocuments: async (policyNumber) => {
-    return api.get(`/policies/${policyNumber}/documents`);
-  },
-
-  downloadCertificate: async (policyNumber, version) => {
-    const params = version ? { version } : {};
-    const response = await axios.get(`/policies/${policyNumber}/documents/certificate`, {
-      params,
-      responseType: 'blob',
-    });
-    const blob = new Blob([response.data], { type: 'application/pdf' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `Certificate_${policyNumber}${version ? '_v' + version : ''}.pdf`);
-    document.body.appendChild(link);
-    link.click();
-    link.parentNode.removeChild(link);
-    window.URL.revokeObjectURL(url);
-  },
-
-  downloadSummary: async (policyNumber, version) => {
-    const params = version ? { version } : {};
-    const response = await axios.get(`/policies/${policyNumber}/documents/summary`, {
-      params,
-      responseType: 'blob',
-    });
-    const blob = new Blob([response.data], { type: 'application/pdf' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `Policy_Summary_${policyNumber}${version ? '_v' + version : ''}.pdf`);
-    document.body.appendChild(link);
-    link.click();
-    link.parentNode.removeChild(link);
-    window.URL.revokeObjectURL(url);
-  },
-};
-
-// Section 4.6: Excel Pricing Matrix & Calculation APIs
+// ---------------------------------------------------------------- Excel / pricing (SRS FR-CALC)
 export const excelService = {
-  downloadTemplate: async () => {
-    const response = await axios.get('/excel/template', { responseType: 'blob' });
-    const blob = new Blob([response.data], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `InsurancePricingMatrix_${new Date().toISOString().slice(0, 10)}.xlsx`);
-    document.body.appendChild(link);
-    link.click();
-    link.parentNode.removeChild(link);
-    window.URL.revokeObjectURL(url);
-  },
-
-  importRates: async (formData) => {
-    return api.post('/excel/import-rates', formData, {
+  downloadTemplate: () =>
+    api.get('/excel/template', { responseType: 'blob' }),
+  importRates: (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post('/excel/import-rates', fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
-
-  calculate: async (payload) => {
-    return api.post('/excel/calculate', payload);
-  },
-
-  downloadPolicyBreakdown: async (policyNumber) => {
-    const response = await axios.get(`/excel/policy/${policyNumber}/download`, { responseType: 'blob' });
-    const blob = new Blob([response.data], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `PremiumCalc_${policyNumber}.xlsx`);
-    document.body.appendChild(link);
-    link.click();
-    link.parentNode.removeChild(link);
-    window.URL.revokeObjectURL(url);
-  },
-
-  getRates: async () => {
-    return api.get('/excel/rates');
-  },
+  calculate: (payload) => api.post('/excel/calculate', payload),
+  downloadBreakdown: (policyNumber) =>
+    api.get(`/excel/policy/${policyNumber}/download`, { responseType: 'blob' }),
 };
 
-// Section 4.7: MongoDB Aggregation Reports APIs
+// ---------------------------------------------------------------- Reports (SRS FR-REP)
 export const reportService = {
-  getPolicyCountByStatus: async () => {
-    return api.get('/reports/policy-count-by-status');
-  },
-
-  getTotalPremiumByStatus: async () => {
-    return api.get('/reports/total-premium-by-status');
-  },
-
-  getTopPremiumPolicies: async () => {
-    return api.get('/reports/top-premium-policies');
-  },
-
-  getPremiumByEffectiveMonth: async () => {
-    return api.get('/reports/premium-by-effective-month');
-  },
+  countByStatus: () => api.get('/reports/policy-count-by-status'),
+  premiumByStatus: () => api.get('/reports/total-premium-by-status'),
+  topPolicies: () => api.get('/reports/top-premium-policies'),
+  premiumByMonth: () => api.get('/reports/premium-by-effective-month'),
 };
 
-// Section 4.8: 50k Records Performance Benchmarking APIs
+// ---------------------------------------------------------------- Benchmark (SRS FR-BENCH)
 export const benchmarkService = {
-  generate50k: async (count = 50000) => {
-    return api.post(`/benchmark/generate-50k?count=${count}`);
-  },
-
-  runBenchmark: async () => {
-    return api.get('/benchmark/run');
-  },
-
-  getStats: async () => {
-    return api.get('/benchmark/stats');
-  },
+  generate50k: () => api.post('/benchmark/generate-50k'),
+  run: () => api.get('/benchmark/run'),
 };
+
+/** Tải file blob về máy. */
+export function downloadBlob(blob, filename) {
+  const url = window.URL.createObjectURL(blob instanceof Blob ? blob : new Blob([blob]));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
 
 export default api;

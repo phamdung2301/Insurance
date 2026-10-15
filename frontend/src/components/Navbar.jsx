@@ -1,171 +1,52 @@
-import React from 'react';
-import { ShieldCheck, User as UserIcon, LogOut, LogIn, KeyRound, Sparkles, ShoppingBag } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ChevronDown, User, KeyRound, LogOut, Menu } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { initials } from '../utils/format';
 
-export const Navbar = () => {
-  const { user, userEmail, isAuthenticated, isAdmin, logout } = useAuth();
+export function Navbar({ title, onMenu }) {
+  const { user, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const close = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, []);
+
+  const displayName = user?.fullName || user?.email || 'Khách';
 
   return (
-    <header
-      style={{
-        height: '70px',
-        borderBottom: '1px solid var(--border-subtle)',
-        background: 'rgba(11, 15, 25, 0.8)',
-        backdropFilter: 'blur(16px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 2rem',
-        position: 'sticky',
-        top: 0,
-        zIndex: 50,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-        <NavLink to="/" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', textDecoration: 'none' }}>
-          <div
-            style={{
-              width: '38px',
-              height: '38px',
-              borderRadius: '10px',
-              background: 'var(--primary-gradient)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: 'var(--shadow-glow)',
-            }}
-          >
-            <ShieldCheck size={22} color="#ffffff" />
-          </div>
-          <div>
-            <span style={{ fontWeight: 800, fontSize: '1.15rem', letterSpacing: '-0.02em', color: '#ffffff' }}>
-              Insure<span style={{ color: 'var(--primary)' }}>Guard</span>
-            </span>
-            <span
-              style={{
-                fontSize: '0.7rem',
-                background: 'rgba(99, 102, 241, 0.2)',
-                color: '#818cf8',
-                padding: '2px 8px',
-                borderRadius: '999px',
-                marginLeft: '8px',
-                fontWeight: 600,
-              }}
-            >
-              v1.0
-            </span>
-          </div>
-        </NavLink>
+    <header className="navbar">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <button className="btn btn-ghost btn-icon hamburger" onClick={onMenu} aria-label="Mở menu">
+          <Menu size={20} />
+        </button>
+        <span className="page-title">{title}</span>
       </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-        {/* Quick E-Commerce Buy Link */}
-        <NavLink
-          to="/buy"
-          className="btn"
-          style={{
-            background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.25) 100%)',
-            border: '1px solid rgba(99, 102, 241, 0.4)',
-            color: '#c7d2fe',
-            padding: '0.45rem 0.95rem',
-            fontSize: '0.825rem',
-            borderRadius: 'var(--radius-md)',
-            textDecoration: 'none',
-          }}
-        >
-          <ShoppingBag size={15} color="#818cf8" />
-          <span>Mua Bảo Hiểm (E-Commerce)</span>
-        </NavLink>
-
-        {isAuthenticated ? (
-          <>
-            {/* User Info Capsule */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.75rem',
-                background: 'var(--bg-card)',
-                padding: '0.35rem 0.9rem',
-                borderRadius: 'var(--radius-full)',
-                border: '1px solid var(--border-subtle)',
-              }}
-            >
-              <div
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '50%',
-                  background: isAdmin ? 'rgba(234, 179, 8, 0.25)' : 'rgba(99, 102, 241, 0.25)',
-                  color: isAdmin ? '#facc15' : '#a5b4fc',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 700,
-                  fontSize: '0.85rem',
-                }}
-              >
-                {user?.fullName ? user.fullName.charAt(0).toUpperCase() : 'U'}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                    {user?.fullName || 'User Profile'}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: '0.65rem',
-                      fontWeight: 700,
-                      padding: '1px 6px',
-                      borderRadius: '4px',
-                      background: isAdmin ? 'rgba(234, 179, 8, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-                      color: isAdmin ? '#facc15' : '#34d399',
-                    }}
-                  >
-                    {isAdmin ? 'ADMIN' : 'USER'}
-                  </span>
-                </div>
-                <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>
-                  {userEmail}
-                </span>
-              </div>
+      <div className="user-menu" ref={menuRef}>
+        <button className="user-chip" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}>
+          <span className="user-avatar">{initials(displayName)}</span>
+          <span style={{ fontSize: '0.88rem', fontWeight: 600, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {displayName}
+          </span>
+          {isAdmin && <span className="badge badge-quoted">Quản trị</span>}
+          <ChevronDown size={16} style={{ color: 'var(--text-muted)' }} />
+        </button>
+        {open && (
+          <div className="user-dropdown" role="menu">
+            <div className="dropdown-head">
+              <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{displayName}</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{user?.email}</div>
             </div>
-
-            {/* Logout Button */}
-            <button
-              onClick={() => {
-                logout();
-                navigate('/login');
-              }}
-              className="btn btn-secondary"
-              style={{
-                padding: '0.45rem 0.85rem',
-                fontSize: '0.825rem',
-                borderRadius: 'var(--radius-md)',
-              }}
-              title="Đăng xuất khỏi hệ thống"
-            >
-              <LogOut size={16} />
-              <span>Đăng xuất</span>
-            </button>
-          </>
-        ) : (
-          <button
-            onClick={() => navigate('/login')}
-            className="btn btn-primary"
-            style={{
-              padding: '0.5rem 1.2rem',
-              fontSize: '0.875rem',
-              borderRadius: 'var(--radius-md)',
-            }}
-          >
-            <LogIn size={16} />
-            <span>Đăng nhập Gmail OTP</span>
-          </button>
+            <button onClick={() => { setOpen(false); navigate('/ho-so'); }}><User size={16} /> Hồ sơ cá nhân</button>
+            <button onClick={() => { setOpen(false); navigate('/doi-mat-khau'); }}><KeyRound size={16} /> Đổi mật khẩu</button>
+            <button onClick={() => { setOpen(false); logout(); }} style={{ color: '#fb7185' }}><LogOut size={16} /> Đăng xuất</button>
+          </div>
         )}
       </div>
     </header>
   );
-};
+}

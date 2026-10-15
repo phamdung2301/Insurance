@@ -1,97 +1,84 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { User, KeyRound, LayoutDashboard, Terminal, Shield, MapPin, FileText, Sparkles, LogIn, ShoppingBag, BarChart3, FileSpreadsheet, Gauge } from 'lucide-react';
+import {
+  ShieldCheck, Home, ShoppingCart, LayoutDashboard, FileText,
+  TableProperties, Gauge, User, X,
+} from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
-export const Sidebar = () => {
-  const navItems = [
-    { to: '/', label: 'Bảng điều khiển', icon: LayoutDashboard },
-    { to: '/buy', label: 'Mua Bảo hiểm (E-Commerce)', icon: ShoppingBag },
-    { to: '/login', label: 'Đăng nhập OTP (Gmail)', icon: LogIn },
-    { to: '/policies', label: 'Quản lý Hợp đồng (Dashboard)', icon: FileText },
-    { to: '/policies/create', label: 'Tạo Hợp đồng (UI03)', icon: Sparkles },
-    { to: '/policies/locations', label: 'Địa điểm Hợp đồng (P04)', icon: MapPin },
-    { to: '/reports', label: 'Báo cáo Thống kê (4.7)', icon: BarChart3 },
-    { to: '/pricing', label: 'Định phí Excel (4.6)', icon: FileSpreadsheet },
-    { to: '/benchmark', label: 'Kiểm chuẩn 50k (4.8)', icon: Gauge },
-    { to: '/profile', label: 'Hồ sơ cá nhân', icon: User },
-    { to: '/change-password', label: 'Đổi mật khẩu', icon: KeyRound },
-    { to: '/api-tester', label: 'Test API Console', icon: Terminal },
+export function Sidebar({ open, onClose }) {
+  const { isAdmin } = useAuth();
+
+  const customerLinks = [
+    { to: '/', label: 'Hợp đồng của tôi', icon: <Home size={18} />, end: true },
+    { to: '/mua-bao-hiem', label: 'Mua bảo hiểm', icon: <ShoppingCart size={18} /> },
+  ];
+  const adminLinks = [
+    { to: '/admin', label: 'Tổng quan', icon: <LayoutDashboard size={18} />, end: true },
+    { to: '/admin/hop-dong', label: 'Quản lý hợp đồng', icon: <FileText size={18} /> },
+    { to: '/admin/excel', label: 'Bảng giá Excel', icon: <TableProperties size={18} /> },
+    { to: '/admin/benchmark', label: 'Kiểm thử hiệu năng', icon: <Gauge size={18} /> },
+  ];
+  const accountLinks = [
+    { to: '/ho-so', label: 'Hồ sơ cá nhân', icon: <User size={18} /> },
   ];
 
-  return (
-    <aside
-      style={{
-        width: '260px',
-        borderRight: '1px solid var(--border-subtle)',
-        background: 'rgba(11, 15, 25, 0.95)',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '1.5rem 1rem',
-      }}
+  const renderLinks = (links) => links.map((l) => (
+    <NavLink
+      key={l.to}
+      to={l.to}
+      end={l.end}
+      className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+      onClick={onClose}
     >
-      <div style={{ marginBottom: '1.5rem', padding: '0 0.5rem' }}>
-        <span
-          style={{
-            fontSize: '0.725rem',
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            color: 'var(--text-muted)',
-            fontWeight: 700,
-          }}
-        >
-          Menu Chính
-        </span>
-      </div>
+      {l.icon}<span>{l.label}</span>
+    </NavLink>
+  ));
 
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1 }}>
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === '/'}
-              style={({ isActive }) => ({
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.75rem',
-                padding: '0.75rem 1rem',
-                borderRadius: 'var(--radius-md)',
-                color: isActive ? '#ffffff' : 'var(--text-secondary)',
-                background: isActive ? 'var(--primary-gradient)' : 'transparent',
-                fontWeight: isActive ? 600 : 500,
-                fontSize: '0.9rem',
-                transition: 'all var(--transition-fast)',
-                boxShadow: isActive ? 'var(--shadow-glow)' : 'none',
-              })}
-            >
-              <Icon size={18} />
-              <span>{item.label}</span>
-            </NavLink>
-          );
-        })}
-      </nav>
-
-      {/* Security Status Box */}
-      <div
-        className="glass-card"
-        style={{
-          padding: '1rem',
-          background: 'rgba(99, 102, 241, 0.08)',
-          borderColor: 'rgba(99, 102, 241, 0.2)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.5rem',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#a5b4fc' }}>
-          <Shield size={16} />
-          <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>JWT Interceptor</span>
+  return (
+    <>
+      {open && <div className="sidebar-backdrop" onClick={onClose} />}
+      <aside className={`sidebar${open ? ' open' : ''}`}>
+        <div className="sidebar-brand">
+          <span className="logo"><ShieldCheck size={22} /></span>
+          <span>
+            <span className="name">InsurTech</span><br />
+            <span className="sub">Bảo hiểm trực tuyến</span>
+          </span>
+          <button className="btn btn-ghost btn-icon hamburger" onClick={onClose} aria-label="Đóng menu" style={{ marginLeft: 'auto' }}>
+            <X size={18} />
+          </button>
         </div>
-        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-          Headers và Token tự động được đính kèm vào mọi Axios request.
-        </span>
-      </div>
-    </aside>
+
+        <div className="nav-section">Khách hàng</div>
+        {renderLinks(customerLinks)}
+
+        {isAdmin && (
+          <>
+            <div className="nav-section">Quản trị</div>
+            {renderLinks(adminLinks)}
+          </>
+        )}
+
+        <div className="nav-section">Tài khoản</div>
+        {renderLinks(accountLinks)}
+
+        {import.meta.env.DEV && (
+          <>
+            <div className="nav-section">Phát triển</div>
+            <NavLink to="/dev/api-tester" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={onClose}>
+              <span style={{ fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>&lt;/&gt;</span>
+              <span>API Tester</span>
+            </NavLink>
+          </>
+        )}
+
+        <div className="sidebar-foot">
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', padding: '0 0.75rem' }}>
+            Phiên bản giao diện 2.0
+          </div>
+        </div>
+      </aside>
+    </>
   );
-};
+}

@@ -1,1404 +1,907 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
-  Shield,
-  Clock,
-  User,
-  MapPin,
-  DollarSign,
-  FileText,
-  History,
-  GitBranch,
-  ArrowRight,
-  Download,
-  Edit3,
-  RefreshCw,
-  CheckCircle2,
-  AlertTriangle,
-  Sparkles,
-  Layers,
-  ArrowRightLeft,
-  ChevronRight,
-  XCircle,
-  Building,
-  Calendar,
-  AlertCircle,
-  ExternalLink,
-  GitCommit,
-  Check,
-  QrCode,
-  FileSpreadsheet,
+  MapPin, Plus, Pencil, Trash2, ChevronDown, History,
+  FileText, ArrowLeft, CreditCard, Zap, Send, SlidersHorizontal,
 } from 'lucide-react';
-import { policyService, endorsementService, documentService, excelService } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { EndorsementModal } from '../components/EndorsementModal';
-import { StatusTransitionModal } from '../components/StatusTransitionModal';
+import {
+  policyService, policyLocationService, policyCoverageService,
+} from '../services/api';
+import { isBackendMissing, BACKEND_TODO_HINT } from '../utils/backend';
+import { StatusBadge, LifecycleStepper } from '../components/Status';
+import { Modal } from '../components/Modal';
 import { PaymentModal } from '../components/PaymentModal';
+import { EmptyState, Skeleton } from '../components/ui';
+import { formatMoney, formatDate, formatDateTime } from '../utils/format';
 
-export const PolicyDetailPage = () => {
+const TABS = [
+  { key: 'overview', label: 'Tổng quan' },
+  { key: 'locations', label: 'Địa điểm & gói bảo hiểm' },
+  { key: 'history', label: 'Lịch sử' },
+];
+
+const COVERAGE_CATALOG = [
+  { code: 'PROP_FIRE', name: 'Cháy nổ tài sản', type: 'PROPERTY' },
+  { code: 'PROP_WATER', name: 'Ngập nước', baseRate: 0.05, type: 'PROPERTY' },
+  { code: 'LIAB_PUBLIC', name: 'Trách nhiệm công cộng', type: 'LIABILITY' },
+  { code: 'WCOMP', name: 'Tai nạn lao động', type: 'WORKERS_COMP' },
+];
+
+const ENDORSE_TYPES = [
+  { key: 'them-dia-diem', label: 'Thêm địa điểm' },
+  { key: 'tang-limit', label: 'Tăng hạn mức' },
+  { key: 'giam-deductible', label: 'Giảm mức khấu trừ' },
+];
+
+const safeList = (v) => (Array.isArray(v) ? v : []);
+
+/**
+ * Chi tiết hợp đồng: xem, sửa địa điểm/gói bảo hiểm, chuyển trạng thái vòng đời.
+ */
+export function PolicyDetailPage() {
   const { policyNumber } = useParams();
   const navigate = useNavigate();
-  const { showToast } = useToast();
+  const toast = useToast();
+  const { isAdmin } = useAuth();
 
-  // Core Data States
   const [policy, setPolicy] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'locations' | 'timeline' | 'versions'
-
-  // History & Ledger States (P09)
-  const [transactions, setTransactions] = useState([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-
-  // Versions & Diff States (P08)
-  const [versions, setVersions] = useState([]);
-  const [loadingVersions, setLoadingVersions] = useState(false);
-  const [diffV1, setDiffV1] = useState(1);
-  const [diffV2, setDiffV2] = useState(1);
-  const [diffResult, setDiffResult] = useState(null);
-  const [comparing, setComparing] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  const [tab, setTab] = useState('overview');
+  const [payOpen, setPayOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   // Modals
-  const [showEndorsementModal, setShowEndorsementModal] = useState(false);
-  const [showTransitionModal, setShowTransitionModal] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [transitionTarget, setTransitionTarget] = useState(null);
+  const [locModal, setLocModal] = useState(null);   // {mode:'add'} | {mode:'edit', loc}
+  const [covModal, setCovModal] = useState(null);   // {mode:'add', locId} | {mode:'edit', locId, cov}
+  const [delLoc, setDelLoc] = useState(null);       // locId
+  const [delCov, setDelCov] = useState(null);       // {locId, cov}
+  const [delPolicy, setDelPolicy] = useState(false);
+  const [endorseOpen, setEndorseOpen] = useState(false);
 
-  // Fetch Policy Details
-  const fetchPolicy = useCallback(async () => {
-    if (!policyNumber) return;
+  const load = useCallback(async () => {
+    setLoading(true);
+    setNotFound(false);
     try {
-      setLoading(true);
-      const res = await policyService.getPolicyById(policyNumber);
-      const data = res.data;
-      setPolicy(data);
+      const res = await policyService.getPolicyByNumber(policyNumber);
+      setPolicy(res?.data ?? null);
     } catch (err) {
-      showToast(err.message || 'Không thể tải thông tin hợp đồng', 'error');
+      if (err.status === 404) setNotFound(true);
+      else toast.error(err.message || 'Không tải được hợp đồng.');
     } finally {
       setLoading(false);
     }
-  }, [policyNumber, showToast]);
+  }, [policyNumber, toast]);
 
-  // Fetch Audit Ledger History (P09)
-  const fetchHistory = useCallback(async () => {
-    if (!policyNumber) return;
+  useEffect(() => { load(); }, [load]);
+
+  const failToast = (err, actionName) => {
+    if (isBackendMissing(err)) toast.info(`${BACKEND_TODO_HINT}`);
+    else toast.error(err.message || `Không thực hiện được: ${actionName}.`);
+  };
+
+  // ---- Vòng đời -----------------------------------------------------------
+  const doTransition = async (toStatus, okMsg) => {
+    setBusy(true);
     try {
-      setLoadingHistory(true);
-      const res = await policyService.getHistory(policyNumber);
-      setTransactions(res.data || []);
+      await policyService.transition(policyNumber, toStatus);
+      toast.success(okMsg);
+      await load();
+      return true;
     } catch (err) {
-      console.error('Error fetching transactions:', err);
+      failToast(err, 'chuyển trạng thái');
+      return false;
     } finally {
-      setLoadingHistory(false);
+      setBusy(false);
     }
-  }, [policyNumber]);
+  };
 
-  // Fetch Version Snapshots (P08)
-  const fetchVersions = useCallback(async () => {
-    if (!policyNumber) return;
+  const requestQuote = () => doTransition('QUOTED', 'Đã gửi yêu cầu báo giá.');
+  const acceptQuote = async () => {
+    // QUOTED -> BOUND (chấp nhận báo giá) rồi mở modal thanh toán
+    const ok = await doTransition('BOUND', 'Đã chấp nhận báo giá. Vui lòng thanh toán để kích hoạt hợp đồng.');
+    if (ok) setPayOpen(true);
+  };
+  const confirmPayment = async () => {
+    // "Tôi đã chuyển khoản" -> BOUND -> ACTIVE
+    const ok = await doTransition('ACTIVE', 'Thanh toán thành công. Hợp đồng đã có hiệu lực.');
+    if (ok) setPayOpen(false);
+  };
+  const adminActivate = async () => {
+    if (!window.confirm('Kích hoạt trực tiếp hợp đồng này mà không qua thanh toán?')) return;
+    await doTransition('ACTIVE', 'Hợp đồng đã được kích hoạt.');
+  };
+  const deletePolicy = async () => {
+    setBusy(true);
     try {
-      setLoadingVersions(true);
-      const res = await policyService.getVersions(policyNumber);
-      const vList = res.data || [];
-      setVersions(vList);
-      if (vList.length >= 2) {
-        setDiffV1(vList[vList.length - 1].version);
-        setDiffV2(vList[0].version);
-      } else if (vList.length === 1) {
-        setDiffV1(vList[0].version);
-        setDiffV2(vList[0].version);
+      await policyService.deletePolicy(policyNumber);
+      toast.success('Đã xóa hợp đồng.');
+      navigate('/');
+    } catch (err) {
+      failToast(err, 'xóa hợp đồng');
+    } finally {
+      setBusy(false);
+      setDelPolicy(false);
+    }
+  };
+
+  // ---- Location CRUD ------------------------------------------------------
+  const submitLocation = async (data) => {
+    setBusy(true);
+    try {
+      if (locModal.mode === 'add') {
+        await policyLocationService.addLocation(policyNumber, data);
+        toast.success('Đã thêm địa điểm.');
+      } else {
+        await policyLocationService.updateLocation(policyNumber, locModal.loc.locationId, data);
+        toast.success('Đã cập nhật địa điểm.');
       }
+      setLocModal(null);
+      await load();
     } catch (err) {
-      console.error('Error fetching versions:', err);
+      failToast(err, 'lưu địa điểm');
     } finally {
-      setLoadingVersions(false);
+      setBusy(false);
     }
-  }, [policyNumber]);
+  };
 
-  // Load all data on mount
-  useEffect(() => {
-    fetchPolicy();
-    fetchHistory();
-    fetchVersions();
-  }, [fetchPolicy, fetchHistory, fetchVersions]);
-
-  // Handle Version Diff Comparison
-  const handleCompareVersions = async () => {
-    if (!diffV1 || !diffV2) return;
+  const deleteLocation = async () => {
+    setBusy(true);
     try {
-      setComparing(true);
-      const res = await policyService.compareVersions(policyNumber, diffV1, diffV2);
-      setDiffResult(res.data);
+      await policyLocationService.removeLocation(policyNumber, delLoc);
+      toast.success('Đã xóa địa điểm.');
+      setDelLoc(null);
+      await load();
     } catch (err) {
-      showToast(err.message || 'Không thể so sánh hai phiên bản', 'error');
+      failToast(err, 'xóa địa điểm');
     } finally {
-      setComparing(false);
+      setBusy(false);
     }
   };
 
-  // Open Transition Modal helper
-  const handleOpenTransition = (targetStatus) => {
-    setTransitionTarget(targetStatus);
-    setShowTransitionModal(true);
-  };
-
-  // After Status Transition or Endorsement update
-  const handlePolicyUpdated = (updated) => {
-    if (updated) {
-      setPolicy(updated);
-    } else {
-      fetchPolicy();
-    }
-    fetchHistory();
-    fetchVersions();
-  };
-
-  // PDF Downloads
-  const handleDownloadCOI = async (version) => {
+  // ---- Coverage CRUD ------------------------------------------------------
+  const submitCoverage = async (locId, data) => {
+    setBusy(true);
     try {
-      showToast(`Đang tải Giấy chứng nhận bảo hiểm v${version || policy.version || 1}...`, 'info');
-      await documentService.downloadCertificate(policy.policyNumber, version || policy.version);
+      if (covModal.mode === 'add') {
+        await policyCoverageService.addCoverage(policyNumber, locId, data);
+        toast.success('Đã thêm gói bảo hiểm.');
+      } else {
+        await policyCoverageService.updateCoverage(policyNumber, locId, covModal.cov.coverageCode, data);
+        toast.success('Đã cập nhật gói bảo hiểm.');
+      }
+      setCovModal(null);
+      await load();
     } catch (err) {
-      showToast(err.message || 'Lỗi khi tải COI PDF', 'error');
+      failToast(err, 'lưu gói bảo hiểm');
+    } finally {
+      setBusy(false);
     }
   };
 
-  const handleDownloadSummary = async (version) => {
+  const deleteCoverage = async () => {
+    setBusy(true);
     try {
-      showToast(`Đang tải Bảng tóm tắt hợp đồng v${version || policy.version || 1}...`, 'info');
-      await documentService.downloadSummary(policy.policyNumber, version || policy.version);
+      await policyCoverageService.removeCoverage(policyNumber, delCov.locId, delCov.cov.coverageCode);
+      toast.success('Đã xóa gói bảo hiểm.');
+      setDelCov(null);
+      await load();
     } catch (err) {
-      showToast(err.message || 'Lỗi khi tải Summary PDF', 'error');
+      failToast(err, 'xóa gói bảo hiểm');
+    } finally {
+      setBusy(false);
     }
   };
 
-  const handleDownloadExcelBreakdown = async () => {
+  // ---- Endorsement --------------------------------------------------------
+  const submitEndorse = async ({ type, description }) => {
+    setBusy(true);
     try {
-      showToast(`Đang xuất bảng tính phí Excel cho ${policy.policyNumber}...`, 'info');
-      await excelService.downloadPolicyBreakdown(policy.policyNumber);
-      showToast('Đã tải xuống bảng tính phí Excel thành công!', 'success');
+      await policyService.endorse(policyNumber, { reason: description, description });
+      toast.success('Đã gửi yêu cầu điều chỉnh.');
+      setEndorseOpen(false);
+      await load();
     } catch (err) {
-      showToast(err.message || 'Lỗi khi xuất bảng tính phí Excel', 'error');
+      failToast(err, 'gửi yêu cầu điều chỉnh');
+    } finally {
+      setBusy(false);
     }
   };
 
+  // -------------------------------------------------------------------------
   if (loading) {
     return (
-      <div className="page-wrapper" style={{ textAlign: 'center', padding: '6rem 2rem' }}>
-        <div className="spinner" style={{ width: '40px', height: '40px', margin: '0 auto 1.5rem' }} />
-        <h3 style={{ fontSize: '1.25rem', color: 'var(--text-primary)' }}>Đang tải chi tiết hợp đồng...</h3>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Vui lòng đợi trong giây lát</p>
-      </div>
+      <>
+        <Skeleton height={28} width="40%" style={{ marginBottom: '1rem' }} />
+        <Skeleton height={60} style={{ marginBottom: '1.5rem' }} />
+        <Skeleton height={220} />
+      </>
     );
   }
 
-  if (!policy) {
+  if (notFound || !policy) {
     return (
-      <div className="page-wrapper" style={{ textAlign: 'center', padding: '6rem 2rem' }}>
-        <AlertTriangle size={48} color="#ef4444" style={{ margin: '0 auto 1.5rem' }} />
-        <h3 style={{ fontSize: '1.35rem', color: 'var(--text-primary)' }}>Không tìm thấy hợp đồng</h3>
-        <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
-          Mã số hợp đồng <b>{policyNumber}</b> không tồn tại trong hệ thống.
-        </p>
-        <Link to="/policies" className="btn btn-primary">
-          Quay lại Danh sách hợp đồng
-        </Link>
-      </div>
+      <EmptyState
+        icon={<FileText size={40} />}
+        title="Không tìm thấy hợp đồng"
+        desc={`Hợp đồng ${policyNumber} không tồn tại hoặc bạn không có quyền xem.`}
+        action={<Link className="btn btn-primary" to="/"><ArrowLeft size={16} /> Về trang chủ</Link>}
+      />
     );
   }
 
-  // Formatters
-  const formatVND = (amount) =>
-    new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount || 0);
-
-  const formatDate = (isoStr) =>
-    isoStr ? new Date(isoStr).toLocaleDateString('vi-VN') : '—';
-
-  const formatDateTime = (isoStr) =>
-    isoStr ? new Date(isoStr).toLocaleString('vi-VN') : '—';
-
-  // Lifecycle steps calculation
-  const statusSteps = ['DRAFT', 'QUOTED', 'BOUND', 'ACTIVE'];
-  const currentStepIdx = statusSteps.indexOf(policy.status);
-  const isTerminated = policy.status === 'CANCELLED' || policy.status === 'EXPIRED';
-
-  // Status Badge Class
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case 'ACTIVE':
-        return <span className="badge badge-success"><span className="status-dot status-dot-active" /> ACTIVE (Hiệu lực)</span>;
-      case 'QUOTED':
-        return <span className="badge badge-info"><span className="status-dot status-dot-quoted" /> QUOTED (Báo giá)</span>;
-      case 'BOUND':
-        return <span className="badge badge-primary"><span className="status-dot status-dot-bound" /> BOUND (Ràng buộc)</span>;
-      case 'DRAFT':
-        return <span className="badge badge-warning"><span className="status-dot status-dot-draft" /> DRAFT (Bản nháp)</span>;
-      case 'CANCELLED':
-        return <span className="badge badge-danger"><span className="status-dot status-dot-cancelled" /> CANCELLED (Đã hủy)</span>;
-      case 'EXPIRED':
-      default:
-        return <span className="badge badge-secondary"><span className="status-dot status-dot-expired" /> EXPIRED (Hết hạn)</span>;
-    }
-  };
-
-  // Transaction icon mapper
-  const getTransactionIcon = (type) => {
-    switch (type) {
-      case 'CREATE_POLICY':
-        return <Sparkles size={16} color="#10b981" />;
-      case 'STATUS_TRANSITION':
-        return <ArrowRightLeft size={16} color="#6366f1" />;
-      case 'ENDORSEMENT':
-        return <Layers size={16} color="#06b6d4" />;
-      case 'UPDATE_POLICY':
-        return <Edit3 size={16} color="#f59e0b" />;
-      case 'CANCEL_POLICY':
-        return <XCircle size={16} color="#ef4444" />;
-      default:
-        return <GitCommit size={16} color="#94a3b8" />;
-    }
-  };
+  const status = policy.status;
+  const locations = safeList(policy.locations);
 
   return (
-    <div className="page-wrapper">
-      {/* =========================================================
-          BREADCRUMBS & TOP NAVIGATION
-          ========================================================= */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem', fontSize: '0.825rem', color: 'var(--text-muted)' }}>
-        <Link to="/" style={{ color: 'var(--text-muted)' }}>Bảng điều khiển</Link>
-        <ChevronRight size={14} />
-        <Link to="/policies" style={{ color: 'var(--text-muted)' }}>Hợp đồng bảo hiểm</Link>
-        <ChevronRight size={14} />
-        <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{policy.policyNumber}</span>
-      </div>
-
-      {/* =========================================================
-          POLICY DETAIL HEADER & ACTION LIST TRANSITION BAR
-          ========================================================= */}
-      <div
-        className="glass-card"
-        style={{
-          padding: '1.75rem',
-          marginBottom: '1.75rem',
-          border: '1px solid rgba(99, 102, 241, 0.25)',
-          background: 'linear-gradient(180deg, rgba(17, 24, 39, 0.85) 0%, rgba(15, 23, 42, 0.7) 100%)',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1.25rem', marginBottom: '1.5rem' }}>
-          {/* Policy Title & Status Meta */}
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
-              <div
-                style={{
-                  width: '42px',
-                  height: '42px',
-                  borderRadius: 'var(--radius-md)',
-                  background: 'rgba(99, 102, 241, 0.15)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  border: '1px solid rgba(99, 102, 241, 0.3)',
-                }}
-              >
-                <Shield size={22} color="var(--primary)" />
-              </div>
-              <h1 style={{ fontSize: '1.75rem', margin: 0, fontFamily: 'var(--font-mono)', fontWeight: 800 }}>
-                {policy.policyNumber}
-              </h1>
-              {getStatusBadge(policy.status)}
-              <span
-                style={{
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  padding: '0.2rem 0.6rem',
-                  borderRadius: 'var(--radius-full)',
-                  background: 'rgba(99, 102, 241, 0.2)',
-                  color: '#a5b4fc',
-                  border: '1px solid rgba(99, 102, 241, 0.35)',
-                }}
-              >
-                Phiên bản v{policy.version || 1}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', fontSize: '0.825rem', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
-              <span>Bên mua: <b style={{ color: 'var(--text-primary)' }}>{policy.insured?.name || 'Chưa cập nhật'}</b></span>
-              <span>•</span>
-              <span>Khởi tạo: <b>{formatDate(policy.createdAt)}</b></span>
-              <span>•</span>
-              <span>Tổng phí: <b style={{ color: '#10b981', fontSize: '0.95rem' }}>{formatVND(policy.totalPremium)}</b></span>
-            </div>
-          </div>
-
-          {/* Core Actions (PDF, Refresh, Locations, Edit) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-            <button
-              onClick={() => {
-                fetchPolicy();
-                fetchHistory();
-                fetchVersions();
-                showToast('Đã làm mới dữ liệu hợp đồng!', 'info');
-              }}
-              className="btn btn-secondary"
-              title="Làm mới dữ liệu từ server"
-              style={{ padding: '0.5rem 0.75rem' }}
-            >
-              <RefreshCw size={15} />
-            </button>
-
-            <button
-              onClick={() => handleDownloadCOI()}
-              className="btn btn-secondary"
-              title="Tải Giấy chứng nhận bảo hiểm (Certificate PDF)"
-              style={{ padding: '0.5rem 0.85rem' }}
-            >
-              <Download size={15} color="var(--primary)" />
-              <span>COI PDF</span>
-            </button>
-
-            <button
-              onClick={() => handleDownloadSummary()}
-              className="btn btn-secondary"
-              title="Tải Bảng tóm tắt hợp đồng (Policy Summary PDF)"
-              style={{ padding: '0.5rem 0.85rem' }}
-            >
-              <FileText size={15} color="#10b981" />
-              <span>Summary PDF</span>
-            </button>
-
-            <button
-              onClick={handleDownloadExcelBreakdown}
-              className="btn btn-secondary"
-              title="Xuất Bảng tính phí bảo hiểm ra Excel (FR-CALC-04)"
-              style={{ padding: '0.5rem 0.85rem' }}
-            >
-              <FileSpreadsheet size={15} color="#10b981" />
-              <span>Excel Bảng phí</span>
-            </button>
-
-            <Link
-              to="/policies/locations"
-              className="btn btn-secondary"
-              title="Quản lý địa điểm bảo hiểm (P04)"
-              style={{ padding: '0.5rem 0.85rem' }}
-            >
-              <MapPin size={15} />
-              <span>Địa điểm</span>
-            </Link>
-
-            {policy.status !== 'ACTIVE' && !isTerminated && (
-              <Link
-                to={`/policies/edit/${policy.policyNumber}`}
-                className="btn btn-secondary"
-                title="Chỉnh sửa toàn diện thông tin (Dynamic Form UI03)"
-                style={{ padding: '0.5rem 0.85rem', color: '#818cf8', borderColor: 'rgba(99, 102, 241, 0.3)' }}
-              >
-                <Edit3 size={15} />
-                <span>Chỉnh sửa Form</span>
-              </Link>
-            )}
-          </div>
-        </div>
-
-        {/* =========================================================
-            STATE TRANSITION ACTION BAR
-            ========================================================= */}
-        <div
-          style={{
-            background: 'rgba(15, 23, 42, 0.75)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '1rem 1.25rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '1rem',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <Sparkles size={18} color="var(--primary)" />
-            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-              Thao tác chuyển trạng thái (State-Machine Actions):
+    <>
+      {/* Header */}
+      <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+          <span className="policy-number" style={{ fontSize: '1.35rem' }}>{policy.policyNumber}</span>
+          <StatusBadge status={status} />
+          {policy.version != null && (
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Phiên bản v{policy.version}
             </span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-            {/* If DRAFT -> can transition to QUOTED */}
-            {policy.status === 'DRAFT' && (
-              <button
-                onClick={() => handleOpenTransition('QUOTED')}
-                className="btn btn-primary"
-                style={{ fontSize: '0.825rem', padding: '0.45rem 1rem' }}
-              >
-                <ArrowRight size={15} />
-                <span>Phát hành Báo giá (QUOTED)</span>
-              </button>
-            )}
-
-            {/* If QUOTED -> can transition to BOUND or back to DRAFT */}
-            {policy.status === 'QUOTED' && (
-              <>
-                <button
-                  onClick={() => handleOpenTransition('DRAFT')}
-                  className="btn btn-secondary"
-                  style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem' }}
-                >
-                  Quay về DRAFT
-                </button>
-                <button
-                  onClick={() => handleOpenTransition('BOUND')}
-                  className="btn btn-primary"
-                  style={{ fontSize: '0.825rem', padding: '0.45rem 1rem' }}
-                >
-                  <ArrowRight size={15} />
-                  <span>Ràng buộc Hợp đồng (BOUND)</span>
-                </button>
-              </>
-            )}
-
-            {/* If BOUND -> can transition to ACTIVE, CANCELLED, or DRAFT */}
-            {policy.status === 'BOUND' && (
-              <>
-                <button
-                  onClick={() => handleOpenTransition('DRAFT')}
-                  className="btn btn-secondary"
-                  style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem' }}
-                >
-                  Quay về DRAFT
-                </button>
-                <button
-                  onClick={() => handleOpenTransition('CANCELLED')}
-                  className="btn btn-danger"
-                  style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem' }}
-                >
-                  Hủy bỏ (CANCELLED)
-                </button>
-                <button
-                  onClick={() => setShowPaymentModal(true)}
-                  className="btn btn-primary"
-                  style={{
-                    fontSize: '0.825rem',
-                    padding: '0.45rem 1.1rem',
-                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                    borderColor: '#10b981',
-                    boxShadow: '0 0 15px rgba(16, 185, 129, 0.35)',
-                  }}
-                  title="Mở hướng dẫn thanh toán QR Code và kích hoạt 2 kênh (FR-PAY-01/02/03)"
-                >
-                  <QrCode size={15} />
-                  <span>Thanh toán QR & Kích hoạt</span>
-                </button>
-                <button
-                  onClick={() => handleOpenTransition('ACTIVE')}
-                  className="btn btn-secondary"
-                  style={{
-                    fontSize: '0.825rem',
-                    padding: '0.45rem 0.95rem',
-                    borderColor: '#10b981',
-                    color: '#34d399',
-                  }}
-                  title="Chuyển trạng thái trực tiếp sang ACTIVE"
-                >
-                  <CheckCircle2 size={15} />
-                  <span>Kích hoạt nhanh</span>
-                </button>
-              </>
-            )}
-
-            {/* If ACTIVE -> can Endorse (P08), or CANCELLED, or EXPIRED */}
-            {policy.status === 'ACTIVE' && (
-              <>
-                <button
-                  onClick={() => setShowEndorsementModal(true)}
-                  className="btn btn-primary"
-                  style={{
-                    fontSize: '0.825rem',
-                    padding: '0.45rem 1rem',
-                    background: 'var(--primary-gradient)',
-                  }}
-                >
-                  <Layers size={15} />
-                  <span>Tạo Endorsement / Phụ lục (P08)</span>
-                </button>
-
-                <button
-                  onClick={() => handleOpenTransition('CANCELLED')}
-                  className="btn btn-danger"
-                  style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem' }}
-                >
-                  Hủy hợp đồng (CANCELLED)
-                </button>
-
-                <button
-                  onClick={() => handleOpenTransition('EXPIRED')}
-                  className="btn btn-secondary"
-                  style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem' }}
-                >
-                  Hết hiệu lực (EXPIRED)
-                </button>
-              </>
-            )}
-
-            {/* If CANCELLED or EXPIRED */}
-            {isTerminated && (
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                Hợp đồng đã kết thúc vòng đời. Không có bước chuyển tiếp khả dụng.
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* =========================================================
-            LIFECYCLE STEPPER PROGRESSION
-            ========================================================= */}
-        <div style={{ marginTop: '1.75rem', paddingTop: '1.25rem', borderTop: '1px dashed var(--border-subtle)' }}>
-          <div className="stepper-container">
-            <div className="stepper-line">
-              <div
-                className="stepper-line-progress"
-                style={{
-                  width:
-                    currentStepIdx >= 0
-                      ? `${(currentStepIdx / (statusSteps.length - 1)) * 100}%`
-                      : '0%',
-                }}
-              />
-            </div>
-
-            {/* Step 1: DRAFT */}
-            <div className={`stepper-item ${currentStepIdx > 0 ? 'completed' : currentStepIdx === 0 ? 'current' : ''}`}>
-              <div className="stepper-circle">
-                {currentStepIdx > 0 ? <Check size={18} /> : 1}
-              </div>
-              <div className="stepper-label">DRAFT</div>
-              <div className="stepper-sub">{formatDate(policy.createdAt)}</div>
-            </div>
-
-            {/* Step 2: QUOTED */}
-            <div className={`stepper-item ${currentStepIdx > 1 ? 'completed' : currentStepIdx === 1 ? 'current' : ''}`}>
-              <div className="stepper-circle">
-                {currentStepIdx > 1 ? <Check size={18} /> : 2}
-              </div>
-              <div className="stepper-label">QUOTED</div>
-              <div className="stepper-sub">Đã báo giá</div>
-            </div>
-
-            {/* Step 3: BOUND */}
-            <div className={`stepper-item ${currentStepIdx > 2 ? 'completed' : currentStepIdx === 2 ? 'current' : ''}`}>
-              <div className="stepper-circle">
-                {currentStepIdx > 2 ? <Check size={18} /> : 3}
-              </div>
-              <div className="stepper-label">BOUND</div>
-              <div className="stepper-sub">
-                {policy.boundDate ? formatDate(policy.boundDate) : 'Ràng buộc'}
-              </div>
-            </div>
-
-            {/* Step 4: ACTIVE */}
-            <div className={`stepper-item ${currentStepIdx >= 3 ? 'completed' : ''}`}>
-              <div className="stepper-circle">
-                {currentStepIdx >= 3 ? <Check size={18} /> : 4}
-              </div>
-              <div className="stepper-label">ACTIVE</div>
-              <div className="stepper-sub">
-                {policy.effectiveDate ? formatDate(policy.effectiveDate) : 'Hiệu lực'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* =========================================================
-          KEY METRIC SUMMARY CARDS
-          ========================================================= */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: '1rem',
-          marginBottom: '1.75rem',
-        }}
-      >
-        {/* Card 1: Total Premium */}
-        <div className="glass-card" style={{ padding: '1.25rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>TỔNG PHÍ BẢO HIỂM</span>
-            <DollarSign size={18} color="#10b981" />
-          </div>
-          <div style={{ fontSize: '1.45rem', fontWeight: 800, color: '#10b981', fontFamily: 'var(--font-mono)' }}>
-            {formatVND(policy.totalPremium)}
-          </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-            Phiên bản hiện tại: v{policy.version || 1}
-          </div>
-        </div>
-
-        {/* Card 2: Period & Dates */}
-        <div className="glass-card" style={{ padding: '1.25rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>THỜI HẠN BẢO HIỂM</span>
-            <Calendar size={18} color="var(--primary)" />
-          </div>
-          <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-            {policy.effectiveDate ? formatDate(policy.effectiveDate) : 'Chưa kích hoạt'} →{' '}
-            {policy.expirationDate ? formatDate(policy.expirationDate) : '—'}
-          </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-            {policy.paymentDueDate ? `Hạn nộp phí: ${formatDate(policy.paymentDueDate)}` : 'Chưa có hạn nộp phí'}
-          </div>
-        </div>
-
-        {/* Card 3: Insured Party */}
-        <div className="glass-card" style={{ padding: '1.25rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>BÊN MUA BẢO HIỂM</span>
-            <User size={18} color="#06b6d4" />
-          </div>
-          <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-            {policy.insured?.name || 'Chưa cập nhật'}
-          </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-            {policy.insured?.phone || policy.insured?.email || 'N/A'}
-          </div>
-        </div>
-
-        {/* Card 4: Locations & Coverages Scope */}
-        <div className="glass-card" style={{ padding: '1.25rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>QUY MÔ BẢO HIỂM</span>
-            <Building size={18} color="#f59e0b" />
-          </div>
-          <div style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
-            {policy.locations?.length || 0}{' '}
-            <span style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-secondary)' }}>địa điểm</span>
-          </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-            Tổng cộng{' '}
-            {policy.locations?.reduce((acc, loc) => acc + (loc.coverages?.length || 0), 0) || 0} gói bảo hiểm
-          </div>
-        </div>
-      </div>
-
-      {/* =========================================================
-          TAB SELECTION BAR
-          ========================================================= */}
-      <div
-        style={{
-          display: 'flex',
-          borderBottom: '1px solid var(--border-subtle)',
-          marginBottom: '1.75rem',
-          gap: '0.5rem',
-        }}
-      >
-        <button
-          onClick={() => setActiveTab('overview')}
-          className="btn"
-          style={{
-            padding: '0.75rem 1.25rem',
-            borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
-            background: activeTab === 'overview' ? 'var(--bg-card)' : 'transparent',
-            borderBottom: activeTab === 'overview' ? '2px solid var(--primary)' : '2px solid transparent',
-            color: activeTab === 'overview' ? '#ffffff' : 'var(--text-secondary)',
-            fontWeight: 600,
-            fontSize: '0.875rem',
-          }}
-        >
-          <FileText size={16} />
-          <span>Tổng quan & Bên mua</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('locations')}
-          className="btn"
-          style={{
-            padding: '0.75rem 1.25rem',
-            borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
-            background: activeTab === 'locations' ? 'var(--bg-card)' : 'transparent',
-            borderBottom: activeTab === 'locations' ? '2px solid var(--primary)' : '2px solid transparent',
-            color: activeTab === 'locations' ? '#ffffff' : 'var(--text-secondary)',
-            fontWeight: 600,
-            fontSize: '0.875rem',
-          }}
-        >
-          <MapPin size={16} />
-          <span>Địa điểm & Phạm vi ({policy.locations?.length || 0})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('timeline')}
-          className="btn"
-          style={{
-            padding: '0.75rem 1.25rem',
-            borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
-            background: activeTab === 'timeline' ? 'var(--bg-card)' : 'transparent',
-            borderBottom: activeTab === 'timeline' ? '2px solid var(--primary)' : '2px solid transparent',
-            color: activeTab === 'timeline' ? '#ffffff' : 'var(--text-secondary)',
-            fontWeight: 600,
-            fontSize: '0.875rem',
-          }}
-        >
-          <History size={16} />
-          <span>Lịch sử Audit Log ({transactions.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('versions')}
-          className="btn"
-          style={{
-            padding: '0.75rem 1.25rem',
-            borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
-            background: activeTab === 'versions' ? 'var(--bg-card)' : 'transparent',
-            borderBottom: activeTab === 'versions' ? '2px solid var(--primary)' : '2px solid transparent',
-            color: activeTab === 'versions' ? '#ffffff' : 'var(--text-secondary)',
-            fontWeight: 600,
-            fontSize: '0.875rem',
-          }}
-        >
-          <GitBranch size={16} />
-          <span>Phiên bản & So sánh Diff ({versions.length})</span>
-        </button>
-      </div>
-
-      {/* =========================================================
-          TAB 1: TỔNG QUAN & BÊN MUA BẢO HIỂM (OVERVIEW)
-          ========================================================= */}
-      {activeTab === 'overview' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
-          {/* Insured Party Card */}
-          <div className="glass-card" style={{ padding: '1.5rem' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <User size={18} color="var(--primary)" />
-              <span>Thông tin Bên mua bảo hiểm (Insured)</span>
-            </h3>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.875rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.6rem', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Tên cá nhân / Doanh nghiệp:</span>
-                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{policy.insured?.name || '—'}</span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.6rem', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Loại hình đối tượng:</span>
-                <span className="badge badge-primary">{policy.insured?.type || 'BUSINESS'}</span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.6rem', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Mã định danh bên mua:</span>
-                <span style={{ fontFamily: 'var(--font-mono)' }}>{policy.insured?.insuredId || '—'}</span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.6rem', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Số điện thoại:</span>
-                <span style={{ fontWeight: 500 }}>{policy.insured?.phone || '—'}</span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.6rem', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Email liên hệ:</span>
-                <span style={{ color: 'var(--primary)' }}>{policy.insured?.email || '—'}</span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)', minWidth: '120px' }}>Địa chỉ trụ sở / cư trú:</span>
-                <span style={{ textAlign: 'right', fontWeight: 500 }}>{policy.insured?.address || '—'}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Legal Dates & Terms Card */}
-          <div className="glass-card" style={{ padding: '1.5rem' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Calendar size={18} color="var(--primary)" />
-              <span>Thời hạn Hợp đồng & Pháp lý</span>
-            </h3>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.875rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.6rem', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Mã số hợp đồng:</span>
-                <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--primary)' }}>{policy.policyNumber}</span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.6rem', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Trạng thái vòng đời:</span>
-                <span>{getStatusBadge(policy.status)}</span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.6rem', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Ngày tạo hợp đồng:</span>
-                <span>{formatDateTime(policy.createdAt)}</span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.6rem', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Ngày ràng buộc (Bound Date):</span>
-                <span>{formatDateTime(policy.boundDate)}</span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.6rem', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Hạn thanh toán phí (Due Date):</span>
-                <span style={{ color: policy.paymentDueDate ? '#f59e0b' : 'inherit', fontWeight: 600 }}>
-                  {formatDate(policy.paymentDueDate)}
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.6rem', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Ngày bắt đầu hiệu lực (Effective):</span>
-                <span style={{ color: '#10b981', fontWeight: 600 }}>{formatDate(policy.effectiveDate)}</span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Ngày kết thúc hiệu lực (Expiration):</span>
-                <span style={{ fontWeight: 600 }}>{formatDate(policy.expirationDate)}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================
-          TAB 2: ĐỊA ĐIỂM & PHẠM VI BẢO HIỂM (LOCATIONS & COVERAGES)
-          ========================================================= */}
-      {activeTab === 'locations' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-              Danh sách chi tiết các địa điểm rủi ro và phạm vi bảo hiểm thành phần:
-            </span>
-            <Link to="/policies/locations" className="btn btn-secondary" style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}>
-              <ExternalLink size={14} />
-              <span>Mở trang Quản lý Địa điểm P04</span>
-            </Link>
-          </div>
-
-          {(!policy.locations || policy.locations.length === 0) ? (
-            <div className="glass-card" style={{ textAlign: 'center', padding: '3rem 1.5rem' }}>
-              <Building size={40} color="var(--text-muted)" style={{ margin: '0 auto 1rem' }} />
-              <h4 style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>Chưa có địa điểm bảo hiểm</h4>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-                Hợp đồng cần ít nhất 1 địa điểm và mỗi địa điểm cần tối thiểu 1 gói bảo hiểm để có thể báo giá (QUOTED).
-              </p>
-              <Link to="/policies/locations" className="btn btn-primary" style={{ fontSize: '0.85rem' }}>
-                Thêm địa điểm bảo hiểm
-              </Link>
-            </div>
-          ) : (
-            policy.locations.map((loc, index) => {
-              const locationSubtotal =
-                loc.coverages?.reduce((acc, cov) => acc + (cov.premium || 0), 0) || 0;
-
-              return (
-                <div
-                  key={loc.locationId || index}
-                  className="glass-card"
-                  style={{
-                    padding: '1.5rem',
-                    border: '1px solid var(--border-subtle)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '1.25rem',
-                  }}
-                >
-                  {/* Location Header */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <div
-                        style={{
-                          width: '36px',
-                          height: '36px',
-                          borderRadius: 'var(--radius-md)',
-                          background: 'rgba(99, 102, 241, 0.15)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: 'var(--primary)',
-                          fontWeight: 700,
-                        }}
-                      >
-                        #{index + 1}
-                      </div>
-                      <div>
-                        <h4 style={{ fontSize: '1.05rem', margin: 0, fontWeight: 700, color: 'var(--text-primary)' }}>
-                          {loc.address || `Địa điểm ${index + 1}`}
-                        </h4>
-                        <span style={{ fontSize: '0.775rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                          ID: {loc.locationId || `LOC-${index + 1}`}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>PHÍ PHÂN BỔ ĐỊA ĐIỂM</span>
-                      <span style={{ fontSize: '1.15rem', fontWeight: 800, color: '#10b981', fontFamily: 'var(--font-mono)' }}>
-                        {formatVND(locationSubtotal)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Location Physical Specs */}
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-                      gap: '0.75rem',
-                      background: 'rgba(15, 23, 42, 0.6)',
-                      padding: '0.85rem 1rem',
-                      borderRadius: 'var(--radius-md)',
-                      fontSize: '0.8rem',
-                    }}
-                  >
-                    <div>
-                      <span style={{ color: 'var(--text-muted)', display: 'block' }}>Kết cấu xây dựng:</span>
-                      <b>{loc.constructionType || '—'}</b>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--text-muted)', display: 'block' }}>Năm xây dựng:</span>
-                      <b>{loc.yearBuilt || '—'}</b>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--text-muted)', display: 'block' }}>Số tầng:</span>
-                      <b>{loc.numberOfFloors || '—'}</b>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--text-muted)', display: 'block' }}>Mục đích sử dụng:</span>
-                      <b>{loc.occupancyType || '—'}</b>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--text-muted)', display: 'block' }}>Diện tích (sqft):</span>
-                      <b>{loc.squareFootage ? loc.squareFootage.toLocaleString() : '—'}</b>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--text-muted)', display: 'block' }}>Chữa cháy tự động:</span>
-                      <span className={`badge ${loc.sprinklered ? 'badge-success' : 'badge-secondary'}`}>
-                        {loc.sprinklered ? 'Có trang bị' : 'Không có'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Coverages Table */}
-                  <div>
-                    <h5 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem' }}>
-                      Các gói phạm vi bảo hiểm ({loc.coverages?.length || 0}):
-                    </h5>
-
-                    {(!loc.coverages || loc.coverages.length === 0) ? (
-                      <div style={{ textAlign: 'center', padding: '1.25rem', border: '1px dashed var(--border-subtle)', borderRadius: 'var(--radius-md)', color: 'var(--text-muted)', fontSize: '0.825rem' }}>
-                        Chưa thiết lập phạm vi bảo hiểm cho địa điểm này.
-                      </div>
-                    ) : (
-                      <div className="data-table-container">
-                        <table className="data-table" style={{ fontSize: '0.825rem' }}>
-                          <thead>
-                            <tr>
-                              <th>Mã gói</th>
-                              <th>Tên phạm vi bảo hiểm</th>
-                              <th style={{ textAlign: 'right' }}>Hạn mức bồi thường</th>
-                              <th style={{ textAlign: 'right' }}>Mức khấu trừ</th>
-                              <th style={{ textAlign: 'right' }}>Tỷ lệ phí (%)</th>
-                              <th style={{ textAlign: 'right' }}>Phí bảo hiểm</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {loc.coverages.map((cov, cIdx) => (
-                              <tr key={cov.coverageCode || cIdx}>
-                                <td>
-                                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--primary)' }}>
-                                    {cov.coverageCode}
-                                  </span>
-                                </td>
-                                <td>{cov.coverageName || '—'}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatVND(cov.limitAmount)}</td>
-                                <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{formatVND(cov.deductibleAmount)}</td>
-                                <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{cov.rate ? `${cov.rate}%` : '—'}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 700, color: '#10b981', fontFamily: 'var(--font-mono)' }}>
-                                  {formatVND(cov.premium)}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })
           )}
+          <span style={{ marginLeft: 'auto', textAlign: 'right' }}>
+            <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Tổng phí</span>
+            <strong style={{ fontSize: '1.5rem', color: '#1663d9' }}>{formatMoney(policy.totalPremium)}</strong>
+          </span>
         </div>
-      )}
+        <LifecycleStepper status={status} />
+      </div>
 
-      {/* =========================================================
-          TAB 3: LỊCH SỬ SỔ CÁI GIAO DỊCH & AUDIT LOG (P09 TIMELINE)
-          ========================================================= */}
-      {activeTab === 'timeline' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-              Nhật ký sổ cái giao dịch bất biến (Audit Trail Ledger P09) ghi nhận toàn bộ vòng đời hợp đồng:
-            </span>
-            <button
-              onClick={fetchHistory}
-              className="btn btn-secondary"
-              style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
-            >
-              <RefreshCw size={14} className={loadingHistory ? 'spinner' : ''} />
-              <span>Làm mới nhật ký</span>
-            </button>
-          </div>
+      {/* Action bar theo trạng thái */}
+      <ActionBar
+        status={status}
+        isAdmin={isAdmin}
+        busy={busy}
+        onRequestQuote={requestQuote}
+        onAcceptQuote={acceptQuote}
+        onPayNow={() => setPayOpen(true)}
+        onAdminActivate={adminActivate}
+        onEndorse={() => setEndorseOpen(true)}
+        onDelete={() => setDelPolicy(true)}
+      />
 
-          {loadingHistory ? (
-            <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-              <div className="spinner" style={{ margin: '0 auto 1rem', width: '28px', height: '28px' }} />
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Đang tải sổ cái giao dịch...</p>
-            </div>
-          ) : transactions.length === 0 ? (
-            <div className="glass-card" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-              <History size={40} color="var(--text-muted)" style={{ margin: '0 auto 1rem' }} />
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Chưa có bản ghi giao dịch nào cho hợp đồng này.</p>
-            </div>
-          ) : (
-            <div className="timeline-track">
-              {transactions.map((txn, idx) => (
-                <div key={txn.id || idx} className="timeline-node">
-                  <div className="timeline-bullet">
-                    {getTransactionIcon(txn.transactionType)}
-                  </div>
-
-                  <div className="timeline-card">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                        <span className="badge badge-primary" style={{ fontSize: '0.75rem' }}>
-                          {txn.transactionType}
-                        </span>
-                        {txn.version && (
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                            Phiên bản v{txn.version}
-                          </span>
-                        )}
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        <Clock size={13} />
-                        <span>{formatDateTime(txn.timestamp)}</span>
-                      </div>
-                    </div>
-
-                    <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '0.5rem', fontWeight: 500 }}>
-                      {txn.description || 'Thao tác nghiệp vụ hệ thống'}
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      <span>Thực hiện bởi: <b style={{ color: 'var(--text-secondary)' }}>{txn.performedBy || txn.actor || 'System'}</b></span>
-                    </div>
-
-                    {txn.changes && Object.keys(txn.changes).length > 0 && (
-                      <div
-                        style={{
-                          marginTop: '0.75rem',
-                          padding: '0.6rem 0.85rem',
-                          background: 'rgba(0, 0, 0, 0.35)',
-                          borderRadius: 'var(--radius-sm)',
-                          fontSize: '0.75rem',
-                          fontFamily: 'var(--font-mono)',
-                          color: '#94a3b8',
-                          overflowX: 'auto',
-                        }}
-                      >
-                        {JSON.stringify(txn.changes, null, 2)}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* =========================================================
-          TAB 4: PHIÊN BẢN & SO SÁNH DIFF (P08 VERSIONS & DIFF)
-          ========================================================= */}
-      {activeTab === 'versions' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
-          {/* Version Diff Tool Bar */}
-          <div
-            className="glass-card"
-            style={{
-              padding: '1.5rem',
-              border: '1px solid rgba(99, 102, 241, 0.3)',
-              background: 'linear-gradient(180deg, rgba(17, 24, 39, 0.75) 0%, rgba(15, 23, 42, 0.6) 100%)',
-            }}
+      {/* Tabs */}
+      <div className="tabs" role="tablist" aria-label="Chi tiết hợp đồng">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            className={`tab${tab === t.key ? ' active' : ''}`}
+            onClick={() => setTab(t.key)}
           >
-            <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <ArrowRightLeft size={18} color="var(--primary)" />
-              <span>Công cụ So sánh Thay đổi giữa 2 Phiên bản (Version Diff)</span>
-            </h3>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-              Truy vết các trường dữ liệu và mức chênh lệch phí bảo hiểm (Δ) giữa các phiên bản phụ lục (Endorsements).
-            </p>
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>Phiên bản cũ (v1):</span>
-                <select
-                  value={diffV1}
-                  onChange={(e) => setDiffV1(Number(e.target.value))}
-                  className="form-control"
-                  style={{ width: '130px', padding: '0.4rem 0.6rem', fontSize: '0.85rem' }}
-                >
-                  {versions.map((v) => (
-                    <option key={v.version} value={v.version}>
-                      v{v.version} ({v.endorsementType || 'Snapshot'})
-                    </option>
-                  ))}
-                </select>
-              </div>
+      {tab === 'overview' && <OverviewTab policy={policy} locations={locations} />}
 
-              <ArrowRight size={18} color="var(--text-muted)" />
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>Phiên bản mới (v2):</span>
-                <select
-                  value={diffV2}
-                  onChange={(e) => setDiffV2(Number(e.target.value))}
-                  className="form-control"
-                  style={{ width: '130px', padding: '0.4rem 0.6rem', fontSize: '0.85rem' }}
-                >
-                  {versions.map((v) => (
-                    <option key={v.version} value={v.version}>
-                      v{v.version} ({v.endorsementType || 'Snapshot'})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <button
-                onClick={handleCompareVersions}
-                disabled={comparing}
-                className="btn btn-primary"
-                style={{ fontSize: '0.85rem', padding: '0.45rem 1rem' }}
-              >
-                {comparing ? <RefreshCw className="animate-spin" size={15} /> : <ArrowRightLeft size={15} />}
-                <span>So sánh Diff</span>
-              </button>
-            </div>
-
-            {/* Diff Comparison Output Panel */}
-            {diffResult && (
-              <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {/* Premium Delta Summary */}
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                    gap: '1rem',
-                    background: 'rgba(15, 23, 42, 0.75)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: '1rem',
-                    textAlign: 'center',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Phí phiên bản v{diffResult.fromVersion || diffV1}</div>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
-                      {formatVND(diffResult.premiumBefore || diffResult.v1Premium)}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Phí phiên bản v{diffResult.toVersion || diffV2}</div>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
-                      {formatVND(diffResult.premiumAfter || diffResult.v2Premium)}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Chênh lệch phí (Δ)</div>
-                    <div
-                      style={{
-                        fontSize: '1.1rem',
-                        fontWeight: 700,
-                        color: (diffResult.premiumDifference || 0) >= 0 ? '#10b981' : '#ef4444',
-                        fontFamily: 'var(--font-mono)',
-                      }}
-                    >
-                      {(diffResult.premiumDifference || 0) >= 0 ? '+' : ''}
-                      {formatVND(diffResult.premiumDifference || 0)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Diff Field Changes List */}
-                <h4 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                  Chi tiết các trường thay đổi ({diffResult.changes?.length || Object.keys(diffResult.differences || {}).length}):
-                </h4>
-
-                {diffResult.changes && diffResult.changes.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                    {diffResult.changes.map((ch, idx) => (
-                      <div key={idx} className="diff-item">
-                        <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--primary)' }}>
-                          {ch.field}
-                        </div>
-                        <div className="diff-old">
-                          <span style={{ fontSize: '0.7rem', display: 'block', opacity: 0.8 }}>v{diffV1}:</span>
-                          {String(ch.oldValue ?? '—')}
-                        </div>
-                        <div className="diff-new">
-                          <span style={{ fontSize: '0.7rem', display: 'block', opacity: 0.8 }}>v{diffV2}:</span>
-                          {String(ch.newValue ?? '—')}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : diffResult.differences && Object.keys(diffResult.differences).length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                    {Object.entries(diffResult.differences).map(([k, diff], idx) => (
-                      <div key={idx} className="diff-item">
-                        <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--primary)' }}>
-                          {k}
-                        </div>
-                        <div className="diff-old">
-                          <span style={{ fontSize: '0.7rem', display: 'block', opacity: 0.8 }}>v{diffV1}:</span>
-                          {JSON.stringify(diff.from ?? diff.v1)}
-                        </div>
-                        <div className="diff-new">
-                          <span style={{ fontSize: '0.7rem', display: 'block', opacity: 0.8 }}>v{diffV2}:</span>
-                          {JSON.stringify(diff.to ?? diff.v2)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: 'var(--radius-md)', color: '#34d399', fontSize: '0.825rem' }}>
-                    Không có sự khác biệt dữ liệu nào giữa phiên bản v{diffV1} và v{diffV2}.
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* List of Version Snapshots */}
-          <div>
-            <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '1rem' }}>
-              Danh sách Snapshot Phiên bản đã lưu ({versions.length} bản ghi)
-            </h3>
-
-            {loadingVersions ? (
-              <div style={{ textAlign: 'center', padding: '2rem' }}>
-                <div className="spinner" style={{ margin: '0 auto 0.5rem', width: '24px', height: '24px' }} />
-                <span style={{ fontSize: '0.825rem', color: 'var(--text-muted)' }}>Đang tải snapshot phiên bản...</span>
-              </div>
-            ) : versions.length === 0 ? (
-              <div className="glass-card" style={{ textAlign: 'center', padding: '2.5rem 1rem' }}>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>
-                  Hợp đồng đang ở phiên bản ban đầu (v1). Chưa có bản chụp snapshot sửa đổi bổ sung (Endorsement).
-                </p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                {versions.map((ver) => {
-                  const isCurrent = ver.version === policy.version;
-                  return (
-                    <div
-                      key={ver.id || ver.version}
-                      className="glass-card"
-                      style={{
-                        padding: '1.25rem',
-                        border: isCurrent ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
-                        background: isCurrent ? 'rgba(99, 102, 241, 0.08)' : 'rgba(17, 24, 39, 0.7)',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: '1rem',
-                      }}
-                    >
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.35rem' }}>
-                          <span className="badge badge-primary" style={{ fontSize: '0.8rem' }}>
-                            Phiên bản v{ver.version}
-                          </span>
-                          {isCurrent && (
-                            <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 700 }}>
-                              ● Đang hiệu lực
-                            </span>
-                          )}
-                          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                            {ver.endorsementReason || 'Snapshot lưu trữ tự động'}
-                          </span>
-                        </div>
-
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          Lưu bởi: <b>{ver.createdBy || ver.endorsedBy || 'System'}</b> •{' '}
-                          {formatDateTime(ver.createdAt || ver.timestamp)}
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-                        <div style={{ textAlign: 'right' }}>
-                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>PHÍ PHIÊN BẢN</span>
-                          <span style={{ fontSize: '1rem', fontWeight: 700, color: '#10b981', fontFamily: 'var(--font-mono)' }}>
-                            {formatVND(ver.totalPremium || ver.policySnapshot?.totalPremium)}
-                          </span>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '0.4rem' }}>
-                          <button
-                            onClick={() => handleDownloadCOI(ver.version)}
-                            className="btn btn-secondary"
-                            style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem' }}
-                            title="Tải COI PDF phiên bản này"
-                          >
-                            <Download size={13} color="var(--primary)" />
-                            <span>COI PDF</span>
-                          </button>
-
-                          <button
-                            onClick={() => handleDownloadSummary(ver.version)}
-                            className="btn btn-secondary"
-                            style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem' }}
-                            title="Tải Summary PDF phiên bản này"
-                          >
-                            <FileText size={13} color="#10b981" />
-                            <span>Summary PDF</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+      {tab === 'locations' && (
+        <LocationsTab
+          locations={locations}
+          onAddLocation={() => setLocModal({ mode: 'add' })}
+          onEditLocation={(loc) => setLocModal({ mode: 'edit', loc })}
+          onDeleteLocation={(loc) => setDelLoc(loc.locationId)}
+          onAddCoverage={(loc) => setCovModal({ mode: 'add', locId: loc.locationId })}
+          onEditCoverage={(loc, cov) => setCovModal({ mode: 'edit', locId: loc.locationId, cov })}
+          onDeleteCoverage={(loc, cov) => setDelCov({ locId: loc.locationId, cov })}
+        />
       )}
 
-      {/* =========================================================
-          MODALS
-          ========================================================= */}
-      {/* 1. Status Transition Modal */}
-      <StatusTransitionModal
-        policy={policy}
-        targetStatus={transitionTarget}
-        isOpen={showTransitionModal}
-        onClose={() => setShowTransitionModal(false)}
-        onSuccess={handlePolicyUpdated}
-      />
+      {tab === 'history' && <HistoryTab policyNumber={policyNumber} currentPolicy={policy} />}
 
-      {/* 2. Endorsement Modal */}
-      <EndorsementModal
-        policy={policy}
-        isOpen={showEndorsementModal}
-        onClose={() => setShowEndorsementModal(false)}
-        onSuccess={handlePolicyUpdated}
+      {/* Modals */}
+      <LocationFormModal
+        open={!!locModal}
+        onClose={() => setLocModal(null)}
+        initial={locModal?.mode === 'edit' ? locModal.loc : null}
+        onSubmit={submitLocation}
+        busy={busy}
       />
+      <CoverageFormModal
+        open={!!covModal}
+        onClose={() => setCovModal(null)}
+        mode={covModal?.mode}
+        existing={covModal?.mode === 'edit' ? covModal.cov : null}
+        onSubmit={(data) => submitCoverage(covModal.locId, data)}
+        busy={busy}
+      />
+      <Modal
+        open={delLoc != null}
+        onClose={() => setDelLoc(null)}
+        title="Xóa địa điểm"
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setDelLoc(null)}>Hủy</button>
+            <button className="btn btn-danger" onClick={deleteLocation} disabled={busy}>
+              {busy ? <span className="spinner" /> : null} Xóa
+            </button>
+          </>
+        }
+      >
+        <p>Bạn có chắc muốn xóa địa điểm này cùng toàn bộ gói bảo hiểm của nó? Thao tác không thể hoàn tác.</p>
+      </Modal>
+      <Modal
+        open={delCov != null}
+        onClose={() => setDelCov(null)}
+        title="Xóa gói bảo hiểm"
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setDelCov(null)}>Hủy</button>
+            <button className="btn btn-danger" onClick={deleteCoverage} disabled={busy}>
+              {busy ? <span className="spinner" /> : null} Xóa
+            </button>
+          </>
+        }
+      >
+        <p>Bạn có chắc muốn xóa gói <strong>{delCov?.cov?.coverageName}</strong>? Thao tác không thể hoàn tác.</p>
+      </Modal>
+      <Modal
+        open={delPolicy}
+        onClose={() => setDelPolicy(false)}
+        title="Xóa hợp đồng"
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setDelPolicy(false)}>Hủy</button>
+            <button className="btn btn-danger" onClick={deletePolicy} disabled={busy}>
+              {busy ? <span className="spinner" /> : null} Xóa hợp đồng
+            </button>
+          </>
+        }
+      >
+        <p>Hợp đồng <strong className="policy-number">{policyNumber}</strong> đang ở trạng thái nháp và sẽ bị xóa vĩnh viễn.</p>
+      </Modal>
+      <EndorseModal open={endorseOpen} onClose={() => setEndorseOpen(false)} onSubmit={submitEndorse} busy={busy} />
 
-      {/* 3. Payment Instructions & Activation Modal (FR-PAY-01/02/03) */}
       <PaymentModal
+        open={payOpen}
+        onClose={() => setPayOpen(false)}
         policy={policy}
-        isOpen={showPaymentModal}
-        onClose={() => setShowPaymentModal(false)}
-        onPaymentSuccess={handlePolicyUpdated}
+        onConfirmed={confirmPayment}
       />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------- Action bar
+function ActionBar({ status, isAdmin, busy, onRequestQuote, onAcceptQuote, onPayNow, onAdminActivate, onEndorse, onDelete }) {
+  const btn = (props, children) => (
+    <button type="button" className="btn" disabled={busy} {...props}>{children}</button>
+  );
+  return (
+    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+      {status === 'DRAFT' && (
+        <>
+          {btn({ className: 'btn btn-primary', onClick: onRequestQuote }, <><Send size={16} /> Yêu cầu báo giá</>)}
+          {btn({ className: 'btn btn-danger', onClick: onDelete }, <><Trash2 size={16} /> Xóa hợp đồng</>)}
+        </>
+      )}
+      {status === 'QUOTED' && btn({ className: 'btn btn-primary', onClick: onAcceptQuote }, <><Check size={16} /> Chấp nhận & thanh toán</>)}
+      {status === 'BOUND' && (
+        <>
+          {btn({ className: 'btn btn-primary', onClick: onPayNow }, <><CreditCard size={16} /> Thanh toán ngay</>)}
+          {isAdmin && btn({ className: 'btn btn-secondary', onClick: onAdminActivate }, <><Zap size={16} /> Kích hoạt trực tiếp</>)}
+        </>
+      )}
+      {status === 'ACTIVE' && btn({ className: 'btn btn-secondary', onClick: onEndorse }, <><SlidersHorizontal size={16} /> Yêu cầu điều chỉnh</>)}
     </div>
   );
+}
+
+// ---------------------------------------------------------------- Overview
+function OverviewTab({ policy, locations }) {
+  const ins = policy.insured || {};
+  const locPremium = (l) => safeList(l.coverages).reduce((s, c) => s + Number(c.premium || 0), 0);
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.25rem' }}>
+      <div className="glass-card">
+        <h3 style={{ marginBottom: '1rem' }}>Người được bảo hiểm</h3>
+        <dl className="kv">
+          <dt>Họ tên</dt><dd>{ins.name || '—'}</dd>
+          <dt>Email</dt><dd>{ins.email || '—'}</dd>
+          <dt>Điện thoại</dt><dd>{ins.phone || '—'}</dd>
+          <dt>Địa chỉ</dt><dd>{ins.address || '—'}</dd>
+          <dt>Loại khách hàng</dt><dd>{ins.type === 'DOANH_NGHIEP' ? 'Doanh nghiệp' : 'Cá nhân'}</dd>
+        </dl>
+      </div>
+      <div className="glass-card">
+        <h3 style={{ marginBottom: '1rem' }}>Thời hạn hợp đồng</h3>
+        <dl className="kv">
+          <dt>Ngày hiệu lực</dt><dd>{formatDate(policy.effectiveDate)}</dd>
+          <dt>Ngày hết hạn</dt><dd>{formatDate(policy.expiryDate)}</dd>
+          <dt>Ngày chốt báo giá</dt><dd>{formatDateTime(policy.boundAt || policy.paymentAt)}</dd>
+          <dt>Hạn thanh toán</dt><dd>{formatDate(policy.paymentDueDate)}</dd>
+        </dl>
+      </div>
+      <div className="glass-card">
+        <h3 style={{ marginBottom: '1rem' }}>Chi tiết phí</h3>
+        <dl className="kv">
+          {locations.map((l, i) => (
+            <React.Fragment key={l.locationId ?? i}>
+              <dt>{l.name || `Địa điểm ${i + 1}`}</dt>
+              <dd>{formatMoney(locPremium(l))}</dd>
+            </React.Fragment>
+          ))}
+          <dt style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '0.6rem' }}><strong>Tổng cộng</strong></dt>
+          <dd style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '0.6rem' }}>
+            <strong style={{ color: '#1663d9' }}>{formatMoney(policy.totalPremium)}</strong>
+          </dd>
+        </dl>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Locations
+function LocationsTab({ locations, onAddLocation, onEditLocation, onDeleteLocation, onAddCoverage, onEditCoverage, onDeleteCoverage }) {
+  const [openId, setOpenId] = useState(locations[0]?.locationId ?? 0);
+
+  useEffect(() => {
+    if (!locations.some((l) => (l.locationId ?? 0) === openId)) {
+      setOpenId(locations[0]?.locationId ?? 0);
+    }
+  }, [locations, openId]);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={onAddLocation}>
+          <Plus size={15} /> Thêm địa điểm
+        </button>
+      </div>
+      {locations.length === 0 && (
+        <EmptyState
+          icon={<MapPin size={40} />}
+          title="Chưa có địa điểm nào"
+          desc="Thêm địa điểm đầu tiên cho hợp đồng này."
+          action={<button className="btn btn-primary" onClick={onAddLocation}>Thêm địa điểm</button>}
+        />
+      )}
+      {locations.map((l, i) => {
+        const lid = l.locationId ?? i;
+        const open = openId === lid;
+        const covs = safeList(l.coverages);
+        const total = covs.reduce((s, c) => s + Number(c.premium || 0), 0);
+        return (
+          <div key={lid} className="accordion">
+            <button
+              type="button"
+              className="accordion-head"
+              onClick={() => setOpenId(open ? null : lid)}
+              aria-expanded={open}
+            >
+              <span>
+                <MapPin size={16} style={{ verticalAlign: '-3px', marginRight: 8, color: '#1663d9' }} />
+                {l.name || `Địa điểm ${i + 1}`} — <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>{l.address}</span>
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <strong style={{ color: '#1663d9' }}>{formatMoney(total)}</strong>
+                <ChevronDown size={18} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+              </span>
+            </button>
+            {open && (
+              <div className="accordion-body">
+                <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => onEditLocation(l)} aria-label={`Sửa địa điểm ${l.name || i + 1}`}>
+                    <Pencil size={14} /> Sửa địa điểm
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => onDeleteLocation(l)} aria-label={`Xóa địa điểm ${l.name || i + 1}`}>
+                    <Trash2 size={14} /> Xóa địa điểm
+                  </button>
+                </div>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Mã gói</th>
+                        <th>Tên gói</th>
+                        <th>Hạn mức</th>
+                        <th>Khấu trừ</th>
+                        <th>Phí</th>
+                        <th style={{ width: 110 }}>Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {covs.map((c) => (
+                        <tr key={c.coverageCode}>
+                          <td><span className="policy-number" style={{ fontSize: '0.8rem' }}>{c.coverageCode}</span></td>
+                          <td>{c.coverageName}</td>
+                          <td>{formatMoney(c.limit)}</td>
+                          <td>{formatMoney(c.deductible)}</td>
+                          <td><strong style={{ color: '#1663d9' }}>{formatMoney(c.premium)}</strong></td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                              <button
+                                type="button" className="btn btn-ghost btn-icon btn-sm"
+                                onClick={() => onEditCoverage(l, c)}
+                                aria-label={`Sửa gói ${c.coverageName}`} title="Sửa"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button
+                                type="button" className="btn btn-ghost btn-icon btn-sm"
+                                onClick={() => onDeleteCoverage(l, c)}
+                                aria-label={`Xóa gói ${c.coverageName}`} title="Xóa"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {covs.length === 0 && (
+                        <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                          Chưa có gói bảo hiểm nào cho địa điểm này.
+                        </td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: '1rem' }} onClick={() => onAddCoverage(l)}>
+                  <Plus size={15} /> Thêm gói bảo hiểm
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Forms
+function LocationFormModal({ open, onClose, initial, onSubmit, busy }) {
+  const [name, setName] = useState('');
+  const [address, setAddress] = useState('');
+  useEffect(() => {
+    if (open) {
+      setName(initial?.name || '');
+      setAddress(initial?.address || '');
+    }
+  }, [open, initial]);
+  const submit = (e) => {
+    e.preventDefault();
+    if (!name.trim() || !address.trim()) return;
+    onSubmit({ name: name.trim(), address: address.trim() });
+  };
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={initial ? 'Sửa địa điểm' : 'Thêm địa điểm'}
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Hủy</button>
+          <button className="btn btn-primary" onClick={submit} disabled={busy || !name.trim() || !address.trim()}>
+            {busy ? <span className="spinner" /> : null} Lưu
+          </button>
+        </>
+      }
+    >
+      <div className="form-group">
+        <label className="form-label" htmlFor="loc-name">Tên địa điểm *</label>
+        <input id="loc-name" className="form-control" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ví dụ: Kho hàng Quận 7" />
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="loc-addr">Địa chỉ *</label>
+        <input id="loc-addr" className="form-control" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Số nhà, đường, phường/xã…" />
+      </div>
+    </Modal>
+  );
+}
+
+function CoverageFormModal({ open, onClose, mode, existing, onSubmit, busy }) {
+  const [code, setCode] = useState(COVERAGE_CATALOG[0].code);
+  const [limit, setLimit] = useState('');
+  const [deductible, setDeductible] = useState('');
+  const [termMonths, setTermMonths] = useState(12);
+  useEffect(() => {
+    if (open) {
+      setCode(existing?.coverageCode || COVERAGE_CATALOG[0].code);
+      setLimit(existing?.limit ?? '');
+      setDeductible(existing?.deductible ?? '');
+      setTermMonths(existing?.termMonths ?? 12);
+    }
+  }, [open, existing]);
+  const limitNum = Number(limit);
+  const dedNum = Number(deductible) || 0;
+  const valid = Number.isFinite(limitNum) && limitNum > 0 && dedNum < limitNum;
+  const submit = () => {
+    if (!valid) return;
+    const cat = COVERAGE_CATALOG.find((x) => x.code === code) || {};
+    onSubmit({
+      coverageCode: code,
+      coverageName: cat.name || existing?.coverageName || code,
+      coverageType: cat.type || existing?.coverageType,
+      limit: limitNum,
+      deductible: dedNum,
+      termMonths: Number(termMonths) || 12,
+    });
+  };
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={mode === 'edit' ? 'Sửa gói bảo hiểm' : 'Thêm gói bảo hiểm'}
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Hủy</button>
+          <button className="btn btn-primary" onClick={submit} disabled={busy || !valid}>
+            {busy ? <span className="spinner" /> : null} Lưu
+          </button>
+        </>
+      }
+    >
+      <div className="form-group">
+        <label className="form-label" htmlFor="cov-code">Gói bảo hiểm</label>
+        <select
+          id="cov-code" className="form-control" value={code}
+          onChange={(e) => setCode(e.target.value)} disabled={mode === 'edit'}
+        >
+          {COVERAGE_CATALOG.map((c) => (
+            <option key={c.code} value={c.code}>{c.name} ({c.code})</option>
+          ))}
+        </select>
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="cov-limit">Hạn mức bảo hiểm (VND) *</label>
+        <input id="cov-limit" type="number" min="1" className="form-control" value={limit} onChange={(e) => setLimit(e.target.value)} />
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="cov-ded">Mức khấu trừ (VND)</label>
+        <input id="cov-ded" type="number" min="0" className="form-control" value={deductible} onChange={(e) => setDeductible(e.target.value)} />
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="cov-term">Thời hạn (tháng)</label>
+        <input id="cov-term" type="number" min="1" className="form-control" value={termMonths} onChange={(e) => setTermMonths(e.target.value)} />
+      </div>
+      {!valid && limit !== '' && (
+        <div className="form-error">Hạn mức phải lớn hơn 0 và lớn hơn mức khấu trừ.</div>
+      )}
+    </Modal>
+  );
+}
+
+function EndorseModal({ open, onClose, onSubmit, busy }) {
+  const [type, setType] = useState(ENDORSE_TYPES[0].key);
+  const [description, setDescription] = useState('');
+  useEffect(() => {
+    if (open) { setType(ENDORSE_TYPES[0].key); setDescription(''); }
+  }, [open ]);
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Yêu cầu điều chỉnh hợp đồng"
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Hủy</button>
+          <button className="btn btn-primary" onClick={() => onSubmit({ type, description: description.trim() })} disabled={busy || !description.trim()}>
+            {busy ? <span className="spinner" /> : null} Gửi yêu cầu
+          </button>
+        </>
+      }
+    >
+      <div className="form-group">
+        <label className="form-label" htmlFor="end-type">Loại điều chỉnh</label>
+        <select id="end-type" className="form-control" value={type} onChange={(e) => setType(e.target.value)}>
+          {ENDORSE_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+        </select>
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="end-desc">Mô tả chi tiết *</label>
+        <textarea
+          id="end-desc" className="form-control" rows={4}
+          value={description} onChange={(e) => setDescription(e.target.value)}
+          placeholder="Ví dụ: Bổ sung kho hàng mới tại KCN Tân Bình, tăng hạn mức cháy nổ lên 2 tỷ đồng…"
+        />
+      </div>
+      <p className="form-hint">Yêu cầu của bạn sẽ được đội ngũ thẩm định xem xét và phản hồi.</p>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------- History
+const flattenCoverages = (snapshot) => {
+  const map = {};
+  safeList(snapshot?.locations).forEach((l, li) => {
+    const lid = l.locationId ?? li;
+    safeList(l.coverages).forEach((c) => {
+      map[`${lid}|${c.coverageCode}`] = {
+        locationId: lid,
+        locationName: l.name || `Địa điểm ${lid}`,
+        ...c,
+      };
+    });
+  });
+  return map;
 };
+
+function HistoryTab({ policyNumber, currentPolicy }) {
+  const toast = useToast();
+  const [versions, setVersions] = useState([]);
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
+  const [selected, setSelected] = useState(null); // { version, snapshot }
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const [vRes, hRes] = await Promise.allSettled([
+        policyService.getVersions(policyNumber),
+        policyService.getHistory(policyNumber),
+      ]);
+      const vMissing = vRes.status === 'rejected' && isBackendMissing(vRes.reason);
+      const hMissing = hRes.status === 'rejected' && isBackendMissing(hRes.reason);
+      if (vMissing && hMissing) {
+        setUnavailable(true);
+      } else {
+        if (vRes.status === 'fulfilled') {
+          const v = vRes.value?.data;
+          setVersions(Array.isArray(v) ? v : v?.versions ?? []);
+        } else if (!vMissing) {
+          toast.error(vRes.reason?.message || 'Không tải được lịch sử phiên bản.');
+        }
+        if (hRes.status === 'fulfilled') {
+          const h = hRes.value?.data;
+          const list = Array.isArray(h) ? h : h?.transactions ?? h?.history ?? [];
+          setTransactions(list);
+        } else if (!hMissing) {
+          toast.error(hRes.reason?.message || 'Không tải được lịch sử giao dịch.');
+        }
+      }
+      setLoading(false);
+    })();
+  }, [policyNumber, toast]);
+
+  const viewVersion = async (v) => {
+    const ver = v.version ?? v.number;
+    try {
+      const res = await policyService.getVersion(policyNumber, ver);
+      const body = res?.data;
+      setSelected({ version: ver, snapshot: body?.data ?? body ?? {} });
+    } catch (err) {
+      if (isBackendMissing(err)) toast.info(BACKEND_TODO_HINT);
+      else toast.error(err.message || 'Không tải được chi tiết phiên bản.');
+    }
+  };
+
+  if (loading) return (<><Skeleton height={24} width="35%" style={{ marginBottom: '1rem' }} /><Skeleton height={120} /></>);
+  if (unavailable) {
+    return (
+      <EmptyState
+        icon={<History size={40} />}
+        title="Chưa có lịch sử để hiển thị"
+        desc="Lịch sử phiên bản sẽ hiển thị khi backend bổ sung API."
+      />
+    );
+  }
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.25rem' }}>
+      {/* Phiên bản */}
+      <div className="glass-card">
+        <h3 style={{ marginBottom: '1rem' }}>Các phiên bản</h3>
+        {versions.length === 0 ? (
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Chưa có phiên bản nào được lưu.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            {versions.map((v, i) => {
+              const ver = v.version ?? v.number ?? i + 1;
+              const active = selected?.version === ver;
+              return (
+                <button
+                  key={ver}
+                  type="button"
+                  className={`coverage-option${active ? ' open' : ''}`}
+                  style={{ cursor: 'pointer', textAlign: 'left', width: '100%', background: 'none', color: 'var(--text-primary)', fontFamily: 'var(--font-main)' }}
+                  onClick={() => viewVersion(v)}
+                  aria-pressed={active}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <strong>Phiên bản v{ver}</strong>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      {formatDateTime(v.createdAt || v.updatedAt)}
+                    </span>
+                  </div>
+                  {v.actor && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>Người thực hiện: {v.actor}</div>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {selected && (
+          <div style={{ marginTop: '1.25rem' }}>
+            <h4 style={{ marginBottom: '0.75rem' }}>So sánh v{selected.version} với hiện tại</h4>
+            <VersionDiff snapshot={selected.snapshot} current={currentPolicy} />
+          </div>
+        )}
+      </div>
+
+      {/* Giao dịch */}
+      <div className="glass-card">
+        <h3 style={{ marginBottom: '1rem' }}>Lịch sử giao dịch</h3>
+        {transactions.length === 0 ? (
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Chưa có giao dịch nào được ghi nhận.</p>
+        ) : (
+          <div className="timeline">
+            {transactions.map((t, i) => (
+              <div key={t.id ?? i} className="timeline-item">
+                <div className="t-time">{formatDateTime(t.createdAt || t.timestamp || t.at)}</div>
+                <div className="t-title">{t.type || t.title || 'Thao tác'}</div>
+                <div className="t-desc">{t.description || t.note || ''}</div>
+                {t.actor && <div className="t-desc">Người thực hiện: {t.actor}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Bảng so sánh gói bảo hiểm giữa snapshot version cũ và policy hiện tại. */
+function VersionDiff({ snapshot, current }) {
+  const oldMap = flattenCoverages(snapshot);
+  const newMap = flattenCoverages(current);
+  const keys = Array.from(new Set([...Object.keys(oldMap), ...Object.keys(newMap)]));
+
+  if (keys.length === 0) return <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Không có dữ liệu gói bảo hiểm để so sánh.</p>;
+
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Gói bảo hiểm</th>
+            <th>Hạn mức</th>
+            <th>Khấu trừ</th>
+            <th>Phí</th>
+            <th>Thay đổi</th>
+          </tr>
+        </thead>
+        <tbody>
+          {keys.map((k) => {
+            const o = oldMap[k];
+            const n = newMap[k];
+            let cls = '';
+            let note = '—';
+            if (o && !n) { cls = 'diff-removed'; note = 'Đã xóa'; }
+            else if (!o && n) { cls = 'diff-added'; note = 'Thêm mới'; }
+            else if (o.limit !== n.limit || o.deductible !== n.deductible) { cls = 'diff-changed'; note = 'Điều chỉnh'; }
+            const show = n || o;
+            return (
+              <tr key={k} className={cls}>
+                <td>{show.locationName}<br /><small className="policy-number" style={{ fontSize: '0.75rem' }}>{show.coverageCode}</small></td>
+                <td>
+                  {o && <div style={{ textDecoration: o && !n ? 'line-through' : 'none' }}>{formatMoney(o.limit)}</div>}
+                  {n && <div><strong>{formatMoney(n.limit)}</strong></div>}
+                </td>
+                <td>
+                  {o && <div style={{ textDecoration: o && !n ? 'line-through' : 'none' }}>{formatMoney(o.deductible)}</div>}
+                  {n && <div><strong>{formatMoney(n.deductible)}</strong></div>}
+                </td>
+                <td>
+                  {o && <div style={{ textDecoration: o && !n ? 'line-through' : 'none' }}>{formatMoney(o.premium)}</div>}
+                  {n && <div><strong>{formatMoney(n.premium)}</strong></div>}
+                </td>
+                <td>{note}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
