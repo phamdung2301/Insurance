@@ -19,6 +19,7 @@ import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { AdminPolicyListPage } from './pages/AdminPolicyListPage';
 import { ExcelToolsPage } from './pages/ExcelToolsPage';
 import { BenchmarkPage } from './pages/BenchmarkPage';
+import { IndexAuditPage } from './pages/IndexAuditPage';
 
 const TITLES = {
   '/': 'Hợp đồng của tôi',
@@ -50,7 +51,7 @@ const page = (path, el) => (
     element={
       <ProtectedRoute>
         <Shell title={path.startsWith('/hop-dong/') ? 'Chi tiết hợp đồng' : TITLES[path] || ''}>
-          <div className="page-wrapper"><PageShell>{el}</PageShell></div>
+          <div className="page-wrapper"><PageShell>{withErrorBoundary(el, TITLES[path] || path)}</PageShell></div>
         </Shell>
       </ProtectedRoute>
     }
@@ -63,7 +64,7 @@ const adminPage = (path, el) => (
     element={
       <ProtectedRoute roles={['ROLE_ADMIN']}>
         <Shell title={TITLES[path] || ''}>
-          <div className="page-wrapper"><PageShell>{el}</PageShell></div>
+          <div className="page-wrapper"><PageShell>{withErrorBoundary(el, TITLES[path] || path)}</PageShell></div>
         </Shell>
       </ProtectedRoute>
     }
@@ -86,6 +87,7 @@ function AnimatedRoutes() {
         {adminPage('/admin/hop-dong', <AdminPolicyListPage />)}
         {adminPage('/admin/excel', <ExcelToolsPage />)}
         {adminPage('/admin/benchmark', <BenchmarkPage />)}
+        {adminPage('/admin/index-audit', <IndexAuditPage />)}
         {import.meta.env.DEV && (
           <Route path="/dev/api-tester" element={<DevTester />} />
         )}
