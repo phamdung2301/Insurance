@@ -115,7 +115,7 @@ export function AdminDashboardPage() {
 
   const loadExpiring = async () => {
     try {
-      const res = await policyService.searchPolicies({ page: 0, size: 1000, status: 'ACTIVE' });
+      const res = await policyService.searchPolicies({ page: 0, size: 100, status: 'ACTIVE' });
       const d = res?.data;
       const list = d?.content ?? d?.items ?? (Array.isArray(d) ? d : []);
       const now = new Date();
@@ -128,7 +128,7 @@ export function AdminDashboardPage() {
   };
 
   const loadFallback = async () => {
-    const res = await policyService.searchPolicies({ page: 0, size: 1000 });
+    const res = await policyService.searchPolicies({ page: 0, size: 100 });
     const d = res?.data;
     const list = d?.content ?? d?.items ?? (Array.isArray(d) ? d : []);
     const now = new Date();
