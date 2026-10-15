@@ -1,303 +1,204 @@
 import React, { useState } from 'react';
-import { useAuth } from '../context/AuthContext';
+import axios from 'axios';
+import { Play, FlaskConical } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
-import api from '../services/api';
-import { Terminal, Play, Send, Code2, ArrowRight } from 'lucide-react';
 
-export const ApiTesterPage = () => {
-  const { userEmail } = useAuth();
-  const { showToast } = useToast();
+const PRESETS = [
+  { label: 'Gửi mã OTP', method: 'POST', url: '/auth/send-otp', body: { email: 'user@example.com' } },
+  { label: 'Xác thực OTP & đăng nhập', method: 'POST', url: '/auth/verify-otp', body: { email: 'user@example.com', otp: '123456' } },
+  { label: 'Thông tin tài khoản của tôi', method: 'GET', url: '/auth/me', body: null },
+  { label: 'Danh sách hợp đồng', method: 'GET', url: '/policies', body: null },
+  {
+    label: 'Tạo hợp đồng mới', method: 'POST', url: '/policies',
+    body: {
+      insured: { name: 'Nguyễn Văn A', email: 'a@example.com', phone: '0901234567', address: 'Hà Nội' },
+      effectiveDate: '2026-11-01',
+      locations: [
+        { name: 'Kho hàng', address: 'Hà Nội', coverages: [{ coverageCode: 'PROP_FIRE', limit: 1000000, deductible: 10000 }] },
+      ],
+    },
+  },
+  { label: 'Chi tiết hợp đồng', method: 'GET', url: '/policies/{n}', body: null },
+  { label: 'Cập nhật hợp đồng', method: 'PUT', url: '/policies/{n}', body: { insured: { phone: '0909999999' } } },
+  { label: 'Xóa hợp đồng', method: 'DELETE', url: '/policies/{n}', body: null },
+  { label: 'Danh sách địa điểm', method: 'GET', url: '/policies/{n}/locations', body: null },
+  { label: 'Thêm địa điểm', method: 'POST', url: '/policies/{n}/locations', body: { name: 'Chi nhánh 2', address: 'TP. Hồ Chí Minh' } },
+  { label: 'Cập nhật địa điểm', method: 'PUT', url: '/policies/{n}/locations/{id}', body: { name: 'Chi nhánh 2 (đã sửa)' } },
+  { label: 'Xóa địa điểm', method: 'DELETE', url: '/policies/{n}/locations/{id}', body: null },
+  { label: 'Danh sách gói bảo hiểm', method: 'GET', url: '/policies/{n}/locations/{id}/coverages', body: null },
+  { label: 'Thêm gói bảo hiểm', method: 'POST', url: '/policies/{n}/locations/{id}/coverages', body: { coverageCode: 'PROP_WATER', limit: 500000, deductible: 5000 } },
+  { label: 'Cập nhật gói bảo hiểm', method: 'PUT', url: '/policies/{n}/locations/{id}/coverages/{code}', body: { limit: 600000, deductible: 5000 } },
+  { label: 'Xóa gói bảo hiểm', method: 'DELETE', url: '/policies/{n}/locations/{id}/coverages/{code}', body: null },
+  { label: 'Xem hồ sơ', method: 'GET', url: '/user/profile', body: null },
+  { label: 'Cập nhật hồ sơ', method: 'PUT', url: '/user/profile', body: { fullName: 'Nguyễn Văn A', phone: '0901234567', address: 'Hà Nội' } },
+  { label: 'Đổi mật khẩu', method: 'POST', url: '/user/change-password', body: { oldPassword: '123456', newPassword: 'Moi123!@#', confirmPassword: 'Moi123!@#' } },
+];
 
-  const [method, setMethod] = useState('GET');
-  const [url, setUrl] = useState('/user/profile');
-  const [emailHeader, setEmailHeader] = useState(userEmail || 'user@example.com');
-  const [jwtToken, setJwtToken] = useState(localStorage.getItem('jwt_token') || '');
-  const [requestBody, setRequestBody] = useState('{\n  "fullName": "Nguyen Van Test",\n  "phone": "0987654321",\n  "address": "123 Pham Ngu Lao, Q1"\n}');
-  
-  const [loading, setLoading] = useState(false);
-  const [responseOutput, setResponseOutput] = useState(null);
-  const [responseTime, setResponseTime] = useState(null);
+const METHOD_TONES = {
+  GET: '#67e8f9',
+  POST: '#6ee7b7',
+  PUT: '#fde68a',
+  DELETE: '#fda4af',
+};
 
-  const selectPreset = (selectedMethod, selectedUrl, defaultBody = '') => {
-    setMethod(selectedMethod);
-    setUrl(selectedUrl);
-    if (defaultBody) {
-      setRequestBody(defaultBody);
-    }
+export function ApiTesterPage() {
+  const toast = useToast();
+  const [active, setActive] = useState(0);
+  const [method, setMethod] = useState(PRESETS[0].method);
+  const [url, setUrl] = useState(PRESETS[0].url);
+  const [bodyText, setBodyText] = useState(JSON.stringify(PRESETS[0].body, null, 2));
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const selectPreset = (i) => {
+    const p = PRESETS[i];
+    setActive(i);
+    setMethod(p.method);
+    setUrl(p.url);
+    setBodyText(p.body ? JSON.stringify(p.body, null, 2) : '');
+    setResult(null);
   };
 
   const handleExecute = async () => {
-    const startTime = performance.now();
-    setLoading(true);
-    setResponseOutput(null);
-
-    try {
-      const headers = {};
-      if (emailHeader) headers['X-User-Email'] = emailHeader;
-      if (jwtToken) headers['Authorization'] = `Bearer ${jwtToken}`;
-
-      let res;
-      if (method === 'GET') {
-        res = await api.get(url, { headers });
-      } else if (method === 'PUT') {
-        const parsed = JSON.parse(requestBody);
-        res = await api.put(url, parsed, { headers });
-      } else if (method === 'POST') {
-        const parsed = JSON.parse(requestBody);
-        res = await api.post(url, parsed, { headers });
+    let body;
+    if (bodyText.trim()) {
+      try {
+        body = JSON.parse(bodyText);
+      } catch {
+        setResult({ ok: false, status: null, ms: 0, data: { message: 'Nội dung gửi đi chưa đúng định dạng JSON.' } });
+        return;
       }
-
-      const duration = Math.round(performance.now() - startTime);
-      setResponseTime(duration);
-      setResponseOutput({
-        status: 200,
-        statusText: 'OK',
-        data: res,
+    }
+    const target = url.trim();
+    if (!target) {
+      toast.error('Vui lòng nhập đường dẫn.');
+      return;
+    }
+    setRunning(true);
+    const t0 = performance.now();
+    try {
+      const res = await axios({
+        method,
+        url: target,
+        data: body,
+        headers: { Authorization: `Bearer ${localStorage.getItem('itoken') || ''}` },
+        timeout: 30000,
       });
-      showToast(`API call executed successfully in ${duration}ms`, 'success');
+      setResult({ ok: true, status: res.status, ms: Math.round(performance.now() - t0), data: res.data });
     } catch (err) {
-      const duration = Math.round(performance.now() - startTime);
-      setResponseTime(duration);
-      setResponseOutput({
-        status: err.response?.status || 'Error',
-        statusText: err.response?.statusText || err.name,
-        error: err.message,
-        data: err.response?.data || null,
-      });
-      showToast(err.message, 'error');
+      const ms = Math.round(performance.now() - t0);
+      if (err.response) {
+        setResult({ ok: false, status: err.response.status, ms, data: err.response.data });
+      } else {
+        setResult({ ok: false, status: null, ms, data: { message: err.message || 'Không kết nối được máy chủ.' } });
+      }
     } finally {
-      setLoading(false);
+      setRunning(false);
     }
   };
 
   return (
-    <div className="page-wrapper">
-      <div style={{ marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '1.85rem', marginBottom: '0.5rem' }}>Live API Console</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
-          Kiểm thử trực tiếp các API Backend Spring Boot thông qua Axios Interceptor.
-        </p>
+    <div className="page-wrapper" style={{ maxWidth: '1200px', margin: '0 auto' }}>
+      <div className="page-header">
+        <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <FlaskConical size={24} /> Kiểm thử API
+        </h1>
+        <p>Chỉ dùng khi phát triển. Thay <code>{'{n}'}</code>, <code>{'{id}'}</code>, <code>{'{code}'}</code> trong đường dẫn bằng giá trị thật trước khi chạy.</p>
       </div>
 
-      {/* Preset Quick Buttons */}
-      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-        <button
-          onClick={() => selectPreset('GET', '/user/profile')}
-          className={`btn ${url === '/user/profile' && method === 'GET' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem' }}
-        >
-          GET /user/profile
-        </button>
-
-        <button
-          onClick={() =>
-            selectPreset(
-              'PUT',
-              '/user/profile',
-              '{\n  "fullName": "Nguyen Van B",\n  "phone": "0912345678",\n  "address": "456 Nguyen Hue, TP.HCM"\n}'
-            )
-          }
-          className={`btn ${url === '/user/profile' && method === 'PUT' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem' }}
-        >
-          PUT /user/profile
-        </button>
-
-        <button
-          onClick={() =>
-            selectPreset(
-              'POST',
-              '/user/change-password',
-              '{\n  "oldPassword": "Password123!",\n  "newPassword": "NewPassword456!",\n  "confirmPassword": "NewPassword456!"\n}'
-            )
-          }
-          className={`btn ${url === '/user/change-password' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem' }}
-        >
-          POST /user/change-password
-        </button>
-
-        {/* P02, P03 Presets */}
-        <button
-          onClick={() => selectPreset('GET', '/policies?status=DRAFT&page=0&size=10&sortBy=createdAt&sortDirection=DESC')}
-          className={`btn ${url.includes('/policies?') && method === 'GET' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem', borderColor: '#10b981' }}
-        >
-          GET Search Policies (P02, P03)
-        </button>
-
-        {/* P04 Presets */}
-        <button
-          onClick={() => selectPreset('GET', '/policies/POL-2026-001/locations')}
-          className={`btn ${url.includes('/locations') && method === 'GET' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem', borderColor: 'var(--primary)' }}
-        >
-          GET /policies/:id/locations (P04)
-        </button>
-
-        <button
-          onClick={() =>
-            selectPreset(
-              'POST',
-              '/policies/POL-2026-001/locations',
-              '{\n  "address": "Tòa nhà Landmark 81, Quận Bình Thạnh, TP.HCM",\n  "coverages": [\n    {\n      "coverageCode": "FIRE-01",\n      "coverageName": "Bảo hiểm cháy nổ",\n      "coverageType": "STANDARD",\n      "limit": 1000000000,\n      "deductible": 20000000,\n      "termMonths": 12,\n      "premium": 1500000\n    }\n  ]\n}'
-            )
-          }
-          className={`btn ${url.includes('/locations') && method === 'POST' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem', borderColor: 'var(--primary)' }}
-        >
-          POST Add Location (P04)
-        </button>
-
-        <button
-          onClick={() =>
-            selectPreset(
-              'PUT',
-              '/policies/POL-2026-001/locations/1',
-              '{\n  "address": "123 Đường Nguyễn Huệ (Cập nhật), Quận 1, TP.HCM",\n  "coverages": [\n    {\n      "coverageCode": "FIRE-01",\n      "coverageName": "Bảo hiểm cháy nổ nâng cao",\n      "coverageType": "ENHANCED",\n      "limit": 600000000,\n      "deductible": 10000000,\n      "termMonths": 12,\n      "premium": 900000\n    }\n  ]\n}'
-            )
-          }
-          className={`btn ${url.includes('/locations/1') && method === 'PUT' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem', borderColor: 'var(--primary)' }}
-        >
-          PUT Update Location (P04)
-        </button>
-
-        <button
-          onClick={() => selectPreset('DELETE', '/policies/POL-2026-001/locations/2')}
-          className={`btn ${method === 'DELETE' ? 'btn-danger' : 'btn-secondary'}`}
-          style={{ fontSize: '0.825rem', padding: '0.45rem 0.85rem' }}
-        >
-          DELETE Location (P04)
-        </button>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-        {/* Request Config */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.25rem', alignItems: 'start' }}>
         <div className="glass-card">
-          <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Terminal size={18} color="var(--primary)" /> Request Configuration
-          </h3>
-
-          {/* URL & Method */}
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-            <select
-              value={method}
-              onChange={(e) => setMethod(e.target.value)}
-              className="form-control"
-              style={{ width: '110px', fontWeight: 700, color: 'var(--primary)' }}
-            >
-              <option value="GET">GET</option>
-              <option value="PUT">PUT</option>
-              <option value="POST">POST</option>
-            </select>
-            <input
-              type="text"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              className="form-control"
-              placeholder="/user/profile"
-              style={{ fontFamily: 'var(--font-mono)' }}
-            />
+          <h3 style={{ marginBottom: '0.75rem' }}>Mẫu có sẵn</h3>
+          <div style={{ display: 'grid', gap: '0.4rem' }}>
+            {PRESETS.map((p, i) => (
+              <button
+                key={i}
+                className={`btn btn-sm ${i === active ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+                onClick={() => selectPreset(i)}
+              >
+                <span
+                  className="badge"
+                  style={{
+                    background: 'transparent',
+                    border: `1px solid ${METHOD_TONES[p.method]}`,
+                    color: METHOD_TONES[p.method],
+                    fontSize: '0.62rem',
+                    padding: '0.15rem 0.45rem',
+                  }}
+                >
+                  {p.method}
+                </span>
+                {p.label}
+              </button>
+            ))}
           </div>
-
-          {/* X-User-Email Header */}
-          <div className="form-group">
-            <label className="form-label">Header: X-User-Email</label>
-            <input
-              type="text"
-              value={emailHeader}
-              onChange={(e) => setEmailHeader(e.target.value)}
-              placeholder="user@example.com"
-              className="form-control"
-            />
-          </div>
-
-          {/* JWT Token (Optional) */}
-          <div className="form-group">
-            <label className="form-label">Header: Authorization (Bearer Token)</label>
-            <input
-              type="text"
-              value={jwtToken}
-              onChange={(e) => setJwtToken(e.target.value)}
-              placeholder="eyJhbGciOiJIUzI1NiIs..."
-              className="form-control"
-              style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}
-            />
-          </div>
-
-          {/* JSON Body */}
-          {method !== 'GET' && (
-            <div className="form-group">
-              <label className="form-label">Request Body (JSON)</label>
-              <textarea
-                value={requestBody}
-                onChange={(e) => setRequestBody(e.target.value)}
-                rows={6}
-                className="form-control"
-                style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', whiteSpace: 'pre' }}
-              />
-            </div>
-          )}
-
-          <button
-            onClick={handleExecute}
-            disabled={loading}
-            className="btn btn-primary"
-            style={{ width: '100%', marginTop: '0.5rem' }}
-          >
-            {loading ? (
-              <>
-                <div className="spinner" />
-                <span>Đang gửi yêu cầu...</span>
-              </>
-            ) : (
-              <>
-                <Send size={16} />
-                <span>Gửi Request ({method})</span>
-              </>
-            )}
-          </button>
         </div>
 
-        {/* Response Panel */}
-        <div className="glass-card" style={{ display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h3 style={{ fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Code2 size={18} color="#10b981" /> Response Output
-            </h3>
-            {responseTime !== null && (
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Thời gian: <b>{responseTime}ms</b>
-              </span>
-            )}
+        <div className="glass-card">
+          <h3 style={{ marginBottom: '0.75rem' }}>Thực thi</h3>
+          <div className="form-row" style={{ marginBottom: '0.9rem' }}>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label">Phương thức</label>
+              <select className="form-control" value={method} onChange={(e) => setMethod(e.target.value)}>
+                {['GET', 'POST', 'PUT', 'DELETE'].map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label">Đường dẫn</label>
+              <input className="form-control" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="/policies/{n}" />
+            </div>
           </div>
+          <div className="form-group">
+            <label className="form-label">Nội dung gửi đi (JSON)</label>
+            <textarea
+              className="form-control"
+              rows={10}
+              value={bodyText}
+              onChange={(e) => setBodyText(e.target.value)}
+              style={{ fontFamily: 'monospace', fontSize: '0.82rem' }}
+              placeholder='{"key": "value"} — để trống nếu không cần'
+            />
+          </div>
+          <button className="btn btn-primary" onClick={handleExecute} disabled={running}>
+            <Play size={16} /> {running ? 'Đang chạy…' : 'Chạy'}
+          </button>
 
-          <div
-            style={{
-              flex: 1,
-              background: '#070a12',
-              borderRadius: 'var(--radius-md)',
-              padding: '1rem',
-              border: '1px solid var(--border-subtle)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.85rem',
-              overflow: 'auto',
-              minHeight: '280px',
-              maxHeight: '450px',
-              color: '#38bdf8',
-            }}
-          >
-            {responseOutput ? (
-              <pre>{JSON.stringify(responseOutput, null, 2)}</pre>
-            ) : (
-              <span style={{ color: 'var(--text-muted)' }}>
-                // Nhấn "Gửi Request" để xem phản hồi JSON từ Backend tại đây...
-              </span>
-            )}
-          </div>
+          {result && (
+            <div style={{ marginTop: '1.25rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.6rem', flexWrap: 'wrap' }}>
+                <span
+                  className="badge"
+                  style={{
+                    background: result.ok ? 'rgba(16,185,129,0.15)' : 'rgba(244,63,94,0.15)',
+                    color: result.ok ? '#6ee7b7' : '#fda4af',
+                    borderColor: result.ok ? 'rgba(16,185,129,0.35)' : 'rgba(244,63,94,0.35)',
+                  }}
+                >
+                  {result.status ? `Trạng thái ${result.status}` : 'Không có phản hồi'}
+                </span>
+                <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{result.ms} ms</span>
+              </div>
+              <pre
+                style={{
+                  background: 'rgba(0,0,0,0.35)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: '0.75rem',
+                  padding: '1rem',
+                  fontSize: '0.8rem',
+                  maxHeight: '420px',
+                  overflow: 'auto',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  margin: 0,
+                }}
+              >
+                {JSON.stringify(result.data, null, 2)}
+              </pre>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
-};
+}
