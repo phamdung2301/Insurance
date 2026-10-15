@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   ShieldCheck, Home, ShoppingCart, LayoutDashboard, FileText,
-  TableProperties, Gauge, User, X,
+  TableProperties, Gauge, Database, User, X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -18,6 +18,7 @@ export function Sidebar({ open, onClose }) {
     { to: '/admin/hop-dong', label: 'Quản lý hợp đồng', icon: <FileText size={18} /> },
     { to: '/admin/excel', label: 'Bảng giá Excel', icon: <TableProperties size={18} /> },
     { to: '/admin/benchmark', label: 'Kiểm thử hiệu năng', icon: <Gauge size={18} /> },
+    { to: '/admin/index-audit', label: 'Kiểm tra index DB', icon: <Database size={18} /> },
   ];
   const accountLinks = [
     { to: '/ho-so', label: 'Hồ sơ cá nhân', icon: <User size={18} /> },

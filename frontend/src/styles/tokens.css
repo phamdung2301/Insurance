@@ -155,6 +155,9 @@ select.form-control option { background: #ffffff; }
 .badge-cancelled { background: #ffe4e6; color: #be123c; border-color: #fda4af; }
 .badge-expired { background: #f4f4f5; color: #52525b; border-color: #d4d4d8; }
 .badge-info { background: #e0f2fe; color: #0369a1; border-color: #7dd3fc; }
+.badge-success { background: #dcfce7; color: #15803d; border-color: #86efac; }
+.badge-warning { background: #fef3c7; color: #b45309; border-color: #fcd34d; }
+.badge-danger { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
 
 /* Tables */
 .table-wrap { overflow-x: auto; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); }
