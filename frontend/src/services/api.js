@@ -73,7 +73,7 @@ export const policyService = {
   deletePolicy: (policyNumber) => api.delete(`/policies/${policyNumber}`),
   /** Chuyển trạng thái vòng đời — backend: POST /policies/{n}/status-transitions */
   transition: (policyNumber, toStatus, extra = {}) =>
-    api.post(`/policies/${policyNumber}/status-transitions`, { toStatus, ...extra }),
+    api.post(`/policies/${policyNumber}/status-transitions`, { targetStatus: toStatus, ...extra }),
   /** Yêu cầu điều chỉnh (endorsement) — backend: POST /policies/{n}/endorsements */
   endorse: (policyNumber, payload) => api.post(`/policies/${policyNumber}/endorsements`, payload),
   getHistory: (policyNumber) => api.get(`/policies/${policyNumber}/history`),

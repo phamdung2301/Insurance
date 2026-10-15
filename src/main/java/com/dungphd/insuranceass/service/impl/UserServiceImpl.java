@@ -5,18 +5,24 @@ import com.dungphd.insuranceass.dto.request.UpdateProfileRequest;
 import com.dungphd.insuranceass.dto.response.UserProfileResponse;
 import com.dungphd.insuranceass.exception.BadRequestException;
 import com.dungphd.insuranceass.exception.ResourceNotFoundException;
+import com.dungphd.insuranceass.model.PolicyTransaction;
 import com.dungphd.insuranceass.model.User;
+import com.dungphd.insuranceass.repository.PolicyTransactionRepository;
 import com.dungphd.insuranceass.repository.UserRepository;
 import com.dungphd.insuranceass.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
+import java.util.List;
+
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
+    private final PolicyTransactionRepository policyTransactionRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Override
@@ -30,7 +36,11 @@ public class UserServiceImpl implements UserService {
         User user = getUserByEmail(email);
 
         if (request.getFullName() != null) {
-            user.setFullName(request.getFullName().trim());
+            String trimmedName = request.getFullName().trim();
+            if (trimmedName.isEmpty()) {
+                throw new BadRequestException("Full name cannot be blank");
+            }
+            user.setFullName(trimmedName);
         }
         if (request.getPhone() != null) {
             user.setPhone(request.getPhone().trim());
@@ -67,6 +77,14 @@ public class UserServiceImpl implements UserService {
 
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
+    }
+
+    @Override
+    public List<PolicyTransaction> getUserTransactions(String email) {
+        if (email == null || email.isBlank()) {
+            return Collections.emptyList();
+        }
+        return policyTransactionRepository.findByActorOrderByTimestampDesc(email.trim().toLowerCase());
     }
 
     private User getUserByEmail(String email) {
