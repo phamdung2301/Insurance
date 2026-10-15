@@ -1,106 +1,111 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { userService } from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import { authService, userService, extractAuth } from '../services/api';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [token, setToken] = useState(() => localStorage.getItem('jwt_token') || '');
-  const [userEmail, setUserEmail] = useState(() => localStorage.getItem('user_email') || 'user@example.com');
+  const navigate = useNavigate();
+  const [token, setToken] = useState(() => localStorage.getItem('itoken') || '');
   const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('user_data');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('iuser');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
   });
   const [loading, setLoading] = useState(true);
 
-  // Sync logout from 401 interceptor
+  const persist = (tok, usr) => {
+    setToken(tok || '');
+    setUser(usr || null);
+    if (tok) localStorage.setItem('itoken', tok); else localStorage.removeItem('itoken');
+    if (usr) localStorage.setItem('iuser', JSON.stringify(usr)); else localStorage.removeItem('iuser');
+  };
+
+  const logout = useCallback(() => {
+    persist('', null);
+    navigate('/login', { replace: true });
+  }, [navigate]);
+
+  // 401 anywhere -> logout + go to login
   useEffect(() => {
-    const handleUnauthorized = () => {
-      logout();
-    };
+    const handler = () => logout();
+    window.addEventListener('auth:unauthorized', handler);
+    return () => window.removeEventListener('auth:unauthorized', handler);
+  }, [logout]);
 
-    window.addEventListener('auth:unauthorized', handleUnauthorized);
-    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
-  }, []);
-
-  // Fetch initial profile if userEmail is set
-  const fetchProfile = useCallback(async (email) => {
-    try {
-      setLoading(true);
-      const res = await userService.getProfile(email);
-      if (res && res.data) {
-        setUser(res.data);
-        localStorage.setItem('user_data', JSON.stringify(res.data));
+  // Validate stored session on boot
+  useEffect(() => {
+    (async () => {
+      if (!token) { setLoading(false); return; }
+      try {
+        const res = await authService.getMe();
+        if (res?.data) {
+          const me = res.data.user ?? res.data;
+          persist(token, me);
+        } else {
+          try {
+            const p = await userService.getProfile();
+            if (p?.data) persist(token, p.data);
+          } catch { /* keep cached user */ }
+        }
+      } catch {
+        persist('', null); // token invalid -> drop silently, ProtectedRoute redirects
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      console.error('Failed to load profile on boot:', err.message);
-    } finally {
-      setLoading(false);
-    }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (userEmail) {
-      fetchProfile(userEmail);
-    } else {
-      setLoading(false);
-    }
-  }, [userEmail, fetchProfile]);
+  const loginWithToken = useCallback((tok, usr) => {
+    persist(tok, usr);
+    navigate(usr?.roles?.includes('ROLE_ADMIN') ? '/admin' : '/', { replace: true });
+  }, [navigate]);
 
-  const login = (email, jwtToken = 'mock-jwt-token-' + Date.now(), userData = null) => {
-    setToken(jwtToken);
-    setUserEmail(email);
-    localStorage.setItem('jwt_token', jwtToken);
-    localStorage.setItem('user_email', email);
-    if (userData) {
-      setUser(userData);
-      localStorage.setItem('user_data', JSON.stringify(userData));
-    } else {
-      fetchProfile(email);
-    }
-  };
+  const loginOtp = useCallback(async (email, otp) => {
+    const res = await authService.verifyOtp(email.trim(), otp.trim());
+    const { token: tok, user: usr } = extractAuth(res?.data);
+    if (!tok) throw new Error('Máy chủ không trả về phiên đăng nhập. Vui lòng thử lại.');
+    loginWithToken(tok, usr);
+    return usr;
+  }, [loginWithToken]);
 
-  const logout = () => {
-    setToken('');
-    setUserEmail('');
-    setUser(null);
-    localStorage.removeItem('jwt_token');
-    localStorage.removeItem('user_email');
-    localStorage.removeItem('user_data');
-  };
+  const devLogin = useCallback(async (email, fullName, role) => {
+    const res = await authService.devLogin(email.trim(), fullName.trim(), role);
+    const { token: tok, user: usr } = extractAuth(res?.data);
+    if (!tok) throw new Error('Máy chủ không trả về phiên đăng nhập. Vui lòng thử lại.');
+    loginWithToken(tok, usr);
+    return usr;
+  }, [loginWithToken]);
 
-  const updateUser = (updatedUser) => {
-    setUser((prev) => {
-      const merged = { ...prev, ...updatedUser };
-      localStorage.setItem('user_data', JSON.stringify(merged));
-      return merged;
-    });
-  };
+  const refreshProfile = useCallback(async () => {
+    try {
+      const res = await userService.getProfile();
+      if (res?.data) {
+        const merged = { ...(user || {}), ...res.data };
+        persist(token, merged);
+        return merged;
+      }
+    } catch { /* ignore */ }
+    return user;
+  }, [token, user]);
 
-  const isAuthenticated = Boolean(userEmail || token);
+  const isAuthenticated = Boolean(token);
+  const isAdmin = Boolean(user?.roles?.includes('ROLE_ADMIN'));
 
   return (
-    <AuthContext.Provider
-      value={{
-        token,
-        userEmail,
-        user,
-        loading,
-        isAuthenticated,
-        login,
-        logout,
-        updateUser,
-        refreshProfile: () => fetchProfile(userEmail),
-      }}
-    >
+    <AuthContext.Provider value={{
+      user, token, loading, isAuthenticated, isAdmin,
+      loginOtp, devLogin, logout, refreshProfile,
+    }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
 };

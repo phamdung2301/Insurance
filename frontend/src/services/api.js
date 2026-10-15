@@ -1,126 +1,150 @@
 import axios from 'axios';
 
-// Create central Axios instance
+// Central Axios instance — uses Vite proxy (see vite.config.js)
 const api = axios.create({
-  baseURL: '', // Uses Vite proxy config (/user, /api)
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  timeout: 15000,
+  baseURL: '',
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 30000,
 });
 
-// Request Interceptor: Attach JWT Token and custom headers
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('jwt_token');
-    const userEmail = localStorage.getItem('user_email');
-
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-
-    // Attach email as header if available for seamless backend support
-    if (userEmail) {
-      config.headers['X-User-Email'] = userEmail;
-    }
-
+    const token = localStorage.getItem('itoken');
+    if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Response Interceptor: Global Error and 401 Unauthorized handling
 api.interceptors.response.use(
-  (response) => {
-    // Return backend payload directly if success
-    return response.data;
-  },
+  (response) => response.data, // backend envelope: { success, message, data }
   (error) => {
-    const status = error.response ? error.response.status : null;
-
+    const status = error.response?.status ?? null;
     if (status === 401) {
-      console.warn('Session expired or unauthorized. Logging out...');
-      localStorage.removeItem('jwt_token');
-      localStorage.removeItem('user_email');
-      localStorage.removeItem('user_data');
-      
-      // Dispatch custom event for app-wide auth synchronization
+      localStorage.removeItem('itoken');
+      localStorage.removeItem('iuser');
       window.dispatchEvent(new CustomEvent('auth:unauthorized'));
     }
-
-    // Standardize error message extraction
     const serverMessage = error.response?.data?.message;
     const validationErrors = error.response?.data?.data;
-    
-    let errorMessage = serverMessage || error.message || 'An unexpected error occurred';
-    
+    let message = serverMessage || error.message || 'Đã xảy ra lỗi không mong đợi';
     if (validationErrors && typeof validationErrors === 'object') {
-      const fieldErrors = Object.values(validationErrors).join(', ');
-      if (fieldErrors) {
-        errorMessage = `${errorMessage}: ${fieldErrors}`;
-      }
+      const fields = Object.values(validationErrors).join(', ');
+      if (fields) message = `${message}: ${fields}`;
     }
-
-    return Promise.reject(new Error(errorMessage));
+    const err = new Error(message);
+    err.status = status;
+    return Promise.reject(err);
   }
 );
 
-// User Profile & Password APIs
+/** Lấy JWT + user từ AuthResponse — backend trả user fields phẳng (email, fullName, roles). */
+export function extractAuth(envelopeData) {
+  const d = envelopeData || {};
+  const token = d.token ?? d.accessToken ?? null;
+  let user = d.user ?? null;
+  if (!user && d.email) {
+    user = { email: d.email, fullName: d.fullName, roles: d.roles ?? [] };
+  }
+  return { token, user };
+}
+
+// ---------------------------------------------------------------- Auth
+export const authService = {
+  sendOtp: (email) => api.post('/auth/send-otp', { email }),
+  verifyOtp: (email, otp) => api.post('/auth/verify-otp', { email, otp }),
+  devLogin: (email, fullName, role) => api.post('/auth/login', { email, fullName, role }),
+  getMe: () => api.get('/auth/me'),
+};
+
+// ---------------------------------------------------------------- User
 export const userService = {
-  getProfile: async (email) => {
-    const params = email ? { email } : {};
-    return api.get('/user/profile', { params });
-  },
-
-  updateProfile: async (profileData, email) => {
-    const params = email ? { email } : {};
-    return api.put('/user/profile', profileData, { params });
-  },
-
-  changePassword: async (passwordData, email) => {
-    const params = email ? { email } : {};
-    return api.post('/user/change-password', passwordData, { params });
-  },
+  getProfile: () => api.get('/user/profile'),
+  updateProfile: (data) => api.put('/user/profile', data),
+  changePassword: (data) => api.post('/user/change-password', data),
 };
 
-// P02, P03: Policy Search, Filter, Page & Sort APIs
+// ---------------------------------------------------------------- Policy (SRS §6)
 export const policyService = {
-  searchPolicies: async (params = {}) => {
-    return api.get('/policies', { params });
-  },
-
-  getPolicyById: async (policyId) => {
-    return api.get(`/policies/${policyId}`);
-  },
-
-  createPolicy: async (policyData) => {
-    return api.post('/policies', policyData);
-  },
+  searchPolicies: (params = {}) => api.get('/policies', { params }),
+  getPolicyByNumber: (policyNumber) => api.get(`/policies/${policyNumber}`),
+  createPolicy: (data) => api.post('/policies', data),
+  updatePolicy: (policyNumber, data) => api.put(`/policies/${policyNumber}`, data),
+  deletePolicy: (policyNumber) => api.delete(`/policies/${policyNumber}`),
+  /** Chuyển trạng thái vòng đời — backend: POST /policies/{n}/status-transitions */
+  transition: (policyNumber, toStatus, extra = {}) =>
+    api.post(`/policies/${policyNumber}/status-transitions`, { toStatus, ...extra }),
+  /** Yêu cầu điều chỉnh (endorsement) — backend: POST /policies/{n}/endorsements */
+  endorse: (policyNumber, payload) => api.post(`/policies/${policyNumber}/endorsements`, payload),
+  getHistory: (policyNumber) => api.get(`/policies/${policyNumber}/history`),
+  getVersions: (policyNumber) => api.get(`/policies/${policyNumber}/versions`),
+  getVersion: (policyNumber, v) => api.get(`/policies/${policyNumber}/versions/${v}`),
 };
 
-// P04: Nested Location in Policy APIs
+// ---------------------------------------------------------------- Locations (nested)
 export const policyLocationService = {
-  getLocations: async (policyId) => {
-    return api.get(`/policies/${policyId}/locations`);
-  },
-
-  getLocationById: async (policyId, locationId) => {
-    return api.get(`/policies/${policyId}/locations/${locationId}`);
-  },
-
-  addLocation: async (policyId, locationData) => {
-    return api.post(`/policies/${policyId}/locations`, locationData);
-  },
-
-  updateLocation: async (policyId, locationId, locationData) => {
-    return api.put(`/policies/${policyId}/locations/${locationId}`, locationData);
-  },
-
-  removeLocation: async (policyId, locationId) => {
-    return api.delete(`/policies/${policyId}/locations/${locationId}`);
-  },
+  getLocations: (policyNumber) => api.get(`/policies/${policyNumber}/locations`),
+  getLocationById: (policyNumber, locationId) =>
+    api.get(`/policies/${policyNumber}/locations/${locationId}`),
+  addLocation: (policyNumber, data) => api.post(`/policies/${policyNumber}/locations`, data),
+  updateLocation: (policyNumber, locationId, data) =>
+    api.put(`/policies/${policyNumber}/locations/${locationId}`, data),
+  removeLocation: (policyNumber, locationId) =>
+    api.delete(`/policies/${policyNumber}/locations/${locationId}`),
 };
+
+// ---------------------------------------------------------------- Coverages (nested, keyed by coverageCode)
+export const policyCoverageService = {
+  getCoverages: (policyNumber, locationId) =>
+    api.get(`/policies/${policyNumber}/locations/${locationId}/coverages`),
+  addCoverage: (policyNumber, locationId, data) =>
+    api.post(`/policies/${policyNumber}/locations/${locationId}/coverages`, data),
+  updateCoverage: (policyNumber, locationId, coverageCode, data) =>
+    api.put(`/policies/${policyNumber}/locations/${locationId}/coverages/${coverageCode}`, data),
+  removeCoverage: (policyNumber, locationId, coverageCode) =>
+    api.delete(`/policies/${policyNumber}/locations/${locationId}/coverages/${coverageCode}`),
+};
+
+// ---------------------------------------------------------------- Excel / pricing (SRS FR-CALC)
+export const excelService = {
+  downloadTemplate: () =>
+    api.get('/excel/template', { responseType: 'blob' }),
+  importRates: (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post('/excel/import-rates', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  calculate: (payload) => api.post('/excel/calculate', payload),
+  downloadBreakdown: (policyNumber) =>
+    api.get(`/excel/policy/${policyNumber}/download`, { responseType: 'blob' }),
+};
+
+// ---------------------------------------------------------------- Reports (SRS FR-REP)
+export const reportService = {
+  countByStatus: () => api.get('/reports/policy-count-by-status'),
+  premiumByStatus: () => api.get('/reports/total-premium-by-status'),
+  topPolicies: () => api.get('/reports/top-premium-policies'),
+  premiumByMonth: () => api.get('/reports/premium-by-effective-month'),
+};
+
+// ---------------------------------------------------------------- Benchmark (SRS FR-BENCH)
+export const benchmarkService = {
+  generate50k: () => api.post('/benchmark/generate-50k'),
+  run: () => api.get('/benchmark/run'),
+};
+
+/** Tải file blob về máy. */
+export function downloadBlob(blob, filename) {
+  const url = window.URL.createObjectURL(blob instanceof Blob ? blob : new Blob([blob]));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
 
 export default api;
