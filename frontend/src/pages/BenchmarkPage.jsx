@@ -25,10 +25,10 @@ function ResultTable({ rows }) {
         <tbody>
           {rows.map((r, i) => (
             <tr key={i}>
-              <td>{r?.query ?? r?.name ?? `Truy vấn ${i + 1}`}</td>
+              <td>{r?.query ?? r?.queryName ?? r?.name ?? `Truy vấn ${i + 1}`}</td>
               <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{r?.winningPlan ?? r?.plan ?? '—'}</td>
-              <td className="num">{r?.docsExamined ?? '—'}</td>
-              <td className="num">{r?.keysExamined ?? '—'}</td>
+              <td className="num">{r?.docsExamined ?? r?.totalDocsExamined ?? '—'}</td>
+              <td className="num">{r?.keysExamined ?? r?.totalKeysExamined ?? '—'}</td>
               <td className="num">{r?.nReturned ?? r?.returned ?? '—'}</td>
               <td className="num">{r?.executionTimeMillis ?? r?.timeMs ?? r?.ms ?? '—'}</td>
             </tr>
@@ -74,7 +74,7 @@ export function BenchmarkPage() {
       if (d && (d.before || d.after)) {
         setResult({ before: arr(d.before), after: arr(d.after) });
       } else {
-        setResult({ items: arr(d?.results ?? d?.queries ?? d) });
+        setResult({ items: arr(d?.results ?? d?.queries ?? d?.queryMetrics ?? d) });
       }
       toast.success('Đã chạy đo hiệu năng xong.');
     } catch (err) {
