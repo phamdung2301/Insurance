@@ -140,6 +140,10 @@ public class AuthServiceImpl implements AuthService {
 
         if (existing.isPresent()) {
             User user = existing.get();
+            // Null-safe: document cũ có thể không có roles
+            if (user.getRoles() == null) {
+                user.setRoles(new ArrayList<>());
+            }
             // Update roles if needed
             for (String r : assignedRoles) {
                 if (!user.getRoles().contains(r)) {
