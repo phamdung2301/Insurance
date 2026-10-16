@@ -30,10 +30,12 @@ const COVERAGE_CATALOG = [
   { code: 'WCOMP', name: 'Tai nạn lao động', type: 'WORKERS_COMP' },
 ];
 
-const ENDORSE_TYPES = [
-  { key: 'them-dia-diem', label: 'Thêm địa điểm' },
-  { key: 'tang-limit', label: 'Tăng hạn mức' },
-  { key: 'giam-deductible', label: 'Giảm mức khấu trừ' },
+// Danh mục coverage dùng cho endorsement (đồng bộ với BuyWizardPage)
+const COVERAGE_CATALOG = [
+  { code: 'PROP_FIRE', name: 'Cháy nổ tài sản', baseRate: 0.075, type: 'PROPERTY' },
+  { code: 'PROP_WATER', name: 'Ngập nước', baseRate: 0.05, type: 'PROPERTY' },
+  { code: 'LIAB_PUBLIC', name: 'Trách nhiệm công cộng', baseRate: 0.12, type: 'LIABILITY' },
+  { code: 'WCOMP', name: 'Tai nạn lao động', baseRate: 0.2, type: 'WORKERS_COMP' },
 ];
 
 const safeList = (v) => (Array.isArray(v) ? v : []);
@@ -197,10 +199,10 @@ export function PolicyDetailPage() {
   };
 
   // ---- Endorsement --------------------------------------------------------
-  const submitEndorse = async ({ type, description }) => {
+  const submitEndorse = async ({ reason, description, locations }) => {
     setBusy(true);
     try {
-      await policyService.endorse(policyNumber, { reason: type, description });
+      await policyService.endorse(policyNumber, { reason, description, locations });
       toast.success('Đã gửi yêu cầu điều chỉnh.');
       setEndorseOpen(false);
       await load();
@@ -362,7 +364,7 @@ export function PolicyDetailPage() {
       >
         <p>Hợp đồng <strong className="policy-number">{policyNumber}</strong> đang ở trạng thái nháp và sẽ bị xóa vĩnh viễn.</p>
       </Modal>
-      <EndorseModal open={endorseOpen} onClose={() => setEndorseOpen(false)} onSubmit={submitEndorse} busy={busy} />
+      <EndorseModal open={endorseOpen} onClose={() => setEndorseOpen(false)} onSubmit={submitEndorse} busy={busy} policy={policy} />
 
       <PaymentModal
         open={payOpen}
@@ -673,12 +675,197 @@ function CoverageFormModal({ open, onClose, mode, existing, onSubmit, busy }) {
   );
 }
 
-function EndorseModal({ open, onClose, onSubmit, busy }) {
-  const [type, setType] = useState(ENDORSE_TYPES[0].key);
+// ---------------------------------------------------------------- Endorse wizard
+// Luong 3 buoc: chon thao tac -> them dia diem / sua coverage -> xem lai & xac nhan
+// Lưu ý contract BE: POST /policies/{n}/endorsements nhận {reason*, description, locations[]}
+// và REPLACE toàn bộ locations → FE phải gửi lại FULL danh sách (cũ đã sửa + mới).
+function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
+  const [step, setStep] = useState(1);
+  const [mode, setMode] = useState('add-location'); // 'add-location' | 'edit-coverage'
+
+  // Bước 2a: địa điểm mới
+  const [newAddress, setNewAddress] = useState('');
+  const [newCoverages, setNewCoverages] = useState([]); // [{coverageCode, limit, deductible}]
+  const [ncCode, setNcCode] = useState(COVERAGE_CATALOG[0].code);
+  const [ncLimit, setNcLimit] = useState('');
+  const [ncDeduct, setNcDeduct] = useState('');
+
+  // Bước 2b: sửa địa điểm hiện có
+  const [editLocId, setEditLocId] = useState('');
+  const [editCoverages, setEditCoverages] = useState([]); // working copy [{...coverage}]
+  const [ecCode, setEcCode] = useState(COVERAGE_CATALOG[0].code);
+  const [ecLimit, setEcLimit] = useState('');
+  const [ecDeduct, setEcDeduct] = useState('');
+
+  // Bước 3: xác nhận
+  const [reason, setReason] = useState('');
   const [description, setDescription] = useState('');
+
+  const locations = policy?.locations || [];
+  const hasLocations = locations.length > 0;
+
+  // Reset khi mở modal
   useEffect(() => {
-    if (open) { setType(ENDORSE_TYPES[0].key); setDescription(''); }
-  }, [open ]);
+    if (open) {
+      setStep(1);
+      setMode(hasLocations ? 'add-location' : 'add-location');
+      setNewAddress(''); setNewCoverages([]);
+      setNcCode(COVERAGE_CATALOG[0].code); setNcLimit(''); setNcDeduct('');
+      setEditLocId(locations[0]?.locationId != null ? String(locations[0].locationId) : '');
+      setEcCode(COVERAGE_CATALOG[0].code); setEcLimit(''); setEcDeduct('');
+      setReason(''); setDescription('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Nạp coverages của địa điểm đang sửa vào working copy
+  useEffect(() => {
+    const loc = locations.find((l) => String(l.locationId) === String(editLocId));
+    setEditCoverages((loc?.coverages || []).map((c) => ({ ...c })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editLocId, open]);
+
+  const fmtMoney = (v) => (v == null || v === '' ? '—' : Number(v).toLocaleString('vi-VN') + ' ₫');
+
+  // --- Bước 2a handlers ---
+  const addNewCoverage = () => {
+    if (newCoverages.some((c) => c.coverageCode === ncCode)) return;
+    const limit = Number(ncLimit);
+    if (!ncLimit || Number.isNaN(limit) || limit <= 0) return;
+    const deduct = Number(ncDeduct);
+    setNewCoverages([...newCoverages, {
+      coverageCode: ncCode,
+      limit,
+      deductible: Number.isNaN(deduct) || deduct < 0 ? 0 : deduct,
+    }]);
+    setNcLimit(''); setNcDeduct('');
+  };
+  const removeNewCoverage = (code) => setNewCoverages(newCoverages.filter((c) => c.coverageCode !== code));
+  const canGoStep3FromAdd = newAddress.trim() !== '' && newCoverages.length > 0;
+
+  // --- Bước 2b handlers ---
+  const updateEditCoverage = (code, field, value) => {
+    setEditCoverages(editCoverages.map((c) => (c.coverageCode === code ? { ...c, [field]: value } : c)));
+  };
+  const removeEditCoverage = (code) => setEditCoverages(editCoverages.filter((c) => c.coverageCode !== code));
+  const addEditCoverage = () => {
+    if (editCoverages.some((c) => c.coverageCode === ecCode)) return;
+    const limit = Number(ecLimit);
+    if (!ecLimit || Number.isNaN(limit) || limit <= 0) return;
+    const cat = COVERAGE_CATALOG.find((x) => x.code === ecCode);
+    const deduct = Number(ecDeduct);
+    setEditCoverages([...editCoverages, {
+      coverageCode: ecCode,
+      coverageName: cat?.name || ecCode,
+      coverageType: cat?.type || 'PROPERTY',
+      limit,
+      deductible: Number.isNaN(deduct) || deduct < 0 ? 0 : deduct,
+      termMonths: 12,
+      baseRate: cat?.baseRate || 0,
+    }]);
+    setEcLimit(''); setEcDeduct('');
+  };
+  const selectedLocation = locations.find((l) => String(l.locationId) === String(editLocId));
+
+  // --- Dựng full locations gửi BE ---
+  const buildLocations = () => {
+    const base = locations.map((l) => ({
+      locationId: l.locationId,
+      address: l.address,
+      coverages: (l.coverages || []).map((c) => ({
+        coverageCode: c.coverageCode,
+        coverageName: c.coverageName,
+        coverageType: c.coverageType,
+        limit: Number(c.limit) || 0,
+        deductible: Number(c.deductible) || 0,
+        termMonths: c.termMonths || 12,
+        baseRate: c.baseRate || 0,
+      })),
+    }));
+    if (mode === 'add-location') {
+      const maxId = base.reduce((m, l) => Math.max(m, Number(l.locationId) || 0), 0);
+      base.push({
+        locationId: maxId + 1,
+        address: newAddress.trim(),
+        coverages: newCoverages.map((nc) => {
+          const cat = COVERAGE_CATALOG.find((x) => x.code === nc.coverageCode);
+          return {
+            coverageCode: nc.coverageCode,
+            coverageName: cat?.name || nc.coverageCode,
+            coverageType: cat?.type || 'PROPERTY',
+            limit: Number(nc.limit) || 0,
+            deductible: Number(nc.deductible) || 0,
+            termMonths: 12,
+            baseRate: cat?.baseRate || 0,
+          };
+        }),
+      });
+    } else {
+      const idx = base.findIndex((l) => String(l.locationId) === String(editLocId));
+      if (idx >= 0) {
+        base[idx].coverages = editCoverages.map((c) => ({
+          coverageCode: c.coverageCode,
+          coverageName: c.coverageName,
+          coverageType: c.coverageType,
+          limit: Number(c.limit) || 0,
+          deductible: Number(c.deductible) || 0,
+          termMonths: c.termMonths || 12,
+          baseRate: c.baseRate || 0,
+        }));
+      }
+    }
+    return base;
+  };
+
+  const handleConfirm = () => {
+    if (!reason.trim() || busy) return;
+    onSubmit({ reason: reason.trim(), description: description.trim(), locations: buildLocations() });
+  };
+
+  const stepTitles = { 1: 'Chọn thao tác', 2: mode === 'add-location' ? 'Thêm địa điểm mới' : 'Chỉnh sửa coverage', 3: 'Xem lại & xác nhận' };
+
+  const renderStepIndicator = () => (
+    <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
+      {[1, 2, 3].map((s) => (
+        <div key={s} style={{ flex: 1, textAlign: 'center' }}>
+          <div style={{
+            height: '4px', borderRadius: '2px', marginBottom: '0.35rem',
+            background: s <= step ? 'var(--primary, #1663d9)' : '#e5e7eb',
+          }} />
+          <span style={{ fontSize: '0.75rem', color: s === step ? 'var(--primary, #1663d9)' : '#9ca3af', fontWeight: s === step ? 600 : 400 }}>
+            {stepTitles[s]}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+
+  const coverageRow = (c, onRemove, onLimitChange, onDeductChange, editable) => {
+    const cat = COVERAGE_CATALOG.find((x) => x.code === c.coverageCode);
+    return (
+      <div key={c.coverageCode} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', border: '1px solid #e5e7eb', borderRadius: '8px', marginBottom: '0.5rem' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{cat?.name || c.coverageName || c.coverageCode}</div>
+          <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{c.coverageCode}</div>
+        </div>
+        {editable ? (
+          <>
+            <input type="number" min="0" className="form-control" style={{ width: '130px' }} placeholder="Hạn mức"
+              value={c.limit ?? ''} onChange={(e) => onLimitChange(c.coverageCode, e.target.value)} />
+            <input type="number" min="0" className="form-control" style={{ width: '110px' }} placeholder="Khấu trừ"
+              value={c.deductible ?? ''} onChange={(e) => onDeductChange(c.coverageCode, e.target.value)} />
+          </>
+        ) : (
+          <div style={{ fontSize: '0.8rem', color: '#374151', textAlign: 'right' }}>
+            <div>Hạn mức: {fmtMoney(c.limit)}</div>
+            <div>Khấu trừ: {fmtMoney(c.deductible)}</div>
+          </div>
+        )}
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => onRemove(c.coverageCode)} disabled={busy}>Xóa</button>
+      </div>
+    );
+  };
+
   return (
     <Modal
       open={open}
@@ -686,32 +873,149 @@ function EndorseModal({ open, onClose, onSubmit, busy }) {
       title="Yêu cầu điều chỉnh hợp đồng"
       footer={
         <>
+          {step > 1 && <button className="btn btn-secondary" onClick={() => setStep(step - 1)} disabled={busy}>Quay lại</button>}
           <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Hủy</button>
-          <button className="btn btn-primary" onClick={() => onSubmit({ type, description: description.trim() })} disabled={busy || !description.trim()}>
-            {busy ? <span className="spinner" /> : null} Gửi yêu cầu
-          </button>
+          {step === 1 && <button className="btn btn-primary" onClick={() => setStep(2)} disabled={busy}>Tiếp tục</button>}
+          {step === 2 && mode === 'add-location' && (
+            <button className="btn btn-primary" onClick={() => setStep(3)} disabled={busy || !canGoStep3FromAdd}
+              title={!canGoStep3FromAdd ? 'Nhập địa chỉ và thêm ít nhất 1 coverage' : ''}>Tiếp tục</button>
+          )}
+          {step === 2 && mode === 'edit-coverage' && (
+            <button className="btn btn-primary" onClick={() => setStep(3)} disabled={busy || !editLocId}>Tiếp tục</button>
+          )}
+          {step === 3 && (
+            <button className="btn btn-primary" onClick={handleConfirm} disabled={busy || !reason.trim()}
+              title={!reason.trim() ? 'Vui lòng nhập lý do điều chỉnh' : ''}>
+              {busy ? <span className="spinner" /> : null} Xác nhận gửi yêu cầu
+            </button>
+          )}
         </>
       }
     >
-      <div className="form-group">
-        <label className="form-label" htmlFor="end-type">Loại điều chỉnh</label>
-        <select id="end-type" className="form-control" value={type} onChange={(e) => setType(e.target.value)}>
-          {ENDORSE_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-        </select>
-      </div>
-      <div className="form-group">
-        <label className="form-label" htmlFor="end-desc">Mô tả chi tiết *</label>
-        <textarea
-          id="end-desc" className="form-control" rows={4}
-          value={description} onChange={(e) => setDescription(e.target.value)}
-          placeholder="Ví dụ: Bổ sung kho hàng mới tại KCN Tân Bình, tăng hạn mức cháy nổ lên 2 tỷ đồng…"
-        />
-      </div>
-      <p className="form-hint">Yêu cầu của bạn sẽ được đội ngũ thẩm định xem xét và phản hồi.</p>
+      {renderStepIndicator()}
+
+      {step === 1 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <label style={{ display: 'flex', gap: '0.75rem', padding: '0.9rem', border: `2px solid ${mode === 'add-location' ? 'var(--primary, #1663d9)' : '#e5e7eb'}`, borderRadius: '10px', cursor: 'pointer' }}>
+            <input type="radio" name="endorse-mode" checked={mode === 'add-location'} onChange={() => setMode('add-location')} />
+            <div>
+              <div style={{ fontWeight: 600 }}>Thêm địa điểm mới</div>
+              <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>Bổ sung địa điểm được bảo hiểm cùng các coverage của nó</div>
+            </div>
+          </label>
+          <label style={{ display: 'flex', gap: '0.75rem', padding: '0.9rem', border: `2px solid ${mode === 'edit-coverage' ? 'var(--primary, #1663d9)' : '#e5e7eb'}`, borderRadius: '10px', cursor: hasLocations ? 'pointer' : 'not-allowed', opacity: hasLocations ? 1 : 0.5 }}>
+            <input type="radio" name="endorse-mode" checked={mode === 'edit-coverage'} onChange={() => hasLocations && setMode('edit-coverage')} disabled={!hasLocations} />
+            <div>
+              <div style={{ fontWeight: 600 }}>Chỉnh sửa coverage của địa điểm hiện có</div>
+              <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>
+                {hasLocations ? 'Sửa hạn mức/khấu trừ, thêm hoặc bớt coverage' : 'Hợp đồng chưa có địa điểm nào'}
+              </div>
+            </div>
+          </label>
+        </div>
+      )}
+
+      {step === 2 && mode === 'add-location' && (
+        <>
+          <div className="form-group">
+            <label className="form-label" htmlFor="end-new-addr">Địa chỉ địa điểm mới *</label>
+            <input id="end-new-addr" className="form-control" value={newAddress}
+              onChange={(e) => setNewAddress(e.target.value)} placeholder="Ví dụ: Kho hàng KCN Tân Bình, Lô B2…" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Thêm coverage cho địa điểm này</label>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+              <select className="form-control" style={{ flex: 1, minWidth: '160px' }} value={ncCode} onChange={(e) => setNcCode(e.target.value)}>
+                {COVERAGE_CATALOG.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+              </select>
+              <input type="number" min="0" className="form-control" style={{ width: '130px' }} placeholder="Hạn mức *" value={ncLimit} onChange={(e) => setNcLimit(e.target.value)} />
+              <input type="number" min="0" className="form-control" style={{ width: '110px' }} placeholder="Khấu trừ" value={ncDeduct} onChange={(e) => setNcDeduct(e.target.value)} />
+              <button type="button" className="btn btn-secondary" onClick={addNewCoverage} disabled={busy}>Thêm</button>
+            </div>
+            {newCoverages.length === 0
+              ? <p className="form-hint">Chưa có coverage nào — thêm ít nhất 1 coverage để tiếp tục.</p>
+              : newCoverages.map((c) => coverageRow(c, removeNewCoverage, null, null, false))}
+          </div>
+        </>
+      )}
+
+      {step === 2 && mode === 'edit-coverage' && (
+        <>
+          <div className="form-group">
+            <label className="form-label" htmlFor="end-edit-loc">Chọn địa điểm</label>
+            <select id="end-edit-loc" className="form-control" value={editLocId} onChange={(e) => setEditLocId(e.target.value)}>
+              {locations.map((l) => <option key={l.locationId} value={l.locationId}>#{l.locationId} — {l.address}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Coverages tại địa điểm này</label>
+            {editCoverages.length === 0
+              ? <p className="form-hint">Địa điểm này chưa có coverage nào.</p>
+              : editCoverages.map((c) => coverageRow(
+                  c, removeEditCoverage,
+                  (code, v) => updateEditCoverage(code, 'limit', v),
+                  (code, v) => updateEditCoverage(code, 'deductible', v),
+                  true))}
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+              <select className="form-control" style={{ flex: 1, minWidth: '160px' }} value={ecCode} onChange={(e) => setEcCode(e.target.value)}>
+                {COVERAGE_CATALOG.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+              </select>
+              <input type="number" min="0" className="form-control" style={{ width: '130px' }} placeholder="Hạn mức *" value={ecLimit} onChange={(e) => setEcLimit(e.target.value)} />
+              <input type="number" min="0" className="form-control" style={{ width: '110px' }} placeholder="Khấu trừ" value={ecDeduct} onChange={(e) => setEcDeduct(e.target.value)} />
+              <button type="button" className="btn btn-secondary" onClick={addEditCoverage} disabled={busy}>Thêm coverage</button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {step === 3 && (
+        <>
+          <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '0.9rem', marginBottom: '1rem' }}>
+            <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Tóm tắt yêu cầu</div>
+            {mode === 'add-location' ? (
+              <>
+                <div>Thêm địa điểm: <b>{newAddress.trim()}</b></div>
+                <div style={{ marginTop: '0.35rem', fontSize: '0.9rem' }}>
+                  {newCoverages.map((c) => {
+                    const cat = COVERAGE_CATALOG.find((x) => x.code === c.coverageCode);
+                    return <div key={c.coverageCode}>• {cat?.name || c.coverageCode} — hạn mức {fmtMoney(c.limit)}, khấu trừ {fmtMoney(c.deductible)}</div>;
+                  })}
+                </div>
+              </>
+            ) : (
+              <>
+                <div>Địa điểm: <b>#{selectedLocation?.locationId} — {selectedLocation?.address}</b></div>
+                <div style={{ marginTop: '0.35rem', fontSize: '0.9rem' }}>
+                  {editCoverages.length === 0
+                    ? <div>Xóa toàn bộ coverage tại địa điểm này.</div>
+                    : editCoverages.map((c) => {
+                        const cat = COVERAGE_CATALOG.find((x) => x.code === c.coverageCode);
+                        return <div key={c.coverageCode}>• {cat?.name || c.coverageName || c.coverageCode} — hạn mức {fmtMoney(c.limit)}, khấu trừ {fmtMoney(c.deductible)}</div>;
+                      })}
+                </div>
+              </>
+            )}
+            <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#6b7280' }}>
+              Phí bảo hiểm sẽ được tính lại tự động sau khi yêu cầu được duyệt.
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label" htmlFor="end-reason">Lý do điều chỉnh *</label>
+            <input id="end-reason" className="form-control" value={reason}
+              onChange={(e) => setReason(e.target.value)} placeholder="Ví dụ: Mở rộng kho hàng mới phục vụ mùa cao điểm" />
+          </div>
+          <div className="form-group">
+            <label className="form-label" htmlFor="end-desc">Mô tả thêm</label>
+            <textarea id="end-desc" className="form-control" rows={3} value={description}
+              onChange={(e) => setDescription(e.target.value)} placeholder="Thông tin bổ sung cho đội thẩm định (không bắt buộc)…" />
+          </div>
+        </>
+      )}
     </Modal>
   );
 }
 
+// ---------------------------------------------------------------- History
 // ---------------------------------------------------------------- History
 const flattenCoverages = (snapshot) => {
   const map = {};
