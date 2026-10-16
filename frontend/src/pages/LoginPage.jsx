@@ -28,7 +28,6 @@ export function LoginPage() {
   const { isAuthenticated, loginWithToken } = useAuth();
   const toast = useToast();
   const [tab, setTab] = useState('otp');
-  const [oauthBusy, setOauthBusy] = useState(false);
 
   // Xử lý callback từ Google OAuth2: backend redirect về /login?token=...&email=...&roles=...
   useEffect(() => {
@@ -50,7 +49,7 @@ export function LoginPage() {
     const usr = {
       email,
       fullName: params.get('name') || email,
-      roles: (params.get('roles') || 'ROLE_USER').split(',').filter(Boolean),
+      roles: (() => { const r = (params.get('roles') || '').split(',').filter(Boolean); return r.length ? r : ['ROLE_USER']; })(),
     };
     loginWithToken(token, usr);
     toast.success(`Chào mừng ${usr.fullName}!`);
@@ -153,7 +152,6 @@ export function LoginPage() {
         <button
           type="button"
           className="btn btn-secondary btn-block"
-          disabled={oauthBusy}
           onClick={() => { window.location.href = '/oauth2/authorization/google'; }}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem' }}
         >
@@ -163,7 +161,7 @@ export function LoginPage() {
             <path fill="#FBBC05" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84z"/>
             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15A11 11 0 0 0 2.18 7.06l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z"/>
           </svg>
-          {oauthBusy ? 'Đang xác thực Google…' : 'Đăng nhập bằng Google'}
+          Đăng nhập bằng Google
         </button>
 
           <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', marginTop: '1.5rem', flexWrap: 'wrap' }}>

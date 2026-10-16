@@ -72,42 +72,42 @@ export const userService = {
 // ---------------------------------------------------------------- Policy (SRS §6)
 export const policyService = {
   searchPolicies: (params = {}) => api.get('/policies', { params }),
-  getPolicyByNumber: (policyNumber) => api.get(`/policies/${policyNumber}`),
+  getPolicyByNumber: (policyNumber) => api.get(`/policies/${encodeURIComponent(policyNumber)}`),
   createPolicy: (data) => api.post('/policies', data),
-  updatePolicy: (policyNumber, data) => api.put(`/policies/${policyNumber}`, data),
-  deletePolicy: (policyNumber) => api.delete(`/policies/${policyNumber}`),
+  updatePolicy: (policyNumber, data) => api.put(`/policies/${encodeURIComponent(policyNumber)}`, data),
+  deletePolicy: (policyNumber) => api.delete(`/policies/${encodeURIComponent(policyNumber)}`),
   /** Chuyển trạng thái vòng đời — backend: POST /policies/{n}/status-transitions */
   transition: (policyNumber, toStatus, extra = {}) =>
-    api.post(`/policies/${policyNumber}/status-transitions`, { targetStatus: toStatus, ...extra }),
+    api.post(`/policies/${encodeURIComponent(policyNumber)}/status-transitions`, { targetStatus: toStatus, ...extra }),
   /** Yêu cầu điều chỉnh (endorsement) — backend: POST /policies/{n}/endorsements */
-  endorse: (policyNumber, payload) => api.post(`/policies/${policyNumber}/endorsements`, payload),
-  getHistory: (policyNumber) => api.get(`/policies/${policyNumber}/history`),
-  getVersions: (policyNumber) => api.get(`/policies/${policyNumber}/versions`),
-  getVersion: (policyNumber, v) => api.get(`/policies/${policyNumber}/versions/${v}`),
+  endorse: (policyNumber, payload) => api.post(`/policies/${encodeURIComponent(policyNumber)}/endorsements`, payload),
+  getHistory: (policyNumber) => api.get(`/policies/${encodeURIComponent(policyNumber)}/history`),
+  getVersions: (policyNumber) => api.get(`/policies/${encodeURIComponent(policyNumber)}/versions`),
+  getVersion: (policyNumber, v) => api.get(`/policies/${encodeURIComponent(policyNumber)}/versions/${encodeURIComponent(v)}`),
 };
 
 // ---------------------------------------------------------------- Locations (nested)
 export const policyLocationService = {
-  getLocations: (policyNumber) => api.get(`/policies/${policyNumber}/locations`),
+  getLocations: (policyNumber) => api.get(`/policies/${encodeURIComponent(policyNumber)}/locations`),
   getLocationById: (policyNumber, locationId) =>
-    api.get(`/policies/${policyNumber}/locations/${locationId}`),
-  addLocation: (policyNumber, data) => api.post(`/policies/${policyNumber}/locations`, data),
+    api.get(`/policies/${encodeURIComponent(policyNumber)}/locations/${encodeURIComponent(locationId)}`),
+  addLocation: (policyNumber, data) => api.post(`/policies/${encodeURIComponent(policyNumber)}/locations`, data),
   updateLocation: (policyNumber, locationId, data) =>
-    api.put(`/policies/${policyNumber}/locations/${locationId}`, data),
+    api.put(`/policies/${encodeURIComponent(policyNumber)}/locations/${encodeURIComponent(locationId)}`, data),
   removeLocation: (policyNumber, locationId) =>
-    api.delete(`/policies/${policyNumber}/locations/${locationId}`),
+    api.delete(`/policies/${encodeURIComponent(policyNumber)}/locations/${encodeURIComponent(locationId)}`),
 };
 
 // ---------------------------------------------------------------- Coverages (nested, keyed by coverageCode)
 export const policyCoverageService = {
   getCoverages: (policyNumber, locationId) =>
-    api.get(`/policies/${policyNumber}/locations/${locationId}/coverages`),
+    api.get(`/policies/${encodeURIComponent(policyNumber)}/locations/${encodeURIComponent(locationId)}/coverages`),
   addCoverage: (policyNumber, locationId, data) =>
-    api.post(`/policies/${policyNumber}/locations/${locationId}/coverages`, data),
+    api.post(`/policies/${encodeURIComponent(policyNumber)}/locations/${encodeURIComponent(locationId)}/coverages`, data),
   updateCoverage: (policyNumber, locationId, coverageCode, data) =>
-    api.put(`/policies/${policyNumber}/locations/${locationId}/coverages/${coverageCode}`, data),
+    api.put(`/policies/${encodeURIComponent(policyNumber)}/locations/${encodeURIComponent(locationId)}/coverages/${encodeURIComponent(coverageCode)}`, data),
   removeCoverage: (policyNumber, locationId, coverageCode) =>
-    api.delete(`/policies/${policyNumber}/locations/${locationId}/coverages/${coverageCode}`),
+    api.delete(`/policies/${encodeURIComponent(policyNumber)}/locations/${encodeURIComponent(locationId)}/coverages/${encodeURIComponent(coverageCode)}`),
 };
 
 // ---------------------------------------------------------------- Excel / pricing (SRS FR-CALC)
@@ -123,7 +123,7 @@ export const excelService = {
   },
   calculate: (payload) => api.post('/excel/calculate', payload),
   downloadBreakdown: (policyNumber) =>
-    api.get(`/excel/policy/${policyNumber}/download`, { responseType: 'blob' }),
+    api.get(`/excel/policy/${encodeURIComponent(policyNumber)}/download`, { responseType: 'blob' }),
   getRates: () => api.get('/excel/rates'),
 };
 
@@ -144,14 +144,14 @@ export const benchmarkService = {
 
 // ---------------------------------------------------------------- Policy documents
 export const documentService = {
-  list: (policyNumber) => api.get(`/policies/${policyNumber}/documents`),
+  list: (policyNumber) => api.get(`/policies/${encodeURIComponent(policyNumber)}/documents`),
   downloadCertificate: (policyNumber, version) =>
-    api.get(`/policies/${policyNumber}/documents/certificate`, {
+    api.get(`/policies/${encodeURIComponent(policyNumber)}/documents/certificate`, {
       params: version ? { version } : {},
       responseType: 'blob',
     }),
   downloadSummary: (policyNumber, version) =>
-    api.get(`/policies/${policyNumber}/documents/summary`, {
+    api.get(`/policies/${encodeURIComponent(policyNumber)}/documents/summary`, {
       params: version ? { version } : {},
       responseType: 'blob',
     }),
