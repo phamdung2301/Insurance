@@ -51,7 +51,7 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
                     .queryParam("email", auth.getEmail())
                     .queryParam("name", auth.getFullName())
                     .queryParam("roles", String.join(",", auth.getRoles()))
-                    .build(true).toUriString();
+                    .build().encode().toUriString();
             response.sendRedirect(target);
         } catch (Exception e) {
             // Không bao giờ để lộ Whitelabel 500 cho user — redirect về login kèm lỗi thân thiện
