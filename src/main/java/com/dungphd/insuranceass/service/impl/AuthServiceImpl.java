@@ -99,6 +99,13 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    public AuthResponse loginWithOAuth2(String email, String fullName) {
+        // upsert với explicitRoles=null -> tự cấp ROLE_ADMIN nếu email nằm trong app.admin.emails
+        User user = upsertUser(email, fullName, null);
+        return buildAuthResponse(user);
+    }
+
+    @Override
     public UserProfileResponse getMe(String email) {
         if (email == null || email.isBlank()) {
             throw new BadRequestException("Authenticated email cannot be empty");

@@ -20,7 +20,7 @@ function isPageRoute(urlPath) {
   return PAGE_PREFIXES.some((p) => urlPath.startsWith(p));
 }
 
-const API_PREFIXES = ['/auth', '/user', '/policies', '/excel', '/reports', '/benchmark', '/api'];
+const API_PREFIXES = ['/auth', '/user', '/policies', '/excel', '/reports', '/benchmark', '/api', '/oauth2', '/login/oauth2'];
 
 function spaBypassMiddleware() {
   return {
@@ -54,6 +54,8 @@ export default defineConfig({
       '/excel': { target: 'http://localhost:8080', changeOrigin: true },
       '/reports': { target: 'http://localhost:8080', changeOrigin: true },
       '/benchmark': { target: 'http://localhost:8080', changeOrigin: true },
+      '/oauth2': { target: 'http://localhost:8080', changeOrigin: true },
+      '/login/oauth2': { target: 'http://localhost:8080', changeOrigin: true },
       '/api': { target: 'http://localhost:8080', changeOrigin: true },
     },
   },
