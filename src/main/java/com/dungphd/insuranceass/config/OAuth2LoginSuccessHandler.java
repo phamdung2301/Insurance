@@ -38,8 +38,12 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
             return;
         }
         AuthResponse auth = authService.loginWithOAuth2(email.trim().toLowerCase(), name);
+        // Truyền cả user info qua URL để frontend không cần gọi thêm /auth/me
         String target = UriComponentsBuilder.fromUriString(frontendUrl + "/login")
                 .queryParam("token", auth.getToken())
+                .queryParam("email", auth.getEmail())
+                .queryParam("name", auth.getFullName())
+                .queryParam("roles", String.join(",", auth.getRoles()))
                 .build(true).toUriString();
         response.sendRedirect(target);
     }

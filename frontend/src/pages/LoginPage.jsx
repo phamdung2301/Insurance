@@ -30,35 +30,30 @@ export function LoginPage() {
   const [tab, setTab] = useState('otp');
   const [oauthBusy, setOauthBusy] = useState(false);
 
-  // Xử lý callback từ Google OAuth2: backend redirect về /login?token=JWT
+  // Xử lý callback từ Google OAuth2: backend redirect về /login?token=...&email=...&roles=...
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
     const err = params.get('error');
+    const email = params.get('email');
     // dọn URL ngay để không lộ token trên thanh địa chỉ
-    window.history.replaceState({}, '', '/login');
+    if (token || err) window.history.replaceState({}, '', '/login');
     if (err) {
       toast.error('Đăng nhập Google thất bại. Vui lòng thử lại.');
       return;
     }
     if (!token) return;
-    setOauthBusy(true);
-    (async () => {
-      try {
-        localStorage.setItem('itoken', token);
-        const res = await authService.getMe();
-        const usr = res?.data ?? res;
-        if (!usr?.email) throw new Error('Không lấy được thông tin tài khoản.');
-        loginWithToken(token, usr);
-        toast.success(`Chào mừng ${usr.fullName || usr.email}!`);
-      } catch (e) {
-        console.error('[OAuth callback] failed:', e);
-        localStorage.removeItem('itoken');
-        toast.error(e.message || 'Không xác thực được phiên Google.');
-      } finally {
-        setOauthBusy(false);
-      }
-    })();
+    if (!email) {
+      toast.error('Không nhận được email từ Google.');
+      return;
+    }
+    const usr = {
+      email,
+      fullName: params.get('name') || email,
+      roles: (params.get('roles') || 'ROLE_USER').split(',').filter(Boolean),
+    };
+    loginWithToken(token, usr);
+    toast.success(`Chào mừng ${usr.fullName}!`);
   }, []);
 
   if (isAuthenticated) return <Navigate to="/" replace />;
