@@ -30,10 +30,9 @@ public class UserController {
     @GetMapping("/profile")
     public ResponseEntity<ApiResponse<UserProfileResponse>> getProfile(
             Principal principal,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail,
             @RequestParam(value = "email", required = false) String paramEmail
     ) {
-        String email = resolveEmail(principal, headerEmail, paramEmail);
+        String email = resolveEmail(principal, paramEmail);
         UserProfileResponse profile = userService.getProfile(email);
         return ResponseEntity.ok(ApiResponse.success(profile, "Profile retrieved successfully"));
     }
@@ -46,10 +45,9 @@ public class UserController {
     public ResponseEntity<ApiResponse<UserProfileResponse>> updateProfile(
             @Valid @RequestBody UpdateProfileRequest request,
             Principal principal,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail,
             @RequestParam(value = "email", required = false) String paramEmail
     ) {
-        String email = resolveEmail(principal, headerEmail, paramEmail);
+        String email = resolveEmail(principal, paramEmail);
         UserProfileResponse updatedProfile = userService.updateProfile(email, request);
         return ResponseEntity.ok(ApiResponse.success(updatedProfile, "Profile updated successfully"));
     }
@@ -62,10 +60,9 @@ public class UserController {
     public ResponseEntity<ApiResponse<Void>> changePassword(
             @Valid @RequestBody ChangePasswordRequest request,
             Principal principal,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail,
             @RequestParam(value = "email", required = false) String paramEmail
     ) {
-        String email = resolveEmail(principal, headerEmail, paramEmail);
+        String email = resolveEmail(principal, paramEmail);
         userService.changePassword(email, request);
         return ResponseEntity.ok(ApiResponse.success(null, "Password changed successfully"));
     }
@@ -78,31 +75,17 @@ public class UserController {
     @GetMapping({"/activity", "/transactions"})
     public ResponseEntity<ApiResponse<List<PolicyTransaction>>> getUserActivity(
             Principal principal,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail,
             @RequestParam(value = "email", required = false) String paramEmail
     ) {
-        String email = resolveEmail(principal, headerEmail, paramEmail);
+        String email = resolveEmail(principal, paramEmail);
         List<PolicyTransaction> transactions = userService.getUserTransactions(email);
         return ResponseEntity.ok(ApiResponse.success(transactions, "User activity retrieved successfully"));
     }
 
-    private String resolveEmail(Principal principal, String headerEmail, String paramEmail) {
+    private String resolveEmail(Principal principal, String paramEmail) {
         if (principal != null && principal.getName() != null && !principal.getName().isBlank() && !"anonymousUser".equalsIgnoreCase(principal.getName())) {
             return principal.getName();
         }
-        try {
-            org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-            if (auth != null && auth.getName() != null && !auth.getName().isBlank() && !"anonymousUser".equalsIgnoreCase(auth.getName())) {
-                return auth.getName();
-            }
-        } catch (Exception ignored) {
-        }
-        if (headerEmail != null && !headerEmail.isBlank()) {
-            return headerEmail.trim();
-        }
-        if (paramEmail != null && !paramEmail.isBlank()) {
-            return paramEmail.trim();
-        }
-        throw new BadRequestException("User authentication required. Please provide credentials or email identifier.");
+        return paramEmail;
     }
 }

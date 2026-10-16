@@ -167,6 +167,10 @@ public class PolicyServiceImpl implements PolicyService {
             criteriaList.add(keywordCriteria);
         }
 
+        if (criteria.getInsuredEmail() != null && !criteria.getInsuredEmail().isBlank()) {
+            criteriaList.add(Criteria.where("insured.email").is(criteria.getInsuredEmail().trim().toLowerCase()));
+        }
+
         if (criteria.getInsuredName() != null && !criteria.getInsuredName().isBlank()) {
             String sanitized = sanitizePattern(criteria.getInsuredName());
             criteriaList.add(Criteria.where("insured.name").regex(sanitized, "i"));

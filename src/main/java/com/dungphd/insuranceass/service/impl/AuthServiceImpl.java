@@ -35,6 +35,9 @@ public class AuthServiceImpl implements AuthService {
     @Value("${app.admin.emails:dungphdse@gmail.com,admin@insurtech.vn}")
     private String adminEmailsConfig;
 
+    @Value("${app.dev.quick-switch-enabled:false}")
+    private boolean devQuickSwitchEnabled;
+
     @Override
     public void sendOtp(SendOtpRequest request) {
         String email = request.getEmail().trim().toLowerCase();
@@ -59,8 +62,11 @@ public class AuthServiceImpl implements AuthService {
     public AuthResponse login(AuthLoginRequest request) {
         String email = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
 
-        // 1. Dev Login / Quick Switch mode
+        // 1. Dev Login / Quick Switch mode (chỉ khi bật cờ app.dev.quick-switch-enabled)
         if (request.getRole() != null && !request.getRole().isBlank()) {
+            if (!devQuickSwitchEnabled) {
+                throw new BadRequestException("Dev quick-switch đã bị tắt. Vui lòng đăng nhập bằng OTP.");
+            }
             String roleUpper = request.getRole().trim().toUpperCase();
             boolean isAdmin = roleUpper.contains("ADMIN");
 

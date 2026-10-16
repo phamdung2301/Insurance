@@ -31,14 +31,10 @@ export function CustomerPortalPage() {
     setLoading(true);
     setFailed(false);
     try {
-      const res = await policyService.searchPolicies({ page: 0, size: 100 });
+      // Backend filter theo JWT (GET /policies/mine) — không tải data người khác về client
+      const res = await policyService.listMine({ page: 0, size: 100 });
       const list = res?.data?.content ?? res?.data ?? [];
-      // TODO: backend chưa hỗ trợ scope hợp đồng theo người dùng,
-      // tạm lọc ở phía client theo email người được bảo hiểm.
-      const mine = Array.isArray(list)
-        ? list.filter((p) => p?.insured?.email?.toLowerCase() === user?.email?.toLowerCase())
-        : [];
-      setPolicies(mine);
+      setPolicies(Array.isArray(list) ? list : []);
     } catch (err) {
       setFailed(true);
       toast.error(err.message || 'Không tải được danh sách hợp đồng.');

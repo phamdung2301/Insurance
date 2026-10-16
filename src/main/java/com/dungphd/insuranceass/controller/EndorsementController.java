@@ -32,8 +32,7 @@ public class EndorsementController {
     public ResponseEntity<ApiResponse<PolicyResponse>> applyEndorsementDirect(
             @RequestParam(name = "policyNumber", required = false) String queryPolicyNumber,
             @Valid @RequestBody EndorsementRequest request,
-            Principal principal,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail) {
+            Principal principal) {
 
         String policyNumber = queryPolicyNumber;
         if (policyNumber == null || policyNumber.isBlank()) {
@@ -43,7 +42,7 @@ public class EndorsementController {
             throw new BadRequestException("policyNumber must be specified either as query param or in request body");
         }
 
-        String actor = resolveActor(principal, headerEmail);
+        String actor = resolveActor(principal);
         PolicyResponse response = endorsementService.applyEndorsement(policyNumber, request, actor);
         return ResponseEntity.ok(ApiResponse.success(response, "Policy endorsed successfully to version " + response.getVersion()));
     }
@@ -82,12 +81,9 @@ public class EndorsementController {
         return ResponseEntity.ok(ApiResponse.success(versionDoc, "Policy version snapshot retrieved successfully"));
     }
 
-    private String resolveActor(Principal principal, String headerEmail) {
+    private String resolveActor(Principal principal) {
         if (principal != null && principal.getName() != null && !principal.getName().isBlank() && !"anonymousUser".equalsIgnoreCase(principal.getName())) {
             return principal.getName();
-        }
-        if (headerEmail != null && !headerEmail.isBlank()) {
-            return headerEmail.trim();
         }
         return "System";
     }

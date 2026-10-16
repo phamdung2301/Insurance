@@ -37,7 +37,24 @@ public class PolicyController {
     // Dynamic Search, Filter, Page & Sort (P02, P03)
     // ==========================================
 
-    @GetMapping
+        /**
+     * GET /policies/mine
+     * Hợp đồng của chính user đang đăng nhập (lấy email từ JWT, không tin client).
+     * Thay thế việc tải toàn bộ rồi filter ở frontend.
+     */
+    @GetMapping("/mine")
+    public ResponseEntity<ApiResponse<PageResponse<Policy>>> getMyPolicies(
+            @Valid @ModelAttribute PolicySearchCriteria criteria,
+            Principal principal) {
+        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Yêu cầu đăng nhập");
+        }
+        criteria.setInsuredEmail(principal.getName().trim().toLowerCase());
+        PageResponse<Policy> page = policyService.searchPolicies(criteria);
+        return ResponseEntity.ok(ApiResponse.success(page, "Danh sách hợp đồng của bạn"));
+    }
+
+@GetMapping
     public ResponseEntity<ApiResponse<PageResponse<Policy>>> searchPolicies(
             @Valid @ModelAttribute PolicySearchCriteria criteria
     ) {

@@ -20,6 +20,9 @@ public class PolicySearchCriteria {
     @jakarta.validation.constraints.Size(max = 100, message = "Insured name must not exceed 100 characters")
     private String insuredName;
 
+    /** Lọc chính xác theo email người được bảo hiểm (dùng cho /policies/mine) */
+    private String insuredEmail;
+
     @jakarta.validation.constraints.Size(max = 100, message = "Keyword must not exceed 100 characters")
     private String keyword;
 

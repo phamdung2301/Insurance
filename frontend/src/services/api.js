@@ -72,6 +72,8 @@ export const userService = {
 // ---------------------------------------------------------------- Policy (SRS §6)
 export const policyService = {
   searchPolicies: (params = {}) => api.get('/policies', { params }),
+  /** Hợp đồng của chính user đang đăng nhập (backend filter theo JWT, không lộ data người khác) */
+  listMine: (params = {}) => api.get('/policies/mine', { params }),
   getPolicyByNumber: (policyNumber) => api.get(`/policies/${encodeURIComponent(policyNumber)}`),
   createPolicy: (data) => api.post('/policies', data),
   updatePolicy: (policyNumber, data) => api.put(`/policies/${encodeURIComponent(policyNumber)}`, data),
