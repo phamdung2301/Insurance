@@ -200,7 +200,7 @@ export function PolicyDetailPage() {
   const submitEndorse = async ({ type, description }) => {
     setBusy(true);
     try {
-      await policyService.endorse(policyNumber, { type, description });
+      await policyService.endorse(policyNumber, { reason: type, description });
       toast.success('Đã gửi yêu cầu điều chỉnh.');
       setEndorseOpen(false);
       await load();

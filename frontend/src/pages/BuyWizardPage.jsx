@@ -130,11 +130,28 @@ export function BuyWizardPage() {
     if (checked.length === 0) { setServerPrem({}); return; }
     const t = setTimeout(async () => {
       try {
-        const res = await excelService.calculate({ coverages: checked });
-        const parsed = parseServerPremiums(res?.data);
-        if (parsed) setServerPrem(parsed);
+        // Backend /excel/calculate chỉ nhận 1 coverage/lần -> gọi từng cái rồi gộp
+        const results = await Promise.all(
+          checked.map((c) =>
+            excelService.calculate({
+              coverageCode: c.coverageCode,
+              limit: c.limit,
+              deductible: c.deductible,
+              termMonths: c.termMonths,
+            }).then((res) => ({ key: `${c.locationId}|${c.coverageCode}`, data: res?.data }))
+             .catch(() => null)
+          )
+        );
+        const merged = {};
+        for (const r of results) {
+          if (!r) continue;
+          const d = r.data;
+          const premium = d?.calculatedPremium ?? d?.premium ?? d?.totalPremium;
+          if (Number.isFinite(Number(premium))) merged[r.key] = Number(premium);
+        }
+        if (Object.keys(merged).length) setServerPrem(merged);
       } catch {
-        setServerPrem({}); // backend chưa hỗ trợ -> dùng ước tính nội bộ
+        setServerPrem({}); // lỗi -> dùng ước tính nội bộ
       }
     }, 700);
     return () => clearTimeout(t);
