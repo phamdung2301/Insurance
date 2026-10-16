@@ -15,4 +15,6 @@ public interface AuthService {
     AuthResponse login(AuthLoginRequest request);
 
     UserProfileResponse getMe(String email);
+
+    AuthResponse loginWithOAuth2(String email, String fullName);
 }
