@@ -35,7 +35,7 @@ public class UserProfileResponse {
                 .fullName(user.getFullName())
                 .phone(user.getPhone())
                 .address(user.getAddress())
-                .roles(user.getRoles( != null ? user.getRoles( : java.util.List.of()))
+                .roles(user.getRoles() != null ? user.getRoles() : java.util.List.of())
                 .enabled(user.getEnabled())
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
