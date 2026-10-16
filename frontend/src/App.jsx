@@ -78,7 +78,7 @@ function AnimatedRoutes() {
   return (
     <AnimatePresence mode="wait" initial={false}>
       <Routes location={location} key={location.pathname}>
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/login" element={withErrorBoundary(<LoginPage />, 'Đăng nhập')} />
         {page('/', <CustomerPortalPage />)}
         {page('/mua-bao-hiem', <BuyWizardPage />)}
         {page('/hop-dong/:policyNumber', <PolicyDetailPage />)}
