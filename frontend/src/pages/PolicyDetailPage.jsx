@@ -1024,7 +1024,7 @@ const flattenCoverages = (snapshot) => {
     safeList(l.coverages).forEach((c) => {
       map[`${lid}|${c.coverageCode}`] = {
         locationId: lid,
-        locationName: l.name || `Địa điểm ${lid}`,
+        locationName: l.address || `Địa điểm ${lid}`,
         ...c,
       };
     });
@@ -1075,7 +1075,9 @@ function HistoryTab({ policyNumber, currentPolicy }) {
     try {
       const res = await policyService.getVersion(policyNumber, ver);
       const body = res?.data;
-      setSelected({ version: ver, snapshot: body?.data ?? body ?? {} });
+      // Backend trả PolicyVersion { policySnapshot: {...} } — dữ liệu thật nằm trong policySnapshot
+      const pv = body?.data ?? body ?? {};
+      setSelected({ version: ver, snapshot: pv?.policySnapshot ?? pv ?? {} });
     } catch (err) {
       if (isBackendMissing(err)) toast.info(BACKEND_TODO_HINT);
       else toast.error(err.message || 'Không tải được chi tiết phiên bản.');
