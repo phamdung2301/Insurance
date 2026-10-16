@@ -115,6 +115,12 @@ public class SecurityConfig {
                         .requestMatchers("/reports/**", "/api/reports/**").hasRole("ADMIN")
                         .requestMatchers("/admin/**", "/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/excel/**", "/api/excel/**").hasRole("ADMIN")
+                        // Khóa các endpoint nghiệp vụ: yêu cầu đăng nhập (đóng lỗ hổng 28 endpoints public)
+                        // Frontend mọi trang đều qua ProtectedRoute nên không gãy luồng nào
+                        .requestMatchers("/policies/**", "/api/policies/**").authenticated()
+                        .requestMatchers("/endorsements", "/api/endorsements").authenticated()
+                        .requestMatchers("/history", "/api/history").authenticated()
+                        .requestMatchers("/versions/**", "/api/versions/**").authenticated()
                         .anyRequest().permitAll()
                 )
                 .addFilterBefore(rateLimitingFilter, org.springframework.security.web.authentication.logout.LogoutFilter.class)
