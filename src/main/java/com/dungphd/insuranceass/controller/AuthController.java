@@ -62,8 +62,7 @@ public class AuthController {
      */
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<UserProfileResponse>> getMe(
-            Principal principal,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail
+            Principal principal
     ) {
         String email = null;
         if (principal != null && principal.getName() != null && !principal.getName().isBlank()) {
@@ -72,8 +71,6 @@ public class AuthController {
             Authentication auth = SecurityContextHolder.getContext().getAuthentication();
             if (auth != null && auth.getName() != null && !auth.getName().isBlank() && !"anonymousUser".equalsIgnoreCase(auth.getName())) {
                 email = auth.getName();
-            } else if (headerEmail != null && !headerEmail.isBlank()) {
-                email = headerEmail.trim();
             }
         }
 
