@@ -37,7 +37,24 @@ public class PolicyController {
     // Dynamic Search, Filter, Page & Sort (P02, P03)
     // ==========================================
 
-    @GetMapping
+        /**
+     * GET /policies/mine
+     * Hợp đồng của chính user đang đăng nhập (lấy email từ JWT, không tin client).
+     * Thay thế việc tải toàn bộ rồi filter ở frontend.
+     */
+    @GetMapping("/mine")
+    public ResponseEntity<ApiResponse<PageResponse<Policy>>> getMyPolicies(
+            @Valid @ModelAttribute PolicySearchCriteria criteria,
+            Principal principal) {
+        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Yêu cầu đăng nhập");
+        }
+        criteria.setInsuredEmail(principal.getName().trim().toLowerCase());
+        PageResponse<Policy> page = policyService.searchPolicies(criteria);
+        return ResponseEntity.ok(ApiResponse.success(page, "Danh sách hợp đồng của bạn"));
+    }
+
+@GetMapping
     public ResponseEntity<ApiResponse<PageResponse<Policy>>> searchPolicies(
             @Valid @ModelAttribute PolicySearchCriteria criteria
     ) {
@@ -84,8 +101,9 @@ public class PolicyController {
     public ResponseEntity<ApiResponse<PolicyResponse>> transitionStatus(
             @PathVariable String policyNumber,
             @Valid @RequestBody StatusTransitionRequest request,
-            Principal principal) {
-        String actor = resolveActor(principal);
+            Principal principal,
+            @RequestHeader(value = "X-User-Email", required = false) String headerEmail) {
+        String actor = resolveActor(principal, headerEmail);
         PolicyResponse response = policyService.transitionStatus(policyNumber, request, actor);
         return ResponseEntity.ok(ApiResponse.success(response, "Policy status transitioned to " + request.getTargetStatus()));
     }
@@ -98,8 +116,9 @@ public class PolicyController {
     public ResponseEntity<ApiResponse<PolicyResponse>> applyEndorsement(
             @PathVariable String policyNumber,
             @Valid @RequestBody EndorsementRequest request,
-            Principal principal) {
-        String actor = resolveActor(principal);
+            Principal principal,
+            @RequestHeader(value = "X-User-Email", required = false) String headerEmail) {
+        String actor = resolveActor(principal, headerEmail);
         PolicyResponse response = endorsementService.applyEndorsement(policyNumber, request, actor);
         return ResponseEntity.ok(ApiResponse.success(response, "Policy endorsed successfully to version " + response.getVersion()));
     }
@@ -137,9 +156,12 @@ public class PolicyController {
         return ResponseEntity.ok(ApiResponse.success(history, "Policy transaction history retrieved successfully"));
     }
 
-    private String resolveActor(Principal principal) {
+    private String resolveActor(Principal principal, String headerEmail) {
         if (principal != null && principal.getName() != null && !principal.getName().isBlank() && !"anonymousUser".equalsIgnoreCase(principal.getName())) {
             return principal.getName();
+        }
+        if (headerEmail != null && !headerEmail.isBlank()) {
+            return headerEmail.trim();
         }
         return "System";
     }
