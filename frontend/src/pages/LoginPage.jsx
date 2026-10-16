@@ -26,7 +26,7 @@ const TRUST_STATS = [
  */
 export function LoginPage() {
   const { isAuthenticated, loginWithToken } = useAuth();
-  const { toast } = useToast();
+  const toast = useToast();
   const [tab, setTab] = useState('otp');
   const [oauthBusy, setOauthBusy] = useState(false);
 
@@ -52,6 +52,7 @@ export function LoginPage() {
         loginWithToken(token, usr);
         toast.success(`Chào mừng ${usr.fullName || usr.email}!`);
       } catch (e) {
+        console.error('[OAuth callback] failed:', e);
         localStorage.removeItem('itoken');
         toast.error(e.message || 'Không xác thực được phiên Google.');
       } finally {
