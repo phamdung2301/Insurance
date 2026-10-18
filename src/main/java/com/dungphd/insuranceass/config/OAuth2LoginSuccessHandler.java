@@ -40,13 +40,13 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
             String name = oauthUser.getAttribute("name");
             if (email == null || email.isBlank()) {
                 log.warn("[OAuth2] Google không trả về email, hủy đăng nhập");
-                response.sendRedirect(frontendUrl + "/login?error=oauth_no_email");
+                response.sendRedirect(frontendBase() + "/login?error=oauth_no_email");
                 return;
             }
             AuthResponse auth = authService.loginWithOAuth2(email.trim().toLowerCase(), name);
             log.info("[OAuth2] Đăng nhập Google thành công: {}", auth.getEmail());
             // Truyền cả user info qua URL để frontend không cần gọi thêm /auth/me
-            String target = UriComponentsBuilder.fromUriString(frontendUrl + "/login")
+            String target = UriComponentsBuilder.fromUriString(frontendBase() + "/login")
                     .queryParam("token", auth.getToken())
                     .queryParam("email", auth.getEmail())
                     .queryParam("name", auth.getFullName())
@@ -56,7 +56,19 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
         } catch (Exception e) {
             // Không bao giờ để lộ Whitelabel 500 cho user — redirect về login kèm lỗi thân thiện
             log.error("[OAuth2] Lỗi xử lý callback Google", e);
-            response.sendRedirect(frontendUrl + "/login?error=oauth_failed");
+            response.sendRedirect(frontendBase() + "/login?error=oauth_failed");
         }
+    }
+
+    /**
+     * Chuẩn hóa frontend URL: tự thêm https:// nếu người dùng quên ghi protocol
+     * (lỗi thường gặp khi set env FRONTEND_URL trên dashboard).
+     */
+    private String frontendBase() {
+        String base = frontendUrl != null ? frontendUrl.trim() : "";
+        if (!base.isEmpty() && !base.matches("(?i)^https?://.*")) {
+            base = "https://" + base;
+        }
+        return base.replaceAll("/+$", "");
     }
 }

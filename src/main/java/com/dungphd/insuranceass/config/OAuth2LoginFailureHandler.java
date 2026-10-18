@@ -29,6 +29,18 @@ public class OAuth2LoginFailureHandler implements AuthenticationFailureHandler {
     public void onAuthenticationFailure(HttpServletRequest request, HttpServletResponse response,
                                         AuthenticationException exception) throws IOException {
         log.warn("[OAuth2] Đăng nhập Google thất bại: {}", exception.getMessage());
-        response.sendRedirect(frontendUrl + "/login?error=oauth_failed");
+        response.sendRedirect(frontendBase() + "/login?error=oauth_failed");
+    }
+
+    /**
+     * Chuẩn hóa frontend URL: tự thêm https:// nếu người dùng quên ghi protocol
+     * (lỗi thường gặp khi set env FRONTEND_URL trên dashboard).
+     */
+    private String frontendBase() {
+        String base = frontendUrl != null ? frontendUrl.trim() : "";
+        if (!base.isEmpty() && !base.matches("(?i)^https?://.*")) {
+            base = "https://" + base;
+        }
+        return base.replaceAll("/+$", "");
     }
 }
