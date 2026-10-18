@@ -16,8 +16,8 @@ export function formatUSD(value) {
 export function formatMoney(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return '—';
-  // Heuristic: giá trị >= 10.000 coi như VND (seed), ngược lại USD (SRS)
-  return n >= 10000 ? formatVND(n) : formatUSD(n);
+  // Thống nhất VND cho toàn app — bỏ heuristic đoán $/₫ gây lẫn lộn
+  return formatVND(n);
 }
 
 export function formatDate(value) {

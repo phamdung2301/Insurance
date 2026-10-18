@@ -285,6 +285,7 @@ export function PolicyDetailPage() {
       {tab === 'locations' && (
         <LocationsTab
           locations={locations}
+          readOnly={!['DRAFT', 'QUOTED', 'BOUND'].includes(status)}
           onAddLocation={() => setLocModal({ mode: 'add' })}
           onEditLocation={(loc) => setLocModal({ mode: 'edit', loc })}
           onDeleteLocation={(loc) => setDelLoc(loc.locationId)}
@@ -439,7 +440,7 @@ function OverviewTab({ policy, locations }) {
 }
 
 // ---------------------------------------------------------------- Locations
-function LocationsTab({ locations, onAddLocation, onEditLocation, onDeleteLocation, onAddCoverage, onEditCoverage, onDeleteCoverage }) {
+function LocationsTab({ locations, onAddLocation, onEditLocation, onDeleteLocation, onAddCoverage, onEditCoverage, onDeleteCoverage, readOnly }) {
   const [openId, setOpenId] = useState(locations[0]?.locationId ?? 0);
 
   useEffect(() => {
@@ -450,11 +451,17 @@ function LocationsTab({ locations, onAddLocation, onEditLocation, onDeleteLocati
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={onAddLocation}>
-          <Plus size={15} /> Thêm địa điểm
-        </button>
-      </div>
+      {readOnly ? (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '0.8rem 1rem', marginBottom: '1rem', fontSize: '0.9rem', color: '#92400e' }}>
+          Hợp đồng đã có hiệu lực — mọi thay đổi địa điểm/gói bảo hiểm vui lòng thực hiện qua <strong>Yêu cầu điều chỉnh</strong>.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onAddLocation}>
+            <Plus size={15} /> Thêm địa điểm
+          </button>
+        </div>
+      )}
       {locations.length === 0 && (
         <EmptyState
           icon={<MapPin size={40} />}
@@ -487,14 +494,16 @@ function LocationsTab({ locations, onAddLocation, onEditLocation, onDeleteLocati
             </button>
             {open && (
               <div className="accordion-body">
-                <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => onEditLocation(l)} aria-label={`Sửa địa điểm ${l.name || i + 1}`}>
-                    <Pencil size={14} /> Sửa địa điểm
-                  </button>
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => onDeleteLocation(l)} aria-label={`Xóa địa điểm ${l.name || i + 1}`}>
-                    <Trash2 size={14} /> Xóa địa điểm
-                  </button>
-                </div>
+                {!readOnly && (
+                  <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => onEditLocation(l)} aria-label={`Sửa địa điểm ${l.name || i + 1}`}>
+                      <Pencil size={14} /> Sửa địa điểm
+                    </button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => onDeleteLocation(l)} aria-label={`Xóa địa điểm ${l.name || i + 1}`}>
+                      <Trash2 size={14} /> Xóa địa điểm
+                    </button>
+                  </div>
+                )}
                 <div className="table-wrap">
                   <table className="table">
                     <thead>
@@ -504,7 +513,7 @@ function LocationsTab({ locations, onAddLocation, onEditLocation, onDeleteLocati
                         <th>Hạn mức</th>
                         <th>Khấu trừ</th>
                         <th>Phí</th>
-                        <th style={{ width: 110 }}>Thao tác</th>
+                        {!readOnly && <th style={{ width: 110 }}>Thao tác</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -515,15 +524,16 @@ function LocationsTab({ locations, onAddLocation, onEditLocation, onDeleteLocati
                           <td>{formatMoney(c.limit)}</td>
                           <td>{formatMoney(c.deductible)}</td>
                           <td><strong style={{ color: '#1663d9' }}>{formatMoney(c.premium)}</strong></td>
-                          <td>
-                            <div style={{ display: 'flex', gap: '0.4rem' }}>
-                              <button
-                                type="button" className="btn btn-ghost btn-icon btn-sm"
-                                onClick={() => onEditCoverage(l, c)}
-                                aria-label={`Sửa gói ${c.coverageName}`} title="Sửa"
-                              >
-                                <Pencil size={14} />
-                              </button>
+                          {!readOnly && (
+                            <td>
+                              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                <button
+                                  type="button" className="btn btn-ghost btn-icon btn-sm"
+                                  onClick={() => onEditCoverage(l, c)}
+                                  aria-label={`Sửa gói ${c.coverageName}`} title="Sửa"
+                                >
+                                  <Pencil size={14} />
+                                </button>
                               <button
                                 type="button" className="btn btn-ghost btn-icon btn-sm"
                                 onClick={() => onDeleteCoverage(l, c)}
@@ -533,6 +543,7 @@ function LocationsTab({ locations, onAddLocation, onEditLocation, onDeleteLocati
                               </button>
                             </div>
                           </td>
+                          )}
                         </tr>
                       ))}
                       {covs.length === 0 && (
@@ -543,9 +554,11 @@ function LocationsTab({ locations, onAddLocation, onEditLocation, onDeleteLocati
                     </tbody>
                   </table>
                 </div>
-                <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: '1rem' }} onClick={() => onAddCoverage(l)}>
-                  <Plus size={15} /> Thêm gói bảo hiểm
-                </button>
+                {!readOnly && (
+                  <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: '1rem' }} onClick={() => onAddCoverage(l)}>
+                    <Plus size={15} /> Thêm gói bảo hiểm
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -612,6 +625,8 @@ function CoverageFormModal({ open, onClose, mode, existing, onSubmit, busy }) {
   const limitNum = Number(limit);
   const dedNum = Number(deductible) || 0;
   const valid = Number.isFinite(limitNum) && limitNum > 0 && dedNum < limitNum;
+  const catSelected = COVERAGE_CATALOG.find((x) => x.code === code) || {};
+  const estPremium = valid ? Math.round(limitNum * (catSelected.baseRate || 0)) : 0;
   const submit = () => {
     if (!valid) return;
     const cat = COVERAGE_CATALOG.find((x) => x.code === code) || {};
@@ -622,6 +637,7 @@ function CoverageFormModal({ open, onClose, mode, existing, onSubmit, busy }) {
       limit: limitNum,
       deductible: dedNum,
       termMonths: Number(termMonths) || 12,
+      baseRate: cat.baseRate || existing?.baseRate || 0,
     });
   };
   return (
@@ -660,6 +676,13 @@ function CoverageFormModal({ open, onClose, mode, existing, onSubmit, busy }) {
       <div className="form-group">
         <label className="form-label" htmlFor="cov-term">Thời hạn (tháng)</label>
         <input id="cov-term" type="number" min="1" className="form-control" value={termMonths} onChange={(e) => setTermMonths(e.target.value)} />
+      </div>
+      <div style={{ background: '#f0f7ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '0.8rem 1rem', marginBottom: '1rem' }}>
+        <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>Phí dự kiến (tạm tính = hạn mức × tỉ lệ)</div>
+        <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1663d9' }}>
+          {valid ? formatMoney(estPremium) : '—'}
+        </div>
+        <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>Phí chính thức do hệ thống tính khi lưu.</div>
       </div>
       {!valid && limit !== '' && (
         <div className="form-error">Hạn mức phải lớn hơn 0 và lớn hơn mức khấu trừ.</div>
