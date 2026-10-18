@@ -1,8 +1,9 @@
 import axios from 'axios';
 
 // Central Axios instance — uses Vite proxy (see vite.config.js)
+// VITE_API_BASE_URL: để trống khi dev (dùng Vite proxy), set URL backend khi deploy (VD: https://insurance-be.onrender.com)
 const api = axios.create({
-  baseURL: '',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '',
   headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
 });
