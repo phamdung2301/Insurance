@@ -152,7 +152,10 @@ export function LoginPage() {
         <button
           type="button"
           className="btn btn-secondary btn-block"
-          onClick={() => { window.location.href = '/oauth2/authorization/google'; }}
+          onClick={() => {
+              const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+              window.location.href = `${apiBase}/oauth2/authorization/google`;
+            }}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem' }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
