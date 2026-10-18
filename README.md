@@ -1,331 +1,214 @@
-# Insurance Policy Management System
+# InsurTech — Hệ thống Quản lý Hợp đồng Bảo hiểm
 
-> **Full-stack insurance policy management platform** — Spring Boot 4 + MongoDB + React/Vite
+> Nền tảng quản lý hợp đồng bảo hiểm full-stack: mua bảo hiểm online, endorsement, versioning, bồi thường, báo cáo.
+
+---
+
+## Tính năng chính
+
+- **Quản lý hợp đồng (Policy):** vòng đời `DRAFT → QUOTED → BOUND → ACTIVE → CANCELLED / EXPIRED`
+- **Mua bảo hiểm online:** wizard chọn địa điểm + gói bảo hiểm từ catalog (cháy nổ, ngập nước, trách nhiệm công cộng, tai nạn lao động)
+- **Endorsement (sửa đổi bổ sung):** wizard 3 bước — thêm địa điểm mới / sửa coverage địa điểm hiện có; hệ thống tự tính lại phí và lưu version
+- **Versioning:** snapshot toàn bộ hợp đồng mỗi lần thay đổi, xem và **so sánh diff** giữa các phiên bản
+- **Lịch sử giao dịch:** mọi thay đổi trên hợp đồng đều được ghi nhận
+- **Quản lý bồi thường (Claims):** tạo, theo dõi, xử lý yêu cầu bồi thường
+- **Đăng nhập:** Email OTP, Google OAuth2, Dev Quick Switch (chỉ bật ở môi trường dev)
+- **Báo cáo & Benchmark:** 4 endpoint thống kê phí bảo hiểm + trang benchmark hiệu năng
+- **Import biểu phí từ Excel**
+- **Admin Dashboard:** quản lý người dùng, audit/sync index MongoDB
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Java 21, Spring Boot 4.1.1, Spring Security, JWT (HS512) |
-| Database | MongoDB 9.0 (WiredTiger), Spring Data MongoDB |
-| Frontend | React 18 + Vite 5, Axios, TailwindCSS |
-| Build | Maven Wrapper (`mvnw`) |
+| Layer    | Công nghệ                                              |
+|----------|--------------------------------------------------------|
+| Backend  | Java 21, Spring Boot 4.1.1, Spring Security, JWT (HS512) |
+| Database | MongoDB (local hoặc Atlas), Spring Data MongoDB        |
+| Frontend | React 19 + Vite, Axios, TailwindCSS, React Router      |
+| Build    | Maven Wrapper (`mvnw`)                                 |
+| Deploy   | Frontend: Vercel · Backend: Render (Docker) · DB: MongoDB Atlas |
 
 ---
 
-## Quick Start
+## Yêu cầu hệ thống
 
-### Prerequisites
 - Java 21+
 - Node.js 20+
-- MongoDB 9.0 (community)
+- MongoDB: cài local **hoặc** dùng MongoDB Atlas (khuyên dùng cho production)
+- Git
 
-### 1. Start MongoDB
+---
+
+## Chạy local
+
+### 1. Clone dự án
+
 ```bash
-"C:\Program Files\MongoDB\Server\9.0\bin\mongod.exe" --dbpath ./mongodb_data
+git clone https://github.com/phamdung2301/Insurance.git
+cd Insurance
 ```
 
-### 2. Start Backend
-```bash
-./mvnw spring-boot:run -DskipTests
-```
-Backend starts on **http://localhost:8080**
+### 2. Cấu hình file `.env`
 
-### 3. Start Frontend
+Copy `.env.example` thành `.env` đặt ở **thư mục gốc** (ngang hàng `pom.xml`), rồi điền giá trị thật:
+
+```bash
+cp .env.example .env
+```
+
+> ⚠️ File `.env` **không** commit lên git (đã có trong `.gitignore`).
+> Thứ tự ưu tiên cấu hình: biến môi trường OS > `.env` > giá trị mặc định.
+
+Tạo JWT secret 256-bit mới (PowerShell):
+
+```powershell
+[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Max 256 }))
+```
+
+### 3. Chạy backend
+
+```bash
+# Windows
+mvnw.cmd spring-boot:run
+
+# Linux / Mac
+./mvnw spring-boot:run
+```
+
+Backend chạy tại **http://localhost:8080**
+
+### 4. Chạy frontend
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-Frontend starts on **http://localhost:5173**
+
+Frontend chạy tại **http://localhost:5173**
 
 ---
 
-## Authentication
+## Biến môi trường
 
-The system uses **Gmail OTP** login (no passwords stored).
+| Biến | Mô tả | Mặc định |
+|------|-------|----------|
+| `MONGODB_HOST` / `MONGODB_PORT` / `MONGODB_DATABASE` | MongoDB local | `localhost` / `27017` / `insuranceass` |
+| `SPRING_DATA_MONGODB_URI` | Connection string đầy đủ (dùng cho Atlas, **ưu tiên** hơn 3 biến trên) | — |
+| `JWT_SECRET` | Secret ký JWT (base64, ≥256 bit, **bắt buộc tạo mới**) | — |
+| `JWT_EXPIRATION_MS` | Thời hạn token (ms) | `86400000` (24h) |
+| `ADMIN_EMAILS` | Danh sách email admin, cách nhau bằng dấu phẩy | — |
+| `MAIL_USERNAME` / `MAIL_PASSWORD` | Gmail + App Password để gửi OTP | — |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth2 Google (lấy từ Google Cloud Console) | — |
+| `FRONTEND_URL` | URL frontend (backend redirect về sau khi login Google) | `http://localhost:5173` |
+| `CORS_ALLOWED_ORIGINS` | Danh sách origin được phép gọi API | `http://localhost:5173,...` |
+| `DEV_QUICK_SWITCH` | `true` = bật tab "Đăng nhập dev" (không cần OTP) | `false` |
+| `SERVER_PORT` | Port backend | `8080` |
 
-**Dev quick-login** (bypasses OTP for development):
-```http
-POST /auth/login
-{
-  "email": "dungphdse@gmail.com",
-  "role": "ROLE_ADMIN",
-  "fullName": "Admin"
-}
-```
-Returns a JWT Bearer token — include in all subsequent requests:
-```
-Authorization: Bearer <token>
-```
+**Frontend** (set trong dashboard Vercel hoặc file `frontend/.env.local` khi cần):
 
-Admin emails are whitelisted in `application.properties`:
-```
-app.admin.emails=dungphdse@gmail.com,admin@insurtech.vn
-```
-
----
-
-## API Reference
-
-### Auth
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/auth/send-otp` | Send OTP to Gmail |
-| POST | `/auth/verify-otp` | Verify OTP, get JWT |
-| POST | `/auth/login` | Dev login (no OTP) |
-| GET | `/auth/me` | Current user profile |
-
-### Policies (P01–P09)
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/policies` | Create policy (→ DRAFT) |
-| GET | `/policies` | Search + filter + paginate |
-| GET | `/policies/{policyNumber}` | Get policy detail |
-| PUT | `/policies/{policyNumber}` | Update (non-ACTIVE only) |
-| DELETE | `/policies/{policyNumber}` | Delete policy |
-| POST | `/policies/{policyNumber}/status-transitions` | State machine transition |
-| POST | `/policies/{policyNumber}/endorsements`<br>`/endorsements` | Endorse ACTIVE policy (creates snapshot, increments version, logs txn) |
-| GET | `/policies/{policyNumber}/versions`<br>`/versions?policyNumber={pol}` | All version snapshots (immutable) |
-| GET | `/policies/{policyNumber}/versions/{version}`<br>`/versions/{version}?policyNumber={pol}` | Specific version snapshot |
-| GET | `/policies/{policyNumber}/versions/compare?v1=1&v2=2` | Diff two versions |
-| GET | `/policies/{policyNumber}/history`<br>`/history?policyNumber={pol}` | Transaction ledger history |
-
-### Search Parameters (GET /policies)
-| Param | Type | Default | Description |
-|-------|------|---------|-------------|
-| `page` | int | 0 | Page index (0-based) |
-| `size` | int | 10 | Page size (max 100) |
-| `sortBy` | string | `updatedAt` | Sort field |
-| `sortDirection` | string | `DESC` | ASC or DESC |
-| `status` | string | - | Filter by status |
-| `keyword` | string | - | Full-text search on policyNumber / insured name |
-| `minPremium` | double | - | Min total premium |
-| `maxPremium` | double | - | Max total premium |
-| `fromDate` | ISO date | - | Effective date from |
-| `toDate` | ISO date | - | Effective date to |
-
-### Reports & Benchmark (P11)
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/reports/status-counts` | Policy count by status |
-| GET | `/reports/premium-by-status` | Premium volume by status |
-| GET | `/reports/top-policies` | Top 10 policies by premium |
-| GET | `/reports/monthly-trends` | Monthly premium trends |
-| POST | `/benchmark/generate` | Generate N mock policies |
-| GET | `/benchmark/run` | Run explain() on 3 queries |
-| GET | `/benchmark/report` | Full benchmark report |
+| Biến | Mô tả |
+|------|-------|
+| `VITE_API_BASE_URL` | URL backend, VD `https://insurance-ls85.onrender.com`. Để trống khi dev local (dùng Vite proxy) |
 
 ---
 
-## Policy State Machine
+## Cấu trúc dự án
 
 ```
-DRAFT → QUOTED → BOUND → ACTIVE → CANCELLED
-                       ↘         ↘
-                    CANCELLED   EXPIRED
-```
-
-| From | Allowed Transitions |
-|------|-------------------|
-| DRAFT | QUOTED |
-| QUOTED | BOUND, DRAFT |
-| BOUND | ACTIVE, CANCELLED, DRAFT |
-| ACTIVE | CANCELLED, EXPIRED |
-| CANCELLED | — (terminal) |
-| EXPIRED | — (terminal) |
-
----
-
-## P07 — Endorsement Engine
-
-Endorsing an ACTIVE policy:
-1. **Snapshots** current state → saved to `policy_versions` collection
-2. **Applies** changes (insured, locations, coverages, dates)
-3. **Increments** `version` counter
-4. **Records** `ENDORSEMENT` entry in transaction ledger
-
-```http
-POST /policies/POL-2026-001/endorsements
-Authorization: Bearer <token>
-{
-  "reason": "Add new location",
-  "description": "Customer added Hanoi office",
-  "locations": [...]
-}
-```
-
----
-
-## P08 — Version History
-
-Every endorsement creates an immutable snapshot. Snapshots are never overwritten.
-
-```http
-GET /policies/POL-2026-001/versions          # all snapshots
-GET /policies/POL-2026-001/versions/1        # specific version
-GET /policies/POL-2026-001/versions/compare?v1=1&v2=2
-GET /policies/POL-2026-001/history           # transaction ledger
-```
-
----
-
-## P11 — Performance Benchmark (50,000 Documents)
-
-### Generate 50k policies
-```http
-POST /benchmark/generate
-Authorization: Bearer <token>
-{ "count": 50000 }
-```
-
-### Run benchmark queries
-```http
-GET /benchmark/run
-```
-Returns `executionStats` from MongoDB `explain()` for 3 queries:
-1. Filter by status + date range (uses `status_effectiveDate_idx`)
-2. Full-text search on insured name (uses `status_insuredName_idx`)  
-3. Premium range + status (uses `status_totalPremium_idx`)
-
-### Compound Indexes (defined in `Policy.java`)
-```
-status_createdAt_idx       { status: 1, createdAt: -1 }
-status_effectiveDate_idx   { status: 1, effectiveDate: 1 }
-status_totalPremium_idx    { status: 1, totalPremium: 1 }
-status_insuredName_idx     { status: 1, insured.name: 1 }
-policy_location_idx        { policyNumber: 1, locations.locationId: 1 }
-```
-
----
-
-## MongoDB Data Design
-
-### Collection: `policies`
-```json
-{
-  "_id": "ObjectId",
-  "policyNumber": "POL-2026-001",       // unique index
-  "status": "ACTIVE",                    // enum: DRAFT|QUOTED|BOUND|ACTIVE|CANCELLED|EXPIRED
-  "insured": {
-    "insuredId": "INS-1234",
-    "name": "Nguyen Van An",
-    "type": "INDIVIDUAL",               // INDIVIDUAL | BUSINESS
-    "email": "an@example.com",
-    "phone": "0901234567",
-    "address": "..."
-  },
-  "locations": [{
-    "locationId": 1,
-    "address": "...",
-    "coverages": [{
-      "coverageCode": "FIRE",           // FIRE | THEFT | FLOOD | LIABILITY | MACHINERY
-      "coverageType": "Property",
-      "limit": 500000000.0,
-      "deductible": 5000000.0,
-      "termMonths": 12,
-      "baseRate": 0.005,
-      "premium": 2500000.0
-    }]
-  }],
-  "totalPremium": 2500000.0,
-  "effectiveDate": "ISODate",
-  "expirationDate": "ISODate",
-  "boundDate": "ISODate",
-  "version": 1,
-  "createdAt": "ISODate",
-  "updatedAt": "ISODate"
-}
-```
-
-### Collection: `policy_versions`
-```json
-{
-  "_id": "ObjectId",
-  "policyNumber": "POL-2026-001",
-  "version": 1,                          // version number before endorsement
-  "policySnapshot": { /* full Policy clone */ },
-  "createdBy": "user@email.com",
-  "createdAt": "ISODate"
-}
-```
-
-### Collection: `policy_transactions`
-```json
-{
-  "_id": "ObjectId",
-  "policyNumber": "POL-2026-001",
-  "version": 2,
-  "transactionType": "ENDORSEMENT",    // CREATE_POLICY | STATUS_CHANGE | ENDORSEMENT | UPDATE_POLICY
-  "actor": "user@email.com",
-  "description": "Endorsement (v2): Add location",
-  "timestamp": "ISODate"
-}
-```
-
----
-
-## Security & Rate Limiting
-
-```properties
-# Auth endpoints: 10 requests / 60s per IP
-app.security.rate-limit.auth.capacity=10
-app.security.rate-limit.auth.duration-seconds=60
-
-# General endpoints: 100 requests / 60s per IP
-app.security.rate-limit.general.capacity=100
-```
-
-JWT: HS512, 24h expiry. Secret configurable via `APP_JWT_SECRET` env var.
-
----
-
-## Running Tests
-
-```bash
-./mvnw test
-```
-
-Key test classes:
-- `PolicyServiceImplTest` — unit tests for CRUD + state machine
-- `RateLimitingFilterTest` — token bucket rate limiting
-- `BenchmarkServiceImplTest` — benchmark generation
-- `UserControllerTest`, `PolicyDocumentControllerTest`
-
----
-
-## Project Structure
-
-```
-Insurance-main/
+Insurance/
 ├── src/main/java/com/dungphd/insuranceass/
-│   ├── controller/          # REST endpoints
-│   │   ├── AuthController
-│   │   ├── PolicyController       # P01–P09
-│   │   ├── BenchmarkController    # P11
-│   │   ├── ReportController       # Analytics
-│   │   └── ...
-│   ├── service/impl/        # Business logic
-│   │   ├── PolicyServiceImpl
-│   │   ├── EndorsementServiceImpl # P07+P08
-│   │   ├── BenchmarkServiceImpl   # P11
-│   │   └── ...
-│   ├── model/               # MongoDB documents
-│   │   ├── Policy           # Compound indexes defined here
-│   │   ├── PolicyVersion    # Version snapshots
-│   │   ├── PolicyTransaction# Audit ledger
-│   │   └── PolicyStatus     # State machine enum
-│   ├── config/
-│   │   ├── SecurityConfig   # JWT + CORS
-│   │   └── ratelimit/       # Token bucket rate limiter
-│   └── repository/          # Spring Data MongoDB repos
-└── frontend/src/
-    ├── pages/               # React pages
-    │   ├── PolicyListPage   # P02/P03 search+paging
-    │   ├── PolicyDetailPage # P07/P08 endorsement+history
-    │   ├── BenchmarkPage    # P11 performance testing
-    │   └── ReportsPage      # Analytics dashboard
-    └── components/          # Reusable UI components
+│   ├── config/          # Security, JWT, OAuth2, MongoDB, CORS, Mail
+│   ├── controller/      # REST controllers (Auth, Policy, Endorsement, Claim, Admin...)
+│   ├── service/         # Business logic
+│   ├── dto/             # Request / Response DTOs
+│   ├── model/           # MongoDB documents
+│   ├── repository/      # Spring Data MongoDB repositories
+│   └── util/
+├── src/main/resources/application.properties
+├── frontend/src/
+│   ├── pages/           # Login, CustomerPortal, PolicyDetail, BuyInsurance,
+│   │                    # ClaimList, ClaimDetail, AdminDashboard, BenchmarkView, Profile
+│   ├── components/
+│   └── services/api.js  # Axios instance + tất cả API calls
+├── frontend/vercel.json # SPA rewrite cho production
+├── Dockerfile           # Build backend cho Render
+├── .env.example         # Mẫu biến môi trường
+└── docs/                # SRS, FDD, API spec, tài liệu triển khai
 ```
+
+---
+
+## API chính
+
+| Method | Endpoint | Mô tả | Auth |
+|--------|----------|-------|------|
+| POST | `/auth/send-otp` · `/auth/verify-otp` | Đăng nhập bằng Email OTP | Public |
+| GET | `/oauth2/authorization/google` | Bắt đầu login Google | Public |
+| GET | `/policies/mine` | Hợp đồng của tôi | User |
+| POST | `/policies/{n}/endorsements` | Tạo endorsement (hợp đồng ACTIVE) | User |
+| GET | `/policies/{n}/versions` · `/versions/compare` | Danh sách & so sánh phiên bản | User |
+| GET | `/policies/{n}/history` | Lịch sử giao dịch | User |
+| POST/PUT/DELETE | `/policies/{n}/locations/{id}/coverages` | Quản lý coverage (khi chưa hiệu lực) | User |
+| GET/POST | `/claims` | Quản lý bồi thường | User |
+| GET | `/reports/*` | 4 báo cáo thống kê | Admin |
+| GET/POST | `/admin/indexes/audit` · `/sync` | Audit index MongoDB | Admin |
+
+Chi tiết đầy đủ xem `docs/API_Specification_and_Integration_Guide.docx`.
+
+---
+
+## Deploy production
+
+Kiến trúc: **Frontend (Vercel)** + **Backend (Render)** + **Database (MongoDB Atlas)**.
+
+### Backend → Render
+
+1. New → **Web Service** → connect repo → Runtime: **Docker**, Dockerfile Path: `./Dockerfile`, Root Directory: để trống
+2. Thêm env vars (xem bảng trên), quan trọng nhất:
+   - `SPRING_DATA_MONGODB_URI` = `mongodb+srv://user:pass@cluster.xxx.mongodb.net/insuranceass?retryWrites=true&w=majority` (**phải có tên database** trong URI)
+   - `FRONTEND_URL` = `https://<frontend>.vercel.app` (**phải có `https://`**)
+   - `CORS_ALLOWED_ORIGINS` = cùng URL trên
+   - `JWT_SECRET`, `MAIL_*`, `GOOGLE_*`, `ADMIN_EMAILS`, `DEV_QUICK_SWITCH=false`
+3. MongoDB Atlas → **Network Access** → Allow `0.0.0.0/0` (IP Render động)
+
+### Frontend → Vercel
+
+1. Import repo → **Root Directory: `frontend`** → Framework: Vite
+2. Env var: `VITE_API_BASE_URL` = `https://<backend>.onrender.com` (không `/` cuối)
+
+### Google OAuth
+
+Google Cloud Console → Credentials → OAuth client → thêm **Authorized redirect URI**:
+
+```
+https://<backend>.onrender.com/login/oauth2/code/google
+```
+
+---
+
+## Xử lý sự cố thường gặp
+
+| Triệu chứng | Nguyên nhân & cách fix |
+|-------------|------------------------|
+| Backend crash: `Database name must not be empty` | Connection string thiếu tên DB → thêm `/insuranceass` vào URI |
+| Backend log: `Connection refused` tới `localhost:27017` | Chưa set `SPRING_DATA_MONGODB_URI` trên Render |
+| Bấm login Google chỉ load lại trang login | `VITE_API_BASE_URL` chưa set / nút dùng relative URL (đã fix từ PR #36) |
+| Sau OAuth về URL nát `.../code/google/ten-mien...` | `FRONTEND_URL` thiếu `https://` |
+| `?error=oauth_failed` | Xem log backend dòng `[OAuth2]` để biết lý do (thường là `redirect_uri_mismatch` hoặc DB chưa kết nối) |
+| Reload trang production bị trắng / 404 | Thiếu SPA rewrite — đã có `frontend/vercel.json` |
+| `JWT Secret key must be at least 256 bits` | Secret quá ngắn → tạo mới bằng lệnh PowerShell ở mục cài đặt |
+
+---
+
+## Quy trình đóng góp
+
+- **Không push thẳng `main`.** Tạo branch từ `main` → mở Pull Request → review → merge.
+- Mọi tính năng mới cần kiểm tra: null-safety backend → contract BE-FE khớp (method, path, tên field JSON) → frontend xử lý đủ case lỗi.
+
+---
+
+## License
+
+Dự án học tập — mọi quyền được bảo lưu.
