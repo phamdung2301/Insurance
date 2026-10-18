@@ -23,14 +23,7 @@ const TABS = [
   { key: 'history', label: 'Lịch sử' },
 ];
 
-const COVERAGE_CATALOG = [
-  { code: 'PROP_FIRE', name: 'Cháy nổ tài sản', type: 'PROPERTY' },
-  { code: 'PROP_WATER', name: 'Ngập nước', baseRate: 0.05, type: 'PROPERTY' },
-  { code: 'LIAB_PUBLIC', name: 'Trách nhiệm công cộng', type: 'LIABILITY' },
-  { code: 'WCOMP', name: 'Tai nạn lao động', type: 'WORKERS_COMP' },
-];
-
-// Danh mục coverage dùng cho endorsement (đồng bộ với BuyWizardPage)
+// Danh mục coverage dùng chung (đồng bộ với BuyWizardPage)
 const COVERAGE_CATALOG = [
   { code: 'PROP_FIRE', name: 'Cháy nổ tài sản', baseRate: 0.075, type: 'PROPERTY' },
   { code: 'PROP_WATER', name: 'Ngập nước', baseRate: 0.05, type: 'PROPERTY' },
