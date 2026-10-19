@@ -13,16 +13,18 @@ import java.io.InputStream;
 import java.util.*;
 
 /**
- * PremiumCalculationService - Nghiệp vụ tính phí bảo hiểm doanh nghiệp
+ * Premium calculation for business insurance coverages.
  *
- * Công thức tính phí:
- *   Premium = (Limit × BaseRate%) × TermFactor × TypeFactor × DeductibleAdjustment
+ * Formula:
+ *   Premium = max(MINIMUM_PREMIUM, (Limit x BaseRate%) x TermFactor x TypeFactor x DeductibleAdjustment)
  *
- * Trong đó:
- *   - BaseRate%: Tỷ lệ phí gốc theo loại coverage (từ bảng định mức)
- *   - TermFactor: Hệ số theo thời hạn (12T=1.0, 24T=1.85, 36T=2.65)
- *   - TypeFactor: Hệ số theo loại gói (STANDARD=1.0, ENHANCED=1.25, COMPREHENSIVE=1.5)
- *   - DeductibleAdjustment: Chiết khấu theo mức miễn trừ
+ * Where:
+ *   - BaseRate%: base rate per coverage code (see BASE_RATES)
+ *   - TermFactor: term multiplier (12M=1.0, 24M=1.85, 36M=2.65)
+ *   - TypeFactor: plan tier multiplier (STANDARD=1.0, ENHANCED=1.25, COMPREHENSIVE=1.5)
+ *   - DeductibleAdjustment: smooth discount curve based on deductible-to-limit ratio
+ *     (diminishing returns, asymptotically capped at 35%)
+ *   - MINIMUM_PREMIUM: floor per coverage to cover fixed underwriting costs
  */
 @Slf4j
 @Service
@@ -35,14 +37,20 @@ public class PremiumCalculationService {
     public static final Map<String, Double> BASE_RATES = new LinkedHashMap<>();
 
     static {
-        BASE_RATES.put("PROPERTY",  0.075); // Tài sản & Cháy nổ: 0.075% of limit
-        BASE_RATES.put("GL",        0.120); // Trách nhiệm Công cộng: 0.12%
-        BASE_RATES.put("EL",        0.160); // Trách nhiệm Người LĐ: 0.16%
-        BASE_RATES.put("BI",        0.145); // Gián đoạn Kinh doanh: 0.145%
-        BASE_RATES.put("MARINE",    0.055); // Hàng hải & Vận chuyển: 0.055%
-        BASE_RATES.put("CYBER",     0.200); // An ninh mạng: 0.20%
-        BASE_RATES.put("DO",        0.180); // Directors & Officers: 0.18%
-        BASE_RATES.put("WC",        0.130); // Workers Compensation: 0.13%
+        // Legacy industry codes (kept for Excel import/export compatibility)
+        BASE_RATES.put("PROPERTY",  0.075);
+        BASE_RATES.put("GL",        0.120);
+        BASE_RATES.put("EL",        0.160);
+        BASE_RATES.put("BI",        0.145);
+        BASE_RATES.put("MARINE",    0.055);
+        BASE_RATES.put("CYBER",     0.200);
+        BASE_RATES.put("DO",        0.180);
+        BASE_RATES.put("WC",        0.130);
+        // Application coverage catalog (frontend COVERAGE_CATALOG)
+        BASE_RATES.put("PROP_FIRE",   0.075); // Fire & property
+        BASE_RATES.put("PROP_WATER",  0.060); // Water damage
+        BASE_RATES.put("LIAB_PUBLIC", 0.120); // Public liability
+        BASE_RATES.put("WCOMP",       0.130); // Workers compensation
     }
 
     /**
@@ -64,9 +72,15 @@ public class PremiumCalculationService {
     );
 
     /**
+     * Minimum premium per coverage. Covers fixed underwriting/administrative
+     * costs regardless of how small the insured limit is.
+     */
+    private static final double MINIMUM_PREMIUM = 100000.0;
+
+    /**
      * Tính phí bảo hiểm cho một coverage
      * @param coverage Coverage entity với limit, deductible, termMonths, coverageType, baseRate
-     * @return Premium (USD)
+     * @return Premium (VND), floored at MINIMUM_PREMIUM
      */
     public double calculate(Coverage coverage) {
         if (coverage == null || coverage.getLimit() == null || coverage.getLimit() <= 0) {
@@ -95,18 +109,19 @@ public class PremiumCalculationService {
         String covType = (coverage.getCoverageType() != null) ? coverage.getCoverageType().toUpperCase() : "STANDARD";
         double typeFactor = TYPE_FACTORS.getOrDefault(covType, 1.0);
 
-        // 4. Deductible adjustment (higher deductible → lower premium)
+        // 4. Deductible adjustment (higher deductible → lower premium).
+        // Smooth exponential curve with diminishing returns, asymptotically
+        // capped at 35% discount — no step discontinuities.
         double deductibleAdj = 1.0;
         if (coverage.getDeductible() != null && coverage.getDeductible() > 0 && limit > 0) {
             double deductibleRatio = coverage.getDeductible() / limit;
-            if (deductibleRatio >= 0.01) deductibleAdj = 0.92; // 8% discount
-            if (deductibleRatio >= 0.02) deductibleAdj = 0.85; // 15% discount
-            if (deductibleRatio >= 0.05) deductibleAdj = 0.78; // 22% discount
-            if (deductibleRatio >= 0.10) deductibleAdj = 0.70; // 30% discount
+            double discount = 0.35 * (1 - Math.exp(-8 * deductibleRatio));
+            deductibleAdj = 1.0 - discount;
         }
 
-        // 5. Compute premium
+        // 5. Compute premium, floored at MINIMUM_PREMIUM
         double premium = (limit * baseRate / 100.0) * termFactor * typeFactor * deductibleAdj;
+        premium = Math.max(MINIMUM_PREMIUM, premium);
 
         // Round to 2 decimal places
         return Math.round(premium * 100.0) / 100.0;
