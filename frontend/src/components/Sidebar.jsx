@@ -74,11 +74,6 @@ export function Sidebar({ open, onClose }) {
           </>
         )}
 
-        <div className="sidebar-foot">
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', padding: '0 0.75rem' }}>
-            Phiên bản giao diện 2.0
-          </div>
-        </div>
       </aside>
     </>
   );
