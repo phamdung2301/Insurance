@@ -13,6 +13,7 @@ import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -70,6 +71,36 @@ public class Policy {
 
     @Version
     private Long versionLock;
+
+    // ==========================================
+    // Price negotiation (demo_thuong_luong_gia)
+    // ==========================================
+    // Deliberately kept separate from totalPremium: totalPremium is
+    // recomputed from coverages by recalculateTotalPremium(), so writing
+    // the agreed price into it would be overwritten by the next
+    // recalculation. negotiatedPremium is the locked price and wins.
+
+    @Builder.Default
+    private NegotiationStatus negotiationStatus = NegotiationStatus.NOT_STARTED;
+
+    /**
+     * Floor price (gia goc). Agent-only, invisible to the customer, and
+     * frozen once the first offer exists. The agent can neither counter
+     * below it nor accept a customer offer below it.
+     */
+    private BigDecimal floorPrice;
+
+    /** Final agreed price, set only when the negotiation is AGREED_LOCKED. */
+    private BigDecimal negotiatedPremium;
+
+    /** Email of the assigned agent; set by the first agent-side action. */
+    private String agentEmail;
+
+    @Builder.Default
+    private List<NegotiationOffer> priceOffers = new ArrayList<>();
+
+    @Builder.Default
+    private List<NegotiationMessage> negotiationMessages = new ArrayList<>;
 
     @CreatedDate
     @Indexed
