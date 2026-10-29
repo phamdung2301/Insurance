@@ -14,6 +14,7 @@ import { isBackendMissing, BACKEND_TODO_HINT } from '../utils/backend';
 import { StatusBadge, LifecycleStepper } from '../components/Status';
 import { Modal } from '../components/Modal';
 import { PaymentModal } from '../components/PaymentModal';
+import { NegotiationPanel } from '../components/NegotiationPanel';
 import { EmptyState, Skeleton } from '../components/ui';
 import { formatMoney, formatDate, formatDateTime } from '../utils/format';
 
@@ -21,6 +22,7 @@ const TABS = [
   { key: 'overview', label: 'Tổng quan' },
   { key: 'locations', label: 'Địa điểm & gói bảo hiểm' },
   { key: 'history', label: 'Lịch sử' },
+  { key: 'negotiation', label: 'Thương lượng giá' },
 ];
 
 // Danh mục coverage dùng chung (đồng bộ với BuyWizardPage)
@@ -296,6 +298,8 @@ export function PolicyDetailPage() {
       )}
 
       {tab === 'history' && <HistoryTab policyNumber={policyNumber} currentPolicy={policy} />}
+
+      {tab === 'negotiation' && <NegotiationPanel policyNumber={policyNumber} />}
 
       {/* Modals */}
       <LocationFormModal

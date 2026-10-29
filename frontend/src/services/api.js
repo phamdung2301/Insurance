@@ -89,6 +89,27 @@ export const policyService = {
   getVersion: (policyNumber, v) => api.get(`/policies/${encodeURIComponent(policyNumber)}/versions/${encodeURIComponent(v)}`),
 };
 
+// ---------------------------------------------------------------- Thương lượng giá (demo_thuong_luong_gia)
+// Backend: /api/policies/{n}/negotiations (+ /floor, /offers, /confirm, /messages)
+export const negotiationService = {
+  getNegotiation: (policyNumber) =>
+    api.get(`/api/policies/${encodeURIComponent(policyNumber)}/negotiations`),
+  setFloorPrice: (policyNumber, floorPrice) =>
+    api.post(`/api/policies/${encodeURIComponent(policyNumber)}/negotiations/floor`, { floorPrice }),
+  submitOffer: (policyNumber, { price, message }) =>
+    api.post(`/api/policies/${encodeURIComponent(policyNumber)}/negotiations/offers`, { price, message }),
+  acceptOffer: (policyNumber, offerId) =>
+    api.post(`/api/policies/${encodeURIComponent(policyNumber)}/negotiations/offers/${encodeURIComponent(offerId)}/accept`),
+  rejectOffer: (policyNumber, offerId) =>
+    api.post(`/api/policies/${encodeURIComponent(policyNumber)}/negotiations/offers/${encodeURIComponent(offerId)}/reject`),
+  confirmLock: (policyNumber) =>
+    api.post(`/api/policies/${encodeURIComponent(policyNumber)}/negotiations/confirm`),
+  declineConfirmation: (policyNumber) =>
+    api.post(`/api/policies/${encodeURIComponent(policyNumber)}/negotiations/decline-confirmation`),
+  sendMessage: (policyNumber, content) =>
+    api.post(`/api/policies/${encodeURIComponent(policyNumber)}/negotiations/messages`, { content }),
+};
+
 // ---------------------------------------------------------------- Locations (nested)
 export const policyLocationService = {
   getLocations: (policyNumber) => api.get(`/policies/${encodeURIComponent(policyNumber)}/locations`),
