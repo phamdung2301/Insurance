@@ -19,9 +19,14 @@ import java.util.List;
  * Mọi check đọc email + roles từ SecurityContext (JWT đã lookup DB ở filter),
  * KHÔNG tin header X-User-Email hay query param ?email=.
  *
- * Quy ước "không có security context" (gọi nội bộ/test unit không set context):
- * các check bỏ qua để không phá luồng nội bộ và test cũ; ở production mọi
- * request qua SecurityConfig đều đã authenticated nên context luôn có.
+ * FAIL-CLOSED (đợt 1A): không có principal hợp lệ (không có authentication,
+ * anonymous) thì mọi check đều từ chối — canReadPolicy trả false, các hàm
+ * check* và applySearchScope throw ForbiddenException. Không còn đường bỏ qua
+ * cho "gọi nội bộ/test" trong service này: caller nội bộ nào cần gọi các hàm
+ * này phải tự set SecurityContext hợp lệ, hoặc tách luồng riêng không qua
+ * check (xem báo cáo đợt 1A: hiện không có caller nội bộ nào như vậy —
+ * DataInitializer không gọi PermissionService, mọi caller trong main đều đi
+ * qua HTTP và production luôn inject bean thật).
  */
 @Slf4j
 @Service
@@ -87,7 +92,7 @@ public class PermissionService {
     public boolean canReadPolicy(Policy policy) {
         String principal = currentPrincipal();
         if (principal == null) {
-            return true;
+            return false;
         }
         if (isAdmin() || isUnderwriter() || isFinance()) {
             return true;
@@ -101,11 +106,11 @@ public class PermissionService {
         }
     }
 
-    /** Ghi (sửa/xóa/location/coverage/endorsement): ADMIN mọi policy, CUSTOMER/AGENT trong phạm vi. UW/FINANCE không ghi. */
+    /** Ghi (sửa/xóa/location/coverage/endorsement): ADMIN mọi policy, CUSTOMER/AGENT trong phạm vi. UW/FINANCE không ghi. Không principal → 403 (fail-closed). */
     public void checkPolicyWrite(Policy policy) {
         String principal = currentPrincipal();
         if (principal == null) {
-            return;
+            throw new ForbiddenException("Bạn không có quyền sửa hợp đồng này.");
         }
         if (isAdmin() || isDemandSide(policy, principal)) {
             return;
@@ -113,11 +118,11 @@ public class PermissionService {
         throw new ForbiddenException("Bạn không có quyền sửa hợp đồng này.");
     }
 
-    /** Đọc negotiation: phe cầu trong phạm vi, UNDERWRITER, ADMIN (xem). FINANCE không có quyền ở bảng §1.3. */
+    /** Đọc negotiation: phe cầu trong phạm vi, UNDERWRITER, ADMIN (xem). FINANCE không có quyền ở bảng §1.3. Không principal → 403 (fail-closed). */
     public void checkNegotiationRead(Policy policy) {
         String principal = currentPrincipal();
         if (principal == null) {
-            return;
+            throw new ForbiddenException("Bạn không có quyền xem thương lượng của hợp đồng này.");
         }
         if (isAdmin() || isUnderwriter() || isDemandSide(policy, principal)) {
             return;
@@ -134,13 +139,15 @@ public class PermissionService {
 
     /**
      * Bảng chuyển trạng thái → role (PLAN §1.6), enforce ở service.
-     * Không có principal/roles (gọi nội bộ, test) thì bỏ qua.
+     * Không có principal → 403 với thông điệp chuyển trạng thái như cũ
+     * (fail-closed). Principal có nhưng không có role nào cũng bị từ chối
+     * qua nhánh allowed=false bên dưới (không còn đường bỏ qua).
      */
     public void checkTransition(Policy policy, PolicyStatus from, PolicyStatus to) {
         String principal = currentPrincipal();
         List<String> roles = currentRoles();
-        if (principal == null || roles.isEmpty()) {
-            return;
+        if (principal == null) {
+            throw new ForbiddenException("Vai trò của bạn không được phép chuyển trạng thái từ " + from + " sang " + to + ".");
         }
         if (isAdmin()) {
             return;
@@ -171,10 +178,15 @@ public class PermissionService {
      * AGENT ép assignedAgentEmail (bỏ qua giá trị client gửi), UW/FINANCE/ADMIN giữ nguyên.
      * Quyết định khi plan mơ hồ: user mang đồng thời CUSTOMER + AGENT thì ép theo
      * CUSTOMER (an toàn, không lộ policy ngoài phạm vi) — xem báo cáo cuối.
+     * Không có principal → 403 (fail-closed): không được liệt kê policy khi chưa
+     * xác thực, thay vì trả về danh sách không bị ép phạm vi như trước.
      */
     public void applySearchScope(PolicySearchCriteria criteria) {
         String principal = currentPrincipal();
-        if (principal == null || criteria == null) {
+        if (principal == null) {
+            throw new ForbiddenException("Bạn không có quyền xem danh sách hợp đồng.");
+        }
+        if (criteria == null) {
             return;
         }
         if (isAdmin() || isUnderwriter() || isFinance()) {

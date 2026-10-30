@@ -41,6 +41,18 @@ public class AuthServiceImpl implements AuthService {
     @Value("${app.dev.quick-switch-enabled:false}")
     private boolean devQuickSwitchEnabled;
 
+    /**
+     * Thông điệp DUY NHẤT cho mọi lần từ chối ở nhánh password khi tài khoản
+     * không được phép đăng nhập do khóa (đợt 1A, L5): dùng chung cho cả khóa
+     * tạm 15 phút do sai mật khẩu lẫn tài khoản bị admin disable, để không lộ
+     * qua thông điệp rằng tài khoản rơi vào trường hợp nào. Lưu ý: các nhánh
+     * OTP/dev/Google vẫn giữ thông điệp disable riêng của assertNotDisabled
+     * (hành vi cũ, ngoài phạm vi đợt 1A) — coordinator quyết có thống nhất
+     * toàn bộ hay không.
+     */
+    private static final String ACCOUNT_TEMPORARILY_LOCKED_MESSAGE =
+            "Tài khoản tạm khóa, vui lòng thử lại sau.";
+
     @Override
     public void sendOtp(SendOtpRequest request) {
         String email = request.getEmail().trim().toLowerCase();
@@ -58,6 +70,8 @@ public class AuthServiceImpl implements AuthService {
         }
 
         assertNotDisabled(email);
+        // OTP đúng = một lần xác thực thành công → mở khóa password (nếu có).
+        otpService.clearPasswordLockout(email);
         User user = upsertUser(email, null, null);
         return buildAuthResponse(user);
     }
@@ -109,17 +123,33 @@ public class AuthServiceImpl implements AuthService {
         // BCrypt, KHÔNG tự tạo user và KHÔNG đổi role (khác dev/OTP path).
         // Sai email hay sai mật khẩu đều trả cùng 1 thông điệp để tránh
         // lộ tài khoản nào tồn tại (user enumeration).
+        // Khóa password (đợt 1A, L5): 5 lần sai → khóa 15 phút (xem OtpService).
+        // Đang khóa thì từ chối NGAY CẢ KHI ĐÚNG mật khẩu, trước khi check
+        // mật khẩu; chỉ đếm lỗi khi tài khoản tồn tại (email lạ → chỉ trả
+        // thông điệp chung, không tạo trạng thái khóa).
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
             if (email == null || email.isBlank()) {
                 throw new BadRequestException("Email is required for authentication");
             }
+            if (otpService.isPasswordLocked(email)) {
+                throw new ForbiddenException(ACCOUNT_TEMPORARILY_LOCKED_MESSAGE);
+            }
             User user = userRepository.findByEmail(email)
                     .orElseThrow(() -> new BadRequestException("Email hoặc mật khẩu không đúng."));
-            assertNotDisabled(email);
+            // Không dùng assertNotDisabled ở đây: thông điệp disable riêng của
+            // nó sẽ lộ phân biệt "bị disable" vs "đang khóa tạm" — nhánh
+            // password dùng chung thông điệp khóa tạm (xem hằng số trên).
+            if (Boolean.FALSE.equals(user.getEnabled())) {
+                throw new ForbiddenException(ACCOUNT_TEMPORARILY_LOCKED_MESSAGE);
+            }
             if (user.getPassword() == null
                     || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+                otpService.recordFailedPasswordAttempt(email);
                 throw new BadRequestException("Email hoặc mật khẩu không đúng.");
             }
+            // Đăng nhập đúng → reset bộ đếm lỗi (tránh 4 sai + 1 đúng + 1 sai
+            // vẫn bị khóa oan do bộ đếm không reset).
+            otpService.clearPasswordLockout(email);
             // Null-safe: document cũ có thể không có roles
             if (user.getRoles() == null) {
                 user.setRoles(new ArrayList<>(List.of("ROLE_USER")));
@@ -142,6 +172,8 @@ public class AuthServiceImpl implements AuthService {
         }
 
         assertNotDisabled(email);
+        // OTP đúng qua login() = xác thực thành công → mở khóa password.
+        otpService.clearPasswordLockout(email);
         User user = upsertUser(email, request.getFullName(), null);
         return buildAuthResponse(user);
     }
@@ -150,6 +182,8 @@ public class AuthServiceImpl implements AuthService {
     public AuthResponse loginWithOAuth2(String email, String fullName) {
         String normalized = email != null ? email.trim().toLowerCase() : null;
         assertNotDisabled(normalized);
+        // Google login thành công → mở khóa password (nếu có).
+        otpService.clearPasswordLockout(normalized);
         // upsert với explicitRoles=null -> chỉ cấp ROLE_ADMIN lúc TẠO MỚI nếu email
         // nằm trong app.admin.emails (xem upsertUser); login sau không tự cộng lại.
         User user = upsertUser(normalized, fullName, null);

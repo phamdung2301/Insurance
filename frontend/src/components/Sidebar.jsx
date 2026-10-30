@@ -9,6 +9,10 @@ import { useAuth } from '../context/AuthContext';
 export function Sidebar({ open, onClose }) {
   const { hasAnyRole } = useAuth();
 
+  // Đợt 1C: cùng cờ VITE_ENABLE_BENCHMARK như App.jsx — chỉ "true" mới hiện
+  // mục benchmark. Mặc định OFF.
+  const benchmarkEnabled = import.meta.env.VITE_ENABLE_BENCHMARK === 'true';
+
   const customerLinks = [
     { to: '/', label: 'Hợp đồng của tôi', icon: <Home size={18} />, end: true },
     { to: '/mua-bao-hiem', label: 'Mua bảo hiểm', icon: <ShoppingCart size={18} /> },
@@ -21,8 +25,10 @@ export function Sidebar({ open, onClose }) {
     { to: '/admin/excel', label: 'Bảng giá Excel', icon: <TableProperties size={18} />, roles: ['ROLE_ADMIN', 'ROLE_UNDERWRITER'] },
     { to: '/admin/doi-soat', label: 'Đối soát', icon: <HandCoins size={18} />, roles: ['ROLE_FINANCE', 'ROLE_ADMIN'] },
     { to: '/admin/users', label: 'Quản lý người dùng', icon: <Users size={18} />, roles: ['ROLE_ADMIN'] },
-    { to: '/admin/reports', label: 'Báo cáo', icon: <BarChart3 size={18} />, roles: ['ROLE_ADMIN'] },
-    { to: '/admin/benchmark', label: 'Kiểm thử hiệu năng', icon: <Gauge size={18} />, roles: ['ROLE_ADMIN'] },
+    { to: '/admin/reports', label: 'Báo cáo', icon: <BarChart3 size={18} />, roles: ['ROLE_ADMIN', 'ROLE_FINANCE'] },
+    ...(benchmarkEnabled
+      ? [{ to: '/admin/benchmark', label: 'Kiểm thử hiệu năng', icon: <Gauge size={18} />, roles: ['ROLE_ADMIN'] }]
+      : []),
     { to: '/admin/index-audit', label: 'Kiểm tra index DB', icon: <Database size={18} />, roles: ['ROLE_ADMIN'] },
   ];
   const agentLinks = [

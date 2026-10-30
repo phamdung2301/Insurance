@@ -18,7 +18,6 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -60,14 +59,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     filterChain.doFilter(request, response);
                     return;
                 }
+                // L4: roles CHỈ lấy từ DB, không fallback về claim JWT và không
+                // mặc định ROLE_USER. User tồn tại nhưng roles rỗng/null trong DB
+                // là trạng thái không hợp lệ → xử lý như tài khoản bị khóa: không
+                // set authentication, để matcher phía sau chặn request.
                 List<String> dbRoles = user.getRoles();
-                List<String> roles = (dbRoles != null && !dbRoles.isEmpty())
-                        ? dbRoles
-                        : jwtTokenProvider.getRolesFromToken(jwt);
+                if (dbRoles == null || dbRoles.isEmpty()) {
+                    log.warn("Từ chối token: user không có vai trò trong DB: {}", email);
+                    filterChain.doFilter(request, response);
+                    return;
+                }
 
-                List<SimpleGrantedAuthority> authorities = roles != null
-                        ? roles.stream().map(SimpleGrantedAuthority::new).collect(Collectors.toList())
-                        : Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"));
+                List<SimpleGrantedAuthority> authorities = dbRoles.stream()
+                        .map(SimpleGrantedAuthority::new).collect(Collectors.toList());
 
                 UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                         email, null, authorities

@@ -70,6 +70,13 @@ const page = (path, el, roles) => (
   />
 );
 
+// Đợt 1C: benchmark gate phía FE. Chỉ coi là BẬT khi đúng chuỗi "true"
+// (mặc định OFF — build không set biến, set "1"/"yes"/"True" đều OFF).
+// Khi tắt: Sidebar ẩn mục benchmark và route /admin/benchmark redirect về
+// /admin (xem AnimatedRoutes). FE chỉ là UX — chốt chặn thật là cờ
+// app.benchmark.enabled ở BenchmarkController + matcher ADMIN ở BE.
+const BENCHMARK_ENABLED = import.meta.env.VITE_ENABLE_BENCHMARK === 'true';
+
 /** Routes bọc AnimatePresence để chuyển trang mượt */
 function AnimatedRoutes() {
   const location = useLocation();
@@ -87,9 +94,11 @@ function AnimatedRoutes() {
         {page('/admin/excel', <ExcelToolsPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER'])}
         {page('/admin/doi-soat', <FinanceQueuePage />, ['ROLE_FINANCE', 'ROLE_ADMIN'])}
         {page('/admin/users', <AdminUserPage />, ['ROLE_ADMIN'])}
-        {page('/admin/benchmark', <BenchmarkPage />, ['ROLE_ADMIN'])}
+        {BENCHMARK_ENABLED
+          ? page('/admin/benchmark', <BenchmarkPage />, ['ROLE_ADMIN'])
+          : <Route path="/admin/benchmark" element={<Navigate to="/admin" replace />} />}
         {page('/admin/index-audit', <IndexAuditPage />, ['ROLE_ADMIN'])}
-        {page('/admin/reports', <ReportsPage />, ['ROLE_ADMIN'])}
+        {page('/admin/reports', <ReportsPage />, ['ROLE_ADMIN', 'ROLE_FINANCE'])}
         {page('/agent/khach-hang', <AgentCustomerPage />, ['ROLE_AGENT', 'ROLE_ADMIN'])}
         {import.meta.env.DEV && (
           <Route path="/dev/api-tester" element={<DevTester />} />

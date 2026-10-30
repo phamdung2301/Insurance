@@ -100,7 +100,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/auth/**", "/api/auth/**").permitAll()
-                        .requestMatchers("/actuator/**").permitAll()
+                        // Đợt 1C §3(a): chỉ /actuator/health public (load balancer /
+                        // uptime check); mọi actuator khác yêu cầu đăng nhập. Matcher
+                        // health PHẢI đứng trước matcher actuator chung (match đầu thắng).
+                        .requestMatchers("/actuator/health").permitAll()
+                        .requestMatchers("/actuator/**").authenticated()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/user/**", "/api/user/**").authenticated()
                         // Thứ tự quan trọng (match đầu tiên thắng): /excel trước /admin
@@ -108,6 +112,10 @@ public class SecurityConfig {
                         .requestMatchers("/excel/**", "/api/excel/**").hasAnyRole("ADMIN", "UNDERWRITER")
                         .requestMatchers("/admin/**", "/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/benchmark/**", "/api/benchmark/**").hasRole("ADMIN")
+                        // Đợt 1C §3(b): FINANCE chỉ được ĐỌC báo cáo. Matcher GET PHẢI
+                        // đứng trước matcher chung (match đầu thắng); POST/PUT/DELETE
+                        // trên /reports/** vẫn chỉ ADMIN (matcher chung phía dưới).
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/reports/**", "/api/reports/**").hasAnyRole("ADMIN", "FINANCE")
                         .requestMatchers("/reports/**", "/api/reports/**").hasRole("ADMIN")
                         // Khóa các endpoint nghiệp vụ: yêu cầu đăng nhập (đóng lỗ hổng 28 endpoints public)
                         // Frontend mọi trang đều qua ProtectedRoute nên không gãy luồng nào

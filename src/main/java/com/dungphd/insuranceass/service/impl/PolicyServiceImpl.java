@@ -11,6 +11,7 @@ import com.dungphd.insuranceass.dto.response.PageResponse;
 import com.dungphd.insuranceass.dto.response.PolicyResponse;
 import com.dungphd.insuranceass.exception.BadRequestException;
 import com.dungphd.insuranceass.exception.DuplicateResourceException;
+import com.dungphd.insuranceass.exception.ForbiddenException;
 import com.dungphd.insuranceass.exception.InvalidRequestException;
 import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.*;
@@ -80,6 +81,22 @@ public class PolicyServiceImpl implements PolicyService {
 
     @Override
     public PolicyResponse createPolicy(CreatePolicyRequest request) {
+        // Đợt 1C: UNDERWRITER và FINANCE không được tạo hợp đồng (chỉ xem/xử lý
+        // hợp đồng đã có). Gate đặt TRƯỚC duplicate-check để 403 luôn thắng 409
+        // và không lộ policyNumber đã tồn tại. ADMIN được miễn kể cả khi mang
+        // đồng thời nhiều role (vd. seed admin mang ROLE_ADMIN + ROLE_USER, hoặc
+        // admin kiêm UW/FINANCE). permissionService == null (gọi nội bộ/test unit
+        // cũ không set context) thì bỏ qua gate, đúng quy ước null-guard sẵn có
+        // của method này. Chỉ chặn overload nhận CreatePolicyRequest này;
+        // overload createPolicy(Policy) nội bộ KHÔNG chặn (xem ghi chú ở đó).
+        if (permissionService != null && !permissionService.isAdmin()) {
+            if (permissionService.isUnderwriter()) {
+                throw new ForbiddenException("Vai trò UNDERWRITER không được tạo hợp đồng.");
+            }
+            if (permissionService.isFinance()) {
+                throw new ForbiddenException("Vai trò FINANCE không được tạo hợp đồng.");
+            }
+        }
         if (policyRepository.existsByPolicyNumber(request.getPolicyNumber())) {
             throw new DuplicateResourceException("Policy with number " + request.getPolicyNumber() + " already exists");
         }
@@ -138,6 +155,12 @@ public class PolicyServiceImpl implements PolicyService {
         return mapToPolicyResponse(savedPolicy);
     }
 
+    // Overload nội bộ (seed/benchmark): KHÔNG áp gate UW/FINANCE của đợt 1C.
+    // Lý do: grep toàn codebase cho thấy KHÔNG có caller production nào gọi
+    // overload này — chỉ có khai báo trong PolicyService interface và impl này;
+    // controller duy nhất (PolicyController.createPolicy) gọi overload nhận
+    // CreatePolicyRequest. Chặn overload nội bộ sẽ phá seed/benchmark mà không
+    // bịt thêm lỗ hổng request nào, vì mọi request client đều qua overload kia.
     @Override
     public Policy createPolicy(Policy policy) {
         if (policy == null) {
