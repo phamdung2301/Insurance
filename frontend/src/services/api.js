@@ -59,6 +59,7 @@ export function extractAuth(envelopeData) {
 export const authService = {
   sendOtp: (email) => api.post('/auth/send-otp', { email }),
   verifyOtp: (email, otp) => api.post('/auth/verify-otp', { email, otp }),
+  loginPassword: (email, password) => api.post('/auth/login', { email, password }),
   devLogin: (email, fullName, role) => api.post('/auth/login', { email, fullName, role }),
   getMe: () => api.get('/auth/me'),
 };

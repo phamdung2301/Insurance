@@ -17,6 +17,7 @@ import com.dungphd.insuranceass.service.OtpService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -32,6 +33,7 @@ public class AuthServiceImpl implements AuthService {
     private final MailService mailService;
     private final JwtTokenProvider jwtTokenProvider;
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Value("${app.admin.emails:dungphdse@gmail.com,admin@insurtech.vn}")
     private String adminEmailsConfig;
@@ -103,7 +105,29 @@ public class AuthServiceImpl implements AuthService {
             return buildAuthResponse(user);
         }
 
-        // 2. Regular OTP verification mode
+        // 2. Password login mode: tài khoản phải TỒN TẠI, mật khẩu khớp
+        // BCrypt, KHÔNG tự tạo user và KHÔNG đổi role (khác dev/OTP path).
+        // Sai email hay sai mật khẩu đều trả cùng 1 thông điệp để tránh
+        // lộ tài khoản nào tồn tại (user enumeration).
+        if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            if (email == null || email.isBlank()) {
+                throw new BadRequestException("Email is required for authentication");
+            }
+            User user = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new BadRequestException("Email hoặc mật khẩu không đúng."));
+            assertNotDisabled(email);
+            if (user.getPassword() == null
+                    || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+                throw new BadRequestException("Email hoặc mật khẩu không đúng.");
+            }
+            // Null-safe: document cũ có thể không có roles
+            if (user.getRoles() == null) {
+                user.setRoles(new ArrayList<>(List.of("ROLE_USER")));
+            }
+            return buildAuthResponse(user);
+        }
+
+        // 3. Regular OTP verification mode
         if (email == null || email.isBlank()) {
             throw new BadRequestException("Email is required for authentication");
         }
@@ -132,7 +156,7 @@ public class AuthServiceImpl implements AuthService {
         return buildAuthResponse(user);
     }
 
-    /** Tài khoản bị khóa → 403 ở cả 3 login path (PLAN §1.7). */
+    /** Tài khoản bị khóa → 403 ở mọi login path (OTP, dev, mật khẩu). */
     private void assertNotDisabled(String email) {
         if (email == null || email.isBlank()) {
             return;

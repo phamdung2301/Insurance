@@ -7,6 +7,7 @@ import com.dungphd.insuranceass.dto.request.VerifyOtpRequest;
 import com.dungphd.insuranceass.dto.response.AuthResponse;
 import com.dungphd.insuranceass.dto.response.UserProfileResponse;
 import com.dungphd.insuranceass.exception.BadRequestException;
+import com.dungphd.insuranceass.exception.ForbiddenException;
 import com.dungphd.insuranceass.model.User;
 import com.dungphd.insuranceass.repository.UserRepository;
 import com.dungphd.insuranceass.service.impl.AuthServiceImpl;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
@@ -42,6 +44,9 @@ class AuthServiceImplTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private PasswordEncoder passwordEncoder;
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -117,6 +122,101 @@ class AuthServiceImplTest {
         assertNotNull(response);
         assertEquals("admin@insurtech.vn", response.getEmail());
         assertTrue(response.getRoles().contains("ROLE_ADMIN"));
+    }
+
+    @Test
+    void login_Password_Success() {
+        User user = User.builder()
+                .email("agent@example.com")
+                .fullName("Đại Lý Mẫu")
+                .password("hashed-password")
+                .roles(new ArrayList<>(List.of("ROLE_AGENT")))
+                .enabled(true)
+                .build();
+
+        when(userRepository.findByEmail("agent@example.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Password123!", "hashed-password")).thenReturn(true);
+        when(jwtTokenProvider.generateToken(eq("agent@example.com"), any(), any())).thenReturn("agent-jwt");
+        when(jwtTokenProvider.getExpirationMs()).thenReturn(86400000L);
+
+        AuthResponse response = authService.login(AuthLoginRequest.builder()
+                .email("agent@example.com")
+                .password("Password123!")
+                .build());
+
+        assertNotNull(response);
+        assertEquals("agent-jwt", response.getToken());
+        assertTrue(response.getRoles().contains("ROLE_AGENT"));
+    }
+
+    @Test
+    void login_Password_WrongPassword() {
+        User user = User.builder()
+                .email("agent@example.com")
+                .password("hashed-password")
+                .roles(new ArrayList<>(List.of("ROLE_AGENT")))
+                .enabled(true)
+                .build();
+
+        when(userRepository.findByEmail("agent@example.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Password123!", "hashed-password")).thenReturn(false);
+
+        assertThrows(BadRequestException.class, () ->
+                authService.login(AuthLoginRequest.builder()
+                        .email("agent@example.com")
+                        .password("Password123!")
+                        .build())
+        );
+    }
+
+    @Test
+    void login_Password_UnknownEmail() {
+        when(userRepository.findByEmail("ghost@example.com")).thenReturn(Optional.empty());
+
+        assertThrows(BadRequestException.class, () ->
+                authService.login(AuthLoginRequest.builder()
+                        .email("ghost@example.com")
+                        .password("Password123!")
+                        .build())
+        );
+    }
+
+    @Test
+    void login_Password_Disabled() {
+        User user = User.builder()
+                .email("agent@example.com")
+                .password("hashed-password")
+                .roles(new ArrayList<>(List.of("ROLE_AGENT")))
+                .enabled(false)
+                .build();
+
+        when(userRepository.findByEmail("agent@example.com")).thenReturn(Optional.of(user));
+
+        assertThrows(ForbiddenException.class, () ->
+                authService.login(AuthLoginRequest.builder()
+                        .email("agent@example.com")
+                        .password("Password123!")
+                        .build())
+        );
+    }
+
+    @Test
+    void login_Password_NullStoredPassword() {
+        User user = User.builder()
+                .email("agent@example.com")
+                .password(null)
+                .roles(new ArrayList<>(List.of("ROLE_AGENT")))
+                .enabled(true)
+                .build();
+
+        when(userRepository.findByEmail("agent@example.com")).thenReturn(Optional.of(user));
+
+        assertThrows(BadRequestException.class, () ->
+                authService.login(AuthLoginRequest.builder()
+                        .email("agent@example.com")
+                        .password("Password123!")
+                        .build())
+        );
     }
 
     @Test

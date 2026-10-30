@@ -128,6 +128,14 @@ export const AuthProvider = ({ children }) => {
     return usr;
   }, [loginWithToken]);
 
+  const loginPassword = useCallback(async (email, password) => {
+    const res = await authService.loginPassword(email.trim(), password);
+    const { token: tok, user: usr } = extractAuth(res?.data);
+    if (!tok) throw new Error('Máy chủ không trả về phiên đăng nhập. Vui lòng thử lại.');
+    loginWithToken(tok, usr);
+    return usr;
+  }, [loginWithToken]);
+
   const refreshProfile = useCallback(async () => {
     try {
       const res = await userService.getProfile();
@@ -151,7 +159,7 @@ export const AuthProvider = ({ children }) => {
   return (
     <AuthContext.Provider value={{
       user, token, loading, isAuthenticated, isAdmin, hasRole, hasAnyRole,
-      loginWithToken, loginOtp, devLogin, logout, refreshProfile,
+      loginWithToken, loginOtp, loginPassword, devLogin, logout, refreshProfile,
     }}>
       {children}
     </AuthContext.Provider>
