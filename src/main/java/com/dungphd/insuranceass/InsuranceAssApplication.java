@@ -2,10 +2,12 @@ package com.dungphd.insuranceass;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.io.File;
 
 @SpringBootApplication
+@EnableScheduling // Dot 3B: bat @Scheduled cho RenewalReminderServiceImpl (cron 08:00 Asia/Ho_Chi_Minh). Truoc dot nay codebase chua co @EnableScheduling o dau.
 public class InsuranceAssApplication {
 
     public static void main(String[] args) {

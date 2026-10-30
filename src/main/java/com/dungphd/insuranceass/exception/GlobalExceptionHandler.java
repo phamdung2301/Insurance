@@ -40,6 +40,39 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(ex.getMessage()));
     }
 
+    /**
+     * Đợt 4B — Endorsement chờ duyệt: HTTP 202 (ACCEPTED), KHÔNG phải 200.
+     * Body success=false + data.status=PENDING + pendingId để caller phân biệt
+     * chắc chắn với apply thành công (200 + PolicyResponse). FE cũ chỉ coi
+     * 200 + PolicyResponse là "đã apply"; response này không trả PolicyResponse.
+     */
+    @ExceptionHandler(PendingEndorsementException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handlePendingEndorsement(PendingEndorsementException ex) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("status", "PENDING");
+        data.put("pendingId", ex.getPendingId());
+        data.put("policyNumber", ex.getPolicyNumber());
+        data.put("premiumChangePct", ex.getPremiumChangePct());
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(ApiResponse.<Map<String, Object>>builder()
+                        .success(false)
+                        .message(ex.getMessage())
+                        .data(data)
+                        .build());
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ApiResponse<Void>> handleForbidden(ForbiddenException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+
+    @ExceptionHandler(org.springframework.dao.OptimisticLockingFailureException.class)
+    public ResponseEntity<ApiResponse<Void>> handleOptimisticLocking(org.springframework.dao.OptimisticLockingFailureException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error("Dữ liệu vừa bị thay đổi bởi người khác, vui lòng tải lại và gửi lại."));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Map<String, String>>> handleValidationExceptions(MethodArgumentNotValidException ex) {
         Map<String, String> errors = new HashMap<>();

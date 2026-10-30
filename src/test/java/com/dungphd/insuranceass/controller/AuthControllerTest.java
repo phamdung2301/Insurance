@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -67,7 +68,10 @@ class AuthControllerTest {
                 .roles(List.of("ROLE_USER"))
                 .build();
 
-        when(authService.verifyOtp(any(VerifyOtpRequest.class))).thenReturn(authResponse);
+        // Đợt 4D: controller gọi overload có ip + userAgent (trích từ request).
+        // UA dùng any() vì MockMvc không gửi header User-Agent nên UA = null
+        // (anyString() không khớp null và Mockito strict sẽ báo mismatch).
+        when(authService.verifyOtp(any(VerifyOtpRequest.class), anyString(), any())).thenReturn(authResponse);
 
         String json = "{\"email\":\"test@gmail.com\",\"otp\":\"123456\"}";
 
@@ -88,7 +92,9 @@ class AuthControllerTest {
                 .roles(List.of("ROLE_ADMIN", "ROLE_USER"))
                 .build();
 
-        when(authService.login(any(AuthLoginRequest.class))).thenReturn(authResponse);
+        // Đợt 4D: controller gọi overload có ip + userAgent (trích từ request).
+        // UA dùng any() vì MockMvc không gửi header User-Agent nên UA = null.
+        when(authService.login(any(AuthLoginRequest.class), anyString(), any())).thenReturn(authResponse);
 
         String json = "{\"role\":\"ROLE_ADMIN\"}";
 

@@ -31,15 +31,23 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.dungphd.insuranceass.service.TransactionLedgerService transactionLedgerService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.dungphd.insuranceass.service.PermissionService permissionService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.dungphd.insuranceass.repository.PriceNegotiationRepository negotiationRepository;
+
     @Override
     public List<Location> getLocations(String policyIdOrNumber) {
         Policy policy = findPolicy(policyIdOrNumber);
+        checkRead(policy);
         return policy.getLocations() != null ? policy.getLocations() : Collections.emptyList();
     }
 
     @Override
     public Location getLocationById(String policyIdOrNumber, Integer locationId) {
         Policy policy = findPolicy(policyIdOrNumber);
+        checkRead(policy);
         return findLocationInPolicy(policy, locationId);
     }
 
@@ -199,8 +207,29 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
     }
 
     private void validatePolicyModifiable(Policy policy) {
-        if (policy.getStatus() == PolicyStatus.CANCELLED || policy.getStatus() == PolicyStatus.EXPIRED) {
-            throw new BadRequestException("Cannot modify locations on a " + policy.getStatus() + " policy");
+        // Siết về DRAFT/QUOTED/BOUND (PLAN §1.4): ACTIVE phải đi endorsement, không sửa trực tiếp.
+        if (policy.getStatus() != PolicyStatus.DRAFT && policy.getStatus() != PolicyStatus.QUOTED
+                && policy.getStatus() != PolicyStatus.BOUND) {
+            throw new BadRequestException("Không thể sửa địa điểm khi hợp đồng ở trạng thái " + policy.getStatus()
+                    + ". Vui lòng dùng endorsement để thay đổi hợp đồng đã có hiệu lực.");
+        }
+        checkWrite(policy);
+        // Khóa giá sau ACCEPTED, check TRƯỚC khi recalculateTotalPremium chạy (PLAN §2.3).
+        if (negotiationRepository != null && policy.getStatus() == PolicyStatus.QUOTED
+                && negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), com.dungphd.insuranceass.model.NegotiationStatus.ACCEPTED)) {
+            throw new BadRequestException("Giá hợp đồng đã chốt qua thương lượng, không được sửa đổi phí khi còn ở trạng thái QUOTED.");
+        }
+    }
+
+    private void checkRead(Policy policy) {
+        if (permissionService != null) {
+            permissionService.checkPolicyRead(policy);
+        }
+    }
+
+    private void checkWrite(Policy policy) {
+        if (permissionService != null) {
+            permissionService.checkPolicyWrite(policy);
         }
     }
 }

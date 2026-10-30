@@ -11,11 +11,17 @@ import com.dungphd.insuranceass.dto.response.PageResponse;
 import com.dungphd.insuranceass.dto.response.PolicyResponse;
 import com.dungphd.insuranceass.exception.BadRequestException;
 import com.dungphd.insuranceass.exception.DuplicateResourceException;
+import com.dungphd.insuranceass.exception.ForbiddenException;
 import com.dungphd.insuranceass.exception.InvalidRequestException;
 import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.*;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyTransactionRepository;
+import com.dungphd.insuranceass.repository.PriceNegotiationRepository;
+import com.dungphd.insuranceass.service.CommissionService;
+import com.dungphd.insuranceass.service.NotificationService;
+import com.dungphd.insuranceass.service.RefundService;
+import com.dungphd.insuranceass.service.PermissionService;
 import com.dungphd.insuranceass.service.PolicyService;
 import com.dungphd.insuranceass.service.PremiumCalculationService;
 import com.dungphd.insuranceass.service.TransactionLedgerService;
@@ -49,6 +55,28 @@ public class PolicyServiceImpl implements PolicyService {
     private final PolicyTransactionRepository policyTransactionRepository;
     private final TransactionLedgerService transactionLedgerService;
 
+    /**
+     * Optional để test unit cũ (dùng @InjectMocks không có mock này) vẫn chạy:
+     * production Spring luôn inject bean thật; khi null thì các check phạm vi/khóa
+     * được bỏ qua (gọi nội bộ/test), không phá luồng cũ.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private PermissionService permissionService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private PriceNegotiationRepository negotiationRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private NotificationService notificationService;
+
+    // Hook đợt 3 (nối ở merge, theo pattern notificationService): 2 service
+    // này failure-isolated nên không cần try/catch thêm ở đây.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private CommissionService commissionService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private RefundService refundService;
+
     public static final int DEFAULT_PAGE_SIZE = 10;
     public static final int MAX_PAGE_SIZE = 100;
 
@@ -67,6 +95,22 @@ public class PolicyServiceImpl implements PolicyService {
 
     @Override
     public PolicyResponse createPolicy(CreatePolicyRequest request) {
+        // Đợt 1C: UNDERWRITER và FINANCE không được tạo hợp đồng (chỉ xem/xử lý
+        // hợp đồng đã có). Gate đặt TRƯỚC duplicate-check để 403 luôn thắng 409
+        // và không lộ policyNumber đã tồn tại. ADMIN được miễn kể cả khi mang
+        // đồng thời nhiều role (vd. seed admin mang ROLE_ADMIN + ROLE_USER, hoặc
+        // admin kiêm UW/FINANCE). permissionService == null (gọi nội bộ/test unit
+        // cũ không set context) thì bỏ qua gate, đúng quy ước null-guard sẵn có
+        // của method này. Chỉ chặn overload nhận CreatePolicyRequest này;
+        // overload createPolicy(Policy) nội bộ KHÔNG chặn (xem ghi chú ở đó).
+        if (permissionService != null && !permissionService.isAdmin()) {
+            if (permissionService.isUnderwriter()) {
+                throw new ForbiddenException("Vai trò UNDERWRITER không được tạo hợp đồng.");
+            }
+            if (permissionService.isFinance()) {
+                throw new ForbiddenException("Vai trò FINANCE không được tạo hợp đồng.");
+            }
+        }
         if (policyRepository.existsByPolicyNumber(request.getPolicyNumber())) {
             throw new DuplicateResourceException("Policy with number " + request.getPolicyNumber() + " already exists");
         }
@@ -76,10 +120,32 @@ public class PolicyServiceImpl implements PolicyService {
         if (effectiveDate.isAfter(expirationDate)) {
             throw new InvalidRequestException("Effective date must be before expiration date");
         }
+        // Ép theo role (PLAN §1.5): CUSTOMER không tạo hộ người khác; AGENT tạo hộ
+        // nhưng assignedAgentEmail luôn là mình. UW/FINANCE/ADMIN giữ nguyên request.
+        Insured insured = mapToInsured(request.getInsured());
+        String assignedAgentEmail = null;
+        if (permissionService != null) {
+            String principal = permissionService.currentPrincipal();
+            // ADMIN không bị ép (tài khoản admin seed mang cả ROLE_ADMIN + ROLE_USER,
+            // nếu check hasCustomerRole trước sẽ ép nhầm insured về email admin).
+            // Mang đồng thời CUSTOMER + AGENT thì ép theo CUSTOMER (như applySearchScope).
+            if (principal != null && !permissionService.isAdmin()) {
+                if (permissionService.hasCustomerRole()) {
+                    if (insured == null) {
+                        insured = Insured.builder().email(principal.trim().toLowerCase()).build();
+                    } else {
+                        insured.setEmail(principal.trim().toLowerCase());
+                    }
+                } else if (permissionService.hasAgentRole()) {
+                    assignedAgentEmail = principal.trim().toLowerCase();
+                }
+            }
+        }
         Policy policy = Policy.builder()
                 .policyNumber(request.getPolicyNumber())
                 .status(PolicyStatus.DRAFT)
-                .insured(mapToInsured(request.getInsured()))
+                .assignedAgentEmail(assignedAgentEmail)
+                .insured(insured)
                 .locations(request.getLocations() != null ?
                         request.getLocations().stream().map(this::mapToLocation).collect(Collectors.toList()) : new ArrayList<>())
                 .effectiveDate(effectiveDate)
@@ -103,6 +169,12 @@ public class PolicyServiceImpl implements PolicyService {
         return mapToPolicyResponse(savedPolicy);
     }
 
+    // Overload nội bộ (seed/benchmark): KHÔNG áp gate UW/FINANCE của đợt 1C.
+    // Lý do: grep toàn codebase cho thấy KHÔNG có caller production nào gọi
+    // overload này — chỉ có khai báo trong PolicyService interface và impl này;
+    // controller duy nhất (PolicyController.createPolicy) gọi overload nhận
+    // CreatePolicyRequest. Chặn overload nội bộ sẽ phá seed/benchmark mà không
+    // bịt thêm lỗ hổng request nào, vì mọi request client đều qua overload kia.
     @Override
     public Policy createPolicy(Policy policy) {
         if (policy == null) {
@@ -129,6 +201,9 @@ public class PolicyServiceImpl implements PolicyService {
     public PolicyResponse getPolicyByNumber(String policyNumber) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
+        if (permissionService != null) {
+            permissionService.checkPolicyRead(policy);
+        }
         return mapToPolicyResponse(policy);
     }
 
@@ -148,8 +223,21 @@ public class PolicyServiceImpl implements PolicyService {
         if (criteria == null) {
             criteria = new PolicySearchCriteria();
         }
+        if (permissionService != null) {
+            permissionService.applySearchScope(criteria);
+        }
 
         List<Criteria> criteriaList = new ArrayList<>();
+
+        if (criteria.getAssignedAgentEmail() != null && !criteria.getAssignedAgentEmail().isBlank()) {
+            criteriaList.add(Criteria.where("assignedAgentEmail").is(criteria.getAssignedAgentEmail().trim().toLowerCase()));
+        }
+
+        if (Boolean.TRUE.equals(criteria.getPaymentClaimedOnly())) {
+            criteriaList.add(new Criteria().andOperator(
+                    Criteria.where("paymentClaimedAt").exists(true),
+                    Criteria.where("paymentClaimedAt").ne(null)));
+        }
 
         if (criteria.getStatus() != null) {
             criteriaList.add(Criteria.where("status").is(criteria.getStatus()));
@@ -272,6 +360,12 @@ public class PolicyServiceImpl implements PolicyService {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
 
+        if (permissionService != null) {
+            permissionService.checkPolicyWrite(policy);
+        }
+        // Khóa sau ACCEPTED (PLAN §2.3): check TRƯỚC khi recalculateTotalPremium chạy.
+        checkAcceptedNegotiationLock(policy);
+
         if (policy.getStatus() == PolicyStatus.ACTIVE) {
             throw new InvalidRequestException("Direct modifications are not allowed on ACTIVE policies. Please use the Endorsement process to preserve historical integrity.");
         }
@@ -315,6 +409,10 @@ public class PolicyServiceImpl implements PolicyService {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
 
+        if (permissionService != null) {
+            permissionService.checkPolicyWrite(policy);
+        }
+
         if (policy.getStatus() != PolicyStatus.DRAFT) {
             throw new InvalidRequestException("Only policies in DRAFT status can be deleted. Current status is " + policy.getStatus());
         }
@@ -331,6 +429,35 @@ public class PolicyServiceImpl implements PolicyService {
     }
 
     @Override
+    public PolicyResponse claimPayment(String policyNumber, String actor) {
+        Policy policy = policyRepository.findByPolicyNumber(policyNumber)
+                .or(() -> policyRepository.findById(policyNumber))
+                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
+        if (permissionService != null) {
+            permissionService.checkPolicyWrite(policy);
+        }
+        if (policy.getStatus() != PolicyStatus.BOUND) {
+            throw new InvalidRequestException("Chỉ khai báo thanh toán khi hợp đồng ở trạng thái BOUND.");
+        }
+        // Idempotent: đã CLAIMED/CONFIRMED thì bấm lại không đổi gì, policy giữ BOUND.
+        if (policy.getPaymentStatus() == PaymentStatus.CLAIMED || policy.getPaymentStatus() == PaymentStatus.CONFIRMED) {
+            return mapToPolicyResponse(policy);
+        }
+        policy.setPaymentClaimedAt(Instant.now());
+        policy.setPaymentStatus(PaymentStatus.CLAIMED);
+        policy.setUpdatedAt(Instant.now());
+        Policy saved = policyRepository.save(policy);
+        transactionLedgerService.recordTransaction(
+                saved.getPolicyNumber(),
+                saved.getVersion(),
+                TransactionType.UPDATE_POLICY,
+                actor,
+                "Khách hàng khai báo đã chuyển khoản, chờ FINANCE đối soát"
+        );
+        return mapToPolicyResponse(saved);
+    }
+
+    @Override
     public PolicyResponse transitionStatus(String policyNumber, StatusTransitionRequest request, String actor) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
@@ -341,6 +468,11 @@ public class PolicyServiceImpl implements PolicyService {
 
         if (!currentStatus.canTransitionTo(targetStatus)) {
             throw new BadRequestException("Invalid state transition from " + currentStatus + " to " + targetStatus);
+        }
+
+        // Role check sau state machine để transition vốn đã sai vẫn trả 400, không lẫn 403.
+        if (permissionService != null) {
+            permissionService.checkTransition(policy, currentStatus, targetStatus);
         }
 
         // Rule for QUOTED: must have at least 1 Location and each Location must have at least 1 Coverage
@@ -371,9 +503,70 @@ public class PolicyServiceImpl implements PolicyService {
             policy.setExpirationDate(effective.plus(365, java.time.temporal.ChronoUnit.DAYS));
         }
 
+        // Luồng thanh toán (PLAN §1.6): BOUND→ACTIVE (chỉ FINANCE/ADMIN tới được đây)
+        // = xác nhận thu tiền; BOUND→DRAFT (chỉ ADMIN) = rollback, reset marker.
+        if (currentStatus == PolicyStatus.BOUND && targetStatus == PolicyStatus.ACTIVE) {
+            policy.setPaymentStatus(PaymentStatus.CONFIRMED);
+        }
+        if (currentStatus == PolicyStatus.BOUND && targetStatus == PolicyStatus.DRAFT) {
+            policy.setPaymentClaimedAt(null);
+            policy.setPaymentStatus(PaymentStatus.UNCLAIMED);
+        }
+
         policy.setStatus(targetStatus);
         policy.setUpdatedAt(Instant.now());
         Policy savedPolicy = policyRepository.save(policy);
+
+        // Hook đợt 2B: chỉ BOUND → ACTIVE, SAU khi policy đã save thành công.
+        // NotificationService failure-isolated nên không cần try/catch thêm ở đây.
+        if (currentStatus == PolicyStatus.BOUND && targetStatus == PolicyStatus.ACTIVE
+                && notificationService != null) {
+            notificationService.notifyPolicyActivated(savedPolicy);
+        }
+
+        // Hook đợt 3 (nối ở merge): hoa hồng + hoàn phí, SAU khi policy đã save.
+        // Cả 2 service đều failure-isolated + idempotent, không làm fail transition.
+        if (targetStatus == PolicyStatus.BOUND && commissionService != null) {
+            commissionService.createForBound(savedPolicy);
+        }
+        if (currentStatus == PolicyStatus.BOUND && targetStatus == PolicyStatus.ACTIVE
+                && commissionService != null) {
+            commissionService.markEarned(savedPolicy);
+        }
+        if (currentStatus == PolicyStatus.ACTIVE && targetStatus == PolicyStatus.CANCELLED
+                && refundService != null) {
+            refundService.createForCancellation(savedPolicy);
+        }
+
+        // Tác dụng phụ lên negotiation (PLAN §2.3).
+        if (negotiationRepository != null) {
+            if (targetStatus == PolicyStatus.BOUND) {
+                for (PriceNegotiation open : negotiationRepository.findByPolicyNumberAndStatus(savedPolicy.getPolicyNumber(), NegotiationStatus.OPEN)) {
+                    open.setStatus(NegotiationStatus.REJECTED);
+                    open.setClosedBy(actor);
+                    open.setClosedAt(Instant.now());
+                    negotiationRepository.save(open);
+                }
+            }
+            if (targetStatus == PolicyStatus.DRAFT) {
+                for (PriceNegotiation accepted : negotiationRepository.findByPolicyNumberAndStatus(savedPolicy.getPolicyNumber(), NegotiationStatus.ACCEPTED)) {
+                    accepted.setStatus(NegotiationStatus.SUPERSEDED);
+                    accepted.setClosedBy(actor);
+                    accepted.setClosedAt(Instant.now());
+                    negotiationRepository.save(accepted);
+                }
+                // Sửa đợt 2 (phát hiện khi làm hàng đợi UW): trước đây chỉ ACCEPTED
+                // bị supersede khi về DRAFT, còn OPEN vẫn tồn tại — item stale trong
+                // hàng đợi UW dù offer mới đã bị chặn (policy không còn QUOTED).
+                // Bất biến cần giữ: OPEN chỉ tồn tại khi policy còn QUOTED.
+                for (PriceNegotiation open : negotiationRepository.findByPolicyNumberAndStatus(savedPolicy.getPolicyNumber(), NegotiationStatus.OPEN)) {
+                    open.setStatus(NegotiationStatus.SUPERSEDED);
+                    open.setClosedBy(actor);
+                    open.setClosedAt(Instant.now());
+                    negotiationRepository.save(open);
+                }
+            }
+        }
 
         String desc = "Status transitioned from " + currentStatus + " to " + targetStatus
                 + (request.getReason() != null && !request.getReason().isBlank() ? ": " + request.getReason() : "");
@@ -389,6 +582,14 @@ public class PolicyServiceImpl implements PolicyService {
         return mapToPolicyResponse(savedPolicy);
     }
 
+    /** Khóa giá sau ACCEPTED còn hiệu lực (policy vẫn QUOTED): mọi update đổi phí → 400. */
+    private void checkAcceptedNegotiationLock(Policy policy) {
+        if (negotiationRepository != null && policy.getStatus() == PolicyStatus.QUOTED
+                && negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), NegotiationStatus.ACCEPTED)) {
+            throw new InvalidRequestException("Giá hợp đồng đã chốt qua thương lượng, không được sửa đổi phí khi còn ở trạng thái QUOTED.");
+        }
+    }
+
     private PolicyResponse mapToPolicyResponse(Policy policy) {
         return PolicyResponse.builder()
                 .id(policy.getId())
@@ -398,6 +599,10 @@ public class PolicyServiceImpl implements PolicyService {
                 .locations(policy.getLocations() != null ?
                         policy.getLocations().stream().map(this::mapToLocationDto).collect(Collectors.toList()) : new ArrayList<>())
                 .totalPremium(policy.getTotalPremium())
+                .assignedAgentEmail(policy.getAssignedAgentEmail())
+                .negotiatedPremium(policy.getNegotiatedPremium())
+                .paymentClaimedAt(policy.getPaymentClaimedAt())
+                .paymentStatus(policy.getPaymentStatus())
                 .effectiveDate(policy.getEffectiveDate())
                 .expirationDate(policy.getExpirationDate())
                 .boundDate(policy.getBoundDate())

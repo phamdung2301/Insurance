@@ -3,6 +3,7 @@ package com.dungphd.insuranceass.service;
 import com.dungphd.insuranceass.dto.request.CalculatePremiumRequest;
 import com.dungphd.insuranceass.dto.response.PremiumCalculationResultDto;
 import com.dungphd.insuranceass.dto.response.RateMatrixItemDto;
+import com.dungphd.insuranceass.model.RateImport;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -36,4 +37,10 @@ public interface PricingExcelService {
      * Retrieve the current active rate matrix catalog.
      */
     List<RateMatrixItemDto> getCurrentRateCatalog();
+
+    /**
+     * Lịch sử import biểu phí (đợt 3C, việc 2): mới nhất trước.
+     * Nằm trong matcher /excel/** (ADMIN + UNDERWRITER) sẵn có.
+     */
+    List<RateImport> listRecentImports();
 }

@@ -16,6 +16,9 @@ public interface PolicyService {
 
     PolicyResponse transitionStatus(String policyNumber, StatusTransitionRequest request, String actor);
 
+    /** Nút "Tôi đã chuyển khoản": chỉ set marker, policy giữ BOUND (PLAN §1.6). Idempotent. */
+    PolicyResponse claimPayment(String policyNumber, String actor);
+
     PageResponse<Policy> searchPolicies(PolicySearchCriteria criteria);
     Policy getPolicyById(String policyIdOrNumber);
     Policy createPolicy(Policy policy);

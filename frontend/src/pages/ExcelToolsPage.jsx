@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Download, Upload, FileSpreadsheet, Calculator, Info, TableProperties } from 'lucide-react';
 import { excelService, downloadBlob } from '../services/api';
+import { rateImportService } from '../services/rateImportApi';
 import { BACKEND_TODO_HINT, isBackendMissing } from '../utils/backend';
-import { formatMoney } from '../utils/format';
+import { formatMoney, formatDateTime } from '../utils/format';
 import { useToast } from '../context/ToastContext';
 
 const BASE_RATES = { PROP_FIRE: 0.075, PROP_WATER: 0.05, LIAB_PUBLIC: 0.12, WCOMP: 0.2 };
@@ -299,7 +300,68 @@ export function ExcelToolsPage() {
 
         {/* (e) Bảng giá hiện hành */}
         <RateMatrix />
+
+        {/* (f) Lịch sử import biểu phí (đợt 3C, việc 2) */}
+        <ImportHistory refreshKey={fileKey} />
       </div>
+    </div>
+  );
+}
+
+/** (f) Lịch sử import biểu phí: người import, thời gian, tên file, số rate. */
+function ImportHistory({ refreshKey }) {
+  const [imports, setImports] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await rateImportService.listImports();
+        const d = res?.data;
+        setImports(Array.isArray(d) ? d : []);
+      } catch {
+        setImports([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [refreshKey]);
+  return (
+    <div className="glass-card">
+      <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <FileSpreadsheet size={20} /> Lịch sử import biểu phí
+      </h3>
+      <p className="form-hint" style={{ marginBottom: '1rem' }}>
+        Các lần cập nhật bảng giá thành công, mới nhất trước.
+      </p>
+      {loading ? (
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Đang tải lịch sử…</p>
+      ) : imports.length === 0 ? (
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Chưa có lần import nào được ghi nhận.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Người import</th>
+                <th>Thời gian</th>
+                <th>Tên file</th>
+                <th className="num">Số rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {imports.map((imp, i) => (
+                <tr key={imp.id ?? i}>
+                  <td>{imp.importedBy ?? '—'}</td>
+                  <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{formatDateTime(imp.importedAt)}</td>
+                  <td style={{ fontFamily: 'monospace' }}>{imp.fileName ?? '—'}</td>
+                  <td className="num">{imp.ratesCount ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

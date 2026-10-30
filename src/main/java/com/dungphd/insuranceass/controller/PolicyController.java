@@ -101,11 +101,24 @@ public class PolicyController {
     public ResponseEntity<ApiResponse<PolicyResponse>> transitionStatus(
             @PathVariable String policyNumber,
             @Valid @RequestBody StatusTransitionRequest request,
-            Principal principal,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail) {
-        String actor = resolveActor(principal, headerEmail);
+            Principal principal) {
+        String actor = resolveActor(principal);
         PolicyResponse response = policyService.transitionStatus(policyNumber, request, actor);
         return ResponseEntity.ok(ApiResponse.success(response, "Policy status transitioned to " + request.getTargetStatus()));
+    }
+
+    /**
+     * POST /policies/{policyNumber}/payment-claim — nút "Tôi đã chuyển khoản":
+     * chỉ set paymentClaimedAt + paymentStatus=CLAIMED, policy GIỮ BOUND (PLAN §1.6).
+     * FINANCE/ADMIN xác nhận sau bằng BOUND→ACTIVE.
+     */
+    @PostMapping("/{policyNumber}/payment-claim")
+    public ResponseEntity<ApiResponse<PolicyResponse>> claimPayment(
+            @PathVariable String policyNumber,
+            Principal principal) {
+        String actor = resolveActor(principal);
+        PolicyResponse response = policyService.claimPayment(policyNumber, actor);
+        return ResponseEntity.ok(ApiResponse.success(response, "Đã ghi nhận khai báo chuyển khoản, chờ đối soát."));
     }
 
     // ==========================================
@@ -116,9 +129,8 @@ public class PolicyController {
     public ResponseEntity<ApiResponse<PolicyResponse>> applyEndorsement(
             @PathVariable String policyNumber,
             @Valid @RequestBody EndorsementRequest request,
-            Principal principal,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail) {
-        String actor = resolveActor(principal, headerEmail);
+            Principal principal) {
+        String actor = resolveActor(principal);
         PolicyResponse response = endorsementService.applyEndorsement(policyNumber, request, actor);
         return ResponseEntity.ok(ApiResponse.success(response, "Policy endorsed successfully to version " + response.getVersion()));
     }
@@ -156,12 +168,10 @@ public class PolicyController {
         return ResponseEntity.ok(ApiResponse.success(history, "Policy transaction history retrieved successfully"));
     }
 
-    private String resolveActor(Principal principal, String headerEmail) {
+    /** Chỉ lấy actor từ JWT/Principal, không tin header X-User-Email (PLAN §1.5). */
+    private String resolveActor(Principal principal) {
         if (principal != null && principal.getName() != null && !principal.getName().isBlank() && !"anonymousUser".equalsIgnoreCase(principal.getName())) {
             return principal.getName();
-        }
-        if (headerEmail != null && !headerEmail.isBlank()) {
-            return headerEmail.trim();
         }
         return "System";
     }

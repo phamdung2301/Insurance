@@ -66,6 +66,15 @@ public class DataInitializer {
                     log.info("Sample users created successfully! (user@example.com / Password123!)");
                 }
 
+                // Seed 4 tài khoản demo theo role (PLAN §3): find-or-create THEO TỪNG
+                // EMAIL, NGOÀI cổng count() == 0 — DB đã có dữ liệu thì seed mới
+                // vẫn chạy. User đã tồn tại thì giữ nguyên, không sửa password/roles.
+                seedDemoUser("customer@example.com", "Password123!", "Khách Hàng Mẫu", List.of("ROLE_CUSTOMER"));
+                seedDemoUser("agent@example.com", "Password123!", "Đại Lý Mẫu", List.of("ROLE_AGENT"));
+                seedDemoUser("uw@example.com", "Password123!", "Thẩm Định Viên Mẫu", List.of("ROLE_UNDERWRITER"));
+                seedDemoUser("finance@example.com", "Password123!", "Kế Toán Mẫu", List.of("ROLE_FINANCE"));
+                // admin@example.com giữ nguyên như seed gốc (ROLE_ADMIN, ROLE_USER).
+
                 // 2. Seed Sample Policy with Nested Locations
                 if (policyRepository.count() == 0) {
                     log.info("Initializing sample policies in MongoDB...");
@@ -166,5 +175,22 @@ public class DataInitializer {
                 log.warn("Could not initialize sample data (MongoDB may be offline): {}", e.getMessage());
             }
         };
+    }
+
+    private void seedDemoUser(String email, String rawPassword, String fullName, List<String> roles) {
+        if (userRepository.findByEmail(email).isPresent()) {
+            return;
+        }
+        User demo = User.builder()
+                .email(email)
+                .password(passwordEncoder.encode(rawPassword))
+                .fullName(fullName)
+                .roles(new ArrayList<>(roles))
+                .enabled(true)
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+        userRepository.save(demo);
+        log.info("Seeded demo user {} with roles {}", email, roles);
     }
 }

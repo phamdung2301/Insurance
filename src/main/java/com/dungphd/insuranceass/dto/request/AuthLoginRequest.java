@@ -15,7 +15,10 @@ public class AuthLoginRequest {
 
     private String otp;
 
-    // For Dev Login / Role Quick Switch: "ROLE_USER" or "ROLE_ADMIN"
+    // For Password Login: BCrypt-verified against the stored password hash.
+    private String password;
+
+    // For Dev Login / Role Quick Switch: one of the 5 RBAC roles
     private String role;
 
     private String fullName;

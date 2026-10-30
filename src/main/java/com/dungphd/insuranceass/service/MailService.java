@@ -59,6 +59,50 @@ public class MailService {
         }
     }
 
+    /**
+     * Gửi mail thông báo chung (đợt 2B, best-effort cho NotificationService).
+     * MailService trước đây chỉ có sendOtpEmail nên thêm method này tối thiểu.
+     * Không throw: mailSender null → bỏ qua có log; SMTP lỗi → log warn.
+     * Link là đường dẫn tương đối trong app (/hop-dong/...) vì FE base URL
+     * nằm ở config deploy, không hardcode domain ở đây.
+     */
+    public void sendNotificationEmail(String toEmail, String title, String message, String link) {
+        String maskedEmail = maskEmail(toEmail);
+        if (mailSender == null) {
+            log.warn("[NOTIFICATION EMAIL SKIPPED] JavaMailSender not configured. To {}: {}", maskedEmail, title);
+            return;
+        }
+        try {
+            MimeMessage mimeMessage = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
+            helper.setFrom(fromEmail);
+            helper.setTo(toEmail);
+            helper.setSubject(title + " - Insurance Policy System");
+            String htmlContent = """
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                        <h2 style="color: #2563eb;">Hệ Thống Quản Lý Hợp Đồng Bảo Hiểm</h2>
+                        <h3>%s</h3>
+                        <p>%s</p>
+                        <p style="font-size: 14px; color: #64748b;">Xem chi tiết trong hệ thống: %s</p>
+                        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+                        <p style="font-size: 12px; color: #64748b; text-align: center;">InsurTech Enterprise Platform &copy; 2026</p>
+                    </div>
+                    """.formatted(escapeHtml(title), escapeHtml(message), escapeHtml(link));
+            helper.setText(htmlContent, true);
+            mailSender.send(mimeMessage);
+            log.info("Successfully sent notification email via SMTP to {}", maskedEmail);
+        } catch (Exception e) {
+            log.warn("Failed to send notification email via SMTP to {}: {}", maskedEmail, e.getMessage());
+        }
+    }
+
+    private String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+    }
+
     private String maskEmail(String email) {
         if (email == null || !email.contains("@")) {
             return "***";

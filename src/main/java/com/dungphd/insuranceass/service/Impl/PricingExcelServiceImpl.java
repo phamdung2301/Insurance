@@ -7,12 +7,16 @@ import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.Coverage;
 import com.dungphd.insuranceass.model.Location;
 import com.dungphd.insuranceass.model.Policy;
+import com.dungphd.insuranceass.model.RateImport;
 import com.dungphd.insuranceass.repository.PolicyRepository;
+import com.dungphd.insuranceass.repository.RateImportRepository;
+import com.dungphd.insuranceass.service.PermissionService;
 import com.dungphd.insuranceass.service.PricingExcelService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -30,6 +34,19 @@ import java.util.concurrent.ConcurrentHashMap;
 public class PricingExcelServiceImpl implements PricingExcelService {
 
     private final PolicyRepository policyRepository;
+
+    /**
+     * Đợt 3C, việc 2 — lịch sử import. Cố tình KHÔNG final để giữ nguyên
+     * constructor 1-arg cũ (PricingExcelServiceImplTest dùng
+     * new PricingExcelServiceImpl(policyRepository)): Spring inject qua
+     * field, còn code tự dựng tay (test cũ) thì 2 field này null và lịch
+     * sử được bỏ qua một cách an toàn (xem recordRateImport).
+     */
+    @Autowired(required = false)
+    private RateImportRepository rateImportRepository;
+
+    @Autowired(required = false)
+    private PermissionService permissionService;
 
     // In-memory thread-safe rate matrix catalog (FR-CALC-01, FR-CALC-03)
     private final Map<String, RateMatrixItemDto> rateCatalog = new ConcurrentHashMap<>();
@@ -269,6 +286,10 @@ public class PricingExcelServiceImpl implements PricingExcelService {
             }
 
             log.info("Successfully imported {} pricing rates from Excel: {}", updatedCount, updatedCodes);
+            // Đợt 3C, việc 2 — lưu lịch sử SAU KHI import thành công.
+            // Failure-isolated: recordRateImport tự try/catch + log, không
+            // bao giờ làm fail import chính.
+            recordRateImport(file, updatedCount);
             Map<String, Object> result = new HashMap<>();
             result.put("updatedCount", updatedCount);
             result.put("updatedCodes", updatedCodes);
@@ -468,5 +489,51 @@ public class PricingExcelServiceImpl implements PricingExcelService {
     @Override
     public List<RateMatrixItemDto> getCurrentRateCatalog() {
         return new ArrayList<>(rateCatalog.values());
+    }
+
+    @Override
+    public List<RateImport> listRecentImports() {
+        if (rateImportRepository == null) {
+            return List.of();
+        }
+        return rateImportRepository.findAllByOrderByImportedAtDesc();
+    }
+
+    /**
+     * Lưu 1 RateImport cho lần import vừa thành công. Failure-isolated:
+     * mọi lỗi (kể cả repo null khi dựng tay không qua Spring) đều chỉ
+     * log, không throw. Lựa chọn "System": khi không lấy được principal
+     * (PermissionService null, hoặc SecurityContext trống — ví dụ job nội
+     * bộ) thì importedBy = "System" thay vì null, để lịch sử luôn có người
+     * chịu trách nhiệm hiển thị; đây là lựa chọn đã ghi rõ theo yêu cầu
+     * đợt 3C, không phải fallback âm thầm cho request HTTP không auth
+     * (endpoint import đã bị matcher /excel/** chặn ADMIN+UW từ trước).
+     */
+    private void recordRateImport(MultipartFile file, int ratesCount) {
+        try {
+            if (rateImportRepository == null) {
+                log.debug("recordRateImport: bỏ qua lịch sử vì RateImportRepository chưa được inject.");
+                return;
+            }
+            String importedBy = null;
+            try {
+                importedBy = permissionService != null ? permissionService.currentPrincipal() : null;
+            } catch (Exception ignored) {
+                importedBy = null;
+            }
+            if (importedBy == null || importedBy.isBlank()) {
+                importedBy = "System";
+            }
+            String fileName = file != null && file.getOriginalFilename() != null
+                    ? file.getOriginalFilename() : "";
+            rateImportRepository.save(RateImport.builder()
+                    .importedBy(importedBy)
+                    .importedAt(Instant.now())
+                    .fileName(fileName)
+                    .ratesCount(ratesCount)
+                    .build());
+        } catch (Exception e) {
+            log.error("recordRateImport: lỗi khi lưu lịch sử import (đã nuốt lỗi, import chính không bị ảnh hưởng).", e);
+        }
     }
 }
