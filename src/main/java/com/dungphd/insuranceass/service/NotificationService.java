@@ -33,6 +33,14 @@ public interface NotificationService {
     /** Sau khi endorsement apply thành công: chủ policy + assignedAgentEmail. */
     void notifyEndorsementApplied(Policy policy);
 
+    /**
+     * Nhac tai tuc (dot 3B): hop dong ACTIVE sap het han trong {@code daysBefore}
+     * ngay. Nguoi nhan: chu policy + assignedAgentEmail (loai trung, nhu cac
+     * method notify* khac). Failure-isolated nhu cac notify* khac: khong bao gio
+     * throw ra caller (RenewalReminderService van boc them try/catch theo policy).
+     */
+    void notifyRenewalReminder(Policy policy, int daysBefore);
+
     /** Chỉ notification của đúng principal, mới nhất trước. */
     List<Notification> listForPrincipal(String principalEmail, boolean unreadOnly);
 

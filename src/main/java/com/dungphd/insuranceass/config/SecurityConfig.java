@@ -114,6 +114,13 @@ public class SecurityConfig {
                         // Prefix riêng, không xung đột matcher khác; đứng trong nhóm
                         // matcher có role, trước anyRequest().authenticated() cuối.
                         .requestMatchers("/underwriter/**", "/api/underwriter/**").hasAnyRole("UNDERWRITER", "ADMIN")
+                        // Đợt 3C: đối soát cho FINANCE (+ ADMIN xem). Prefix
+                        // riêng, đứng trong nhóm matcher có role, trước
+                        // anyRequest().authenticated() cuối.
+                        .requestMatchers("/finance/**", "/api/finance/**").hasAnyRole("FINANCE", "ADMIN")
+                        // Nối ở merge đợt 3 (tăng cường, service vẫn enforce lại):
+                        // /agent/** chỉ AGENT + ADMIN (trước đây rơi vào anyRequest).
+                        .requestMatchers("/agent/**", "/api/agent/**").hasAnyRole("AGENT", "ADMIN")
                         .requestMatchers("/admin/**", "/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/benchmark/**", "/api/benchmark/**").hasRole("ADMIN")
                         // Đợt 1C §3(b): FINANCE chỉ được ĐỌC báo cáo. Matcher GET PHẢI

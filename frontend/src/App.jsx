@@ -25,6 +25,8 @@ import { ReportsPage } from './pages/ReportsPage';
 import { AdminUserPage } from './pages/AdminUserPage';
 import { FinanceQueuePage } from './pages/FinanceQueuePage';
 import { AgentCustomerPage } from './pages/AgentCustomerPage';
+import { AgentCommissionPage } from './pages/AgentCommissionPage';
+import { PaymentPage } from './pages/PaymentPage';
 import { UnderwriterQueuePage } from './pages/UnderwriterQueuePage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { AdminAuditLogPage } from './pages/AdminAuditLogPage';
@@ -46,6 +48,8 @@ const TITLES = {
   '/admin/thuong-luong': 'Hàng đợi thương lượng',
   '/thong-bao': 'Thông báo',
   '/admin/audit-logs': 'Nhật ký quản trị',
+  '/agent/hoa-hong': 'Hoa hồng của tôi',
+  '/thanh-toan': 'Thanh toán của tôi',
 };
 
 function Shell({ title, children }) {
@@ -109,6 +113,8 @@ function AnimatedRoutes() {
         {page('/admin/thuong-luong', <UnderwriterQueuePage />, ['ROLE_UNDERWRITER', 'ROLE_ADMIN'])}
         {page('/admin/audit-logs', <AdminAuditLogPage />, ['ROLE_ADMIN'])}
         {page('/agent/khach-hang', <AgentCustomerPage />, ['ROLE_AGENT', 'ROLE_ADMIN'])}
+        {page('/agent/hoa-hong', <AgentCommissionPage />, ['ROLE_AGENT', 'ROLE_ADMIN'])}
+        {page('/thanh-toan', <PaymentPage />)}
         {import.meta.env.DEV && (
           <Route path="/dev/api-tester" element={<DevTester />} />
         )}

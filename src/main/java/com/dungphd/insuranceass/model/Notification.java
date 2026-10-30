@@ -23,6 +23,7 @@ public class Notification {
     public static final String TYPE_NEW_OFFER = "NEW_OFFER";
     public static final String TYPE_POLICY_ACTIVATED = "POLICY_ACTIVATED";
     public static final String TYPE_ENDORSEMENT_APPLIED = "ENDORSEMENT_APPLIED";
+    public static final String TYPE_RENEWAL_REMINDER = "RENEWAL_REMINDER";
 
     @Id
     private String id;

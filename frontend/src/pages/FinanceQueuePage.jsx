@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { HandCoins, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { HandCoins, RefreshCw, CheckCircle2, Download, Wallet } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
-import { policyService } from '../services/api';
+import { policyService, downloadBlob } from '../services/api';
+import { financeService } from '../services/financeApi';
 import { EmptyState, Skeleton } from '../components/ui';
 import { formatMoney, formatDateTime } from '../utils/format';
 
@@ -19,6 +20,12 @@ export function FinanceQueuePage() {
   const [policies, setPolicies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState({});
+  // Đợt 3C, việc 3: refund chờ đối soát + export CSV. Tải độc lập với
+  // hàng đợi chính: lỗi ở 2 khối này không làm mất hàng đợi BOUND.
+  const [refunds, setRefunds] = useState([]);
+  const [exportFrom, setExportFrom] = useState('');
+  const [exportTo, setExportTo] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -36,6 +43,31 @@ export function FinanceQueuePage() {
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await financeService.listRefunds();
+        const d = res?.data;
+        setRefunds(Array.isArray(d) ? d : []);
+      } catch {
+        setRefunds([]);
+      }
+    })();
+  }, []);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const blob = await financeService.exportReconciliation(exportFrom || null, exportTo || null);
+      downloadBlob(blob, `DoiSoat_${exportFrom || 'all'}_to_${exportTo || 'all'}.csv`);
+      toast.success('Đã xuất CSV đối soát.');
+    } catch (err) {
+      toast.error(err.message || 'Không xuất được CSV đối soát.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const confirmReceived = async (p) => {
     if (!window.confirm(`Xác nhận đã nhận đủ tiền phí cho hợp đồng ${p.policyNumber}? Hợp đồng sẽ chuyển sang ACTIVE.`)) return;
@@ -69,6 +101,73 @@ export function FinanceQueuePage() {
         Chỉ các hợp đồng BOUND mà khách đã bấm “Tôi đã chuyển khoản” mới xuất hiện tại đây.
         Xác nhận để chuyển hợp đồng sang ACTIVE.
       </p>
+
+      {/* Đợt 3C, việc 3: xuất CSV đối soát theo khoảng ngày. CSV gồm 2 nhóm:
+          BOUND đã khai báo chuyển khoản (chờ đối soát, mốc paymentClaimedAt)
+          và ACTIVE đã xác nhận (mốc updatedAt — xem ghi chú backend). */}
+      <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: 0 }}>
+          <Download size={20} /> Xuất CSV đối soát
+        </h3>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'end' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
+            Từ ngày
+            <input type="date" className="form-control" value={exportFrom} onChange={(e) => setExportFrom(e.target.value)} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
+            Đến ngày
+            <input type="date" className="form-control" value={exportTo} onChange={(e) => setExportTo(e.target.value)} />
+          </label>
+          <button type="button" className="btn btn-secondary btn-sm" disabled={exporting} onClick={handleExport}>
+            <Download size={15} /> {exporting ? 'Đang xuất…' : 'Export CSV'}
+          </button>
+        </div>
+        <p className="form-hint" style={{ marginBottom: 0, marginTop: '0.75rem' }}>
+          Bỏ trống cả 2 ngày để xuất toàn bộ. Cột CSV: số hợp đồng, email khách, tổng phí,
+          trạng thái đối soát, ngày khai báo/xác nhận.
+        </p>
+      </div>
+
+      {/* Đợt 3C, việc 3: hoàn phí chờ đối soát (PENDING).
+          LƯU Ý QUAN TRỌNG: refund ở đây chỉ là GHI NHẬN — hệ thống không
+          chuyển tiền thật. FINANCE đối soát và hoàn tiền ngoài hệ thống. */}
+      <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: 0 }}>
+          <Wallet size={20} /> Hoàn phí chờ đối soát
+        </h3>
+        <p className="form-hint" style={{ marginBottom: '1rem' }}>
+          Các hợp đồng đã hủy đang chờ đối soát hoàn phí. Đây chỉ là ghi nhận —
+          hệ thống không tự chuyển tiền thật, FINANCE xử lý hoàn tiền ngoài hệ thống.
+        </p>
+        {refunds.filter((r) => r.status === 'PENDING').length === 0 ? (
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: 0 }}>Không có khoản hoàn phí nào đang chờ.</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Số hợp đồng</th>
+                  <th>Số tiền</th>
+                  <th>Trạng thái</th>
+                  <th>Ghi chú</th>
+                  <th>Ngày ghi nhận</th>
+                </tr>
+              </thead>
+              <tbody>
+                {refunds.filter((r) => r.status === 'PENDING').map((r) => (
+                  <tr key={r.id ?? r.policyNumber}>
+                    <td><Link className="policy-number" to={`/hop-dong/${encodeURIComponent(r.policyNumber)}`}>{r.policyNumber}</Link></td>
+                    <td><strong style={{ color: '#1663d9' }}>{formatMoney(r.amount)}</strong></td>
+                    <td><span className="badge badge-warning">PENDING</span></td>
+                    <td>{r.note ?? '—'}</td>
+                    <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{formatDateTime(r.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {policies.length === 0 ? (
         <EmptyState

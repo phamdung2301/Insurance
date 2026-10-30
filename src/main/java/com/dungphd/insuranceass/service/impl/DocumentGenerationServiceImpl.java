@@ -116,6 +116,160 @@ public class DocumentGenerationServiceImpl implements DocumentGenerationService 
         }
     }
 
+    /**
+     * Hoa don (invoice) PDF — dot 3B.
+     *
+     * <p>NOI DUNG: so hop dong, chu hop dong (ten/email), trang thai hop dong,
+     * hieu luc / het han, bang cac quyen loi/phi (tai dung
+     * addCoveragesScheduleTable), totalPremium, negotiatedPremium (neu co),
+     * so tien ghi nhan = negotiatedPremium neu co, neu khong thi totalPremium,
+     * trang thai thanh toan (paymentStatus) va thoi diem khai bao
+     * (paymentClaimedAt, neu co).
+     *
+     * <p>QUAN TRONG — INVOICE CHI LA CHUNG TU GHI NHAN: no khong phai luong
+     * tien that, khong chuyen tien, khong doi trang thai thanh toan. Cau nay
+     * duoc in trong PDF (xem disclaimer ben duoi) va ghi o FE PaymentPage.
+     * PDF dung font Helvetica (WinAnsi) nhu certificate/summary hien co nen
+     * noi dung de tieng Anh (khong dau) de tranh loi font tieng Viet.
+     */
+    @Override
+    public byte[] generateInvoicePdf(String policyNumber) {
+        if (policyNumber == null || policyNumber.isBlank()) {
+            throw new BadRequestException("Policy number must be provided");
+        }
+        Policy policy = policyRepository.findByPolicyNumber(policyNumber)
+                .or(() -> policyRepository.findById(policyNumber))
+                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
+
+        if (permissionService != null) {
+            permissionService.checkPolicyRead(policy);
+        }
+
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Document document = new Document(PageSize.A4, 36, 36, 36, 36);
+            PdfWriter.getInstance(document, out);
+            document.open();
+
+            addInvoiceHeader(document, policy);
+            addPolicyAndInsuredSection(document, policy);
+            addCoveragesScheduleTable(document, policy);
+            addInvoicePaymentBox(document, policy);
+
+            Font disclaimerFont = FontFactory.getFont(FontFactory.HELVETICA, 7, TEXT_MUTED);
+            Paragraph disclaimer = new Paragraph(
+                    "NOTE — RECORD DOCUMENT ONLY: This invoice is a record of the premium "
+                            + "and payment status registered for this policy. It is NOT a real money "
+                            + "transfer, it does not move funds, and it does not change the payment "
+                            + "status. Payment reconciliation is performed separately by FINANCE.",
+                    disclaimerFont);
+            disclaimer.setSpacingBefore(10f);
+            document.add(disclaimer);
+
+            document.close();
+            log.info("Successfully generated Invoice PDF for policy {}", policy.getPolicyNumber());
+            return out.toByteArray();
+        } catch (Exception e) {
+            log.error("Error generating Invoice PDF: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to generate PDF Invoice: " + e.getMessage(), e);
+        }
+    }
+
+    private void addInvoiceHeader(Document document, Policy policy) throws DocumentException {
+        PdfPTable headerTable = new PdfPTable(2);
+        headerTable.setWidthPercentage(100);
+        headerTable.setWidths(new float[]{65f, 35f});
+        headerTable.setSpacingAfter(12f);
+
+        PdfPCell leftCell = new PdfPCell();
+        leftCell.setBorder(Rectangle.NO_BORDER);
+        leftCell.setBackgroundColor(PRIMARY_COLOR);
+        leftCell.setPadding(12f);
+        leftCell.addElement(new Paragraph("COMMERCIAL INSURANCE UNDERWRITING CORP",
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, new Color(147, 197, 253))));
+        Paragraph title = new Paragraph("INVOICE",
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, Color.WHITE));
+        title.setSpacingBefore(2f);
+        leftCell.addElement(title);
+        leftCell.addElement(new Paragraph("Premium invoice — record document only (not a money transfer)",
+                FontFactory.getFont(FontFactory.HELVETICA, 8, new Color(226, 232, 240))));
+
+        PdfPCell rightCell = new PdfPCell();
+        rightCell.setBorder(Rectangle.NO_BORDER);
+        rightCell.setBackgroundColor(PRIMARY_DARK);
+        rightCell.setPadding(12f);
+        Paragraph polLabel = new Paragraph("POLICY NUMBER", FontFactory.getFont(FontFactory.HELVETICA, 8, new Color(148, 163, 184)));
+        polLabel.setAlignment(Element.ALIGN_RIGHT);
+        rightCell.addElement(polLabel);
+        Paragraph polNum = new Paragraph(policy.getPolicyNumber(),
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, Color.WHITE));
+        polNum.setAlignment(Element.ALIGN_RIGHT);
+        polNum.setSpacingBefore(2f);
+        rightCell.addElement(polNum);
+        Paragraph gen = new Paragraph("Generated: " + DATE_FORMATTER.format(Instant.now()),
+                FontFactory.getFont(FontFactory.HELVETICA, 8, Color.WHITE));
+        gen.setAlignment(Element.ALIGN_RIGHT);
+        gen.setSpacingBefore(2f);
+        rightCell.addElement(gen);
+
+        headerTable.addCell(leftCell);
+        headerTable.addCell(rightCell);
+        document.add(headerTable);
+    }
+
+    private void addInvoicePaymentBox(Document document, Policy policy) throws DocumentException {
+        Double amount = policy.getNegotiatedPremium() != null
+                ? policy.getNegotiatedPremium() : policy.getTotalPremium();
+        Font labelFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, TEXT_MUTED);
+        Font valFont = FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_DARK);
+
+        PdfPTable box = new PdfPTable(2);
+        box.setWidthPercentage(100);
+        box.setWidths(new float[]{50f, 50f});
+        box.setSpacingAfter(14f);
+
+        PdfPCell left = new PdfPCell();
+        left.setBorderColor(BORDER_COLOR);
+        left.setBackgroundColor(ALT_ROW_COLOR);
+        left.setPadding(10f);
+        left.addElement(new Paragraph("PAYMENT STATUS (AS REGISTERED)", labelFont));
+        left.addElement(new Paragraph("Payment status: "
+                + (policy.getPaymentStatus() != null ? policy.getPaymentStatus().name() : "UNCLAIMED"), valFont));
+        left.addElement(new Paragraph("Payment claimed at: " + formatDateTime(policy.getPaymentClaimedAt()), valFont));
+        left.addElement(new Paragraph("Policy status: "
+                + (policy.getStatus() != null ? policy.getStatus().name() : "—"), valFont));
+
+        PdfPCell right = new PdfPCell();
+        right.setBorderColor(BORDER_COLOR);
+        right.setBackgroundColor(PRIMARY_COLOR);
+        right.setPadding(10f);
+        Paragraph amtLabel = new Paragraph("AMOUNT RECORDED (VND)",
+                FontFactory.getFont(FontFactory.HELVETICA, 8, new Color(191, 219, 254)));
+        amtLabel.setAlignment(Element.ALIGN_RIGHT);
+        right.addElement(amtLabel);
+        Paragraph amtVal = new Paragraph(formatCurrency(amount) + " VND",
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, Color.WHITE));
+        amtVal.setAlignment(Element.ALIGN_RIGHT);
+        amtVal.setSpacingBefore(2f);
+        right.addElement(amtVal);
+        Paragraph breakdown = new Paragraph(
+                "Total premium: " + formatCurrency(policy.getTotalPremium()) + " VND"
+                        + (policy.getNegotiatedPremium() != null
+                        ? " | Negotiated premium: " + formatCurrency(policy.getNegotiatedPremium()) + " VND"
+                        : ""),
+                FontFactory.getFont(FontFactory.HELVETICA, 7.5f, new Color(226, 232, 240)));
+        breakdown.setAlignment(Element.ALIGN_RIGHT);
+        right.addElement(breakdown);
+
+        box.addCell(left);
+        box.addCell(right);
+        document.add(box);
+    }
+
+    private String formatDateTime(Instant instant) {
+        if (instant == null) return "—";
+        return DATE_FORMATTER.format(instant);
+    }
+
     @Override
     public List<DocumentMetadataDto> getAvailableDocuments(String policyNumber) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
@@ -153,6 +307,19 @@ public class DocumentGenerationServiceImpl implements DocumentGenerationService 
                 .version(currentVer)
                 .contentType("application/pdf")
                 .downloadUrl("/policies/" + policy.getPolicyNumber() + "/documents/summary")
+                .generatedAt(Instant.now())
+                .build());
+
+        // 3. Invoice (dot 3B) — chung tu ghi nhan, khong phai luong tien that.
+        docs.add(DocumentMetadataDto.builder()
+                .documentId("INV-" + policy.getPolicyNumber())
+                .documentType("INVOICE")
+                .title("Invoice (record document only)")
+                .fileName("Invoice_" + policy.getPolicyNumber() + ".pdf")
+                .policyNumber(policy.getPolicyNumber())
+                .version(currentVer)
+                .contentType("application/pdf")
+                .downloadUrl("/policies/" + policy.getPolicyNumber() + "/invoice")
                 .generatedAt(Instant.now())
                 .build());
 

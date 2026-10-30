@@ -4,6 +4,7 @@ import com.dungphd.insuranceass.dto.request.CalculatePremiumRequest;
 import com.dungphd.insuranceass.dto.response.ApiResponse;
 import com.dungphd.insuranceass.dto.response.PremiumCalculationResultDto;
 import com.dungphd.insuranceass.dto.response.RateMatrixItemDto;
+import com.dungphd.insuranceass.model.RateImport;
 import com.dungphd.insuranceass.service.PricingExcelService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -77,6 +78,17 @@ public class ExcelPricingController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                 .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                 .body(excelBytes);
+    }
+
+    /**
+     * GET /excel/imports (đợt 3C, việc 2): lịch sử import biểu phí, mới
+     * nhất trước. Nằm trong matcher /excel/** (ADMIN + UNDERWRITER) sẵn
+     * có, không sửa SecurityConfig cho việc này.
+     */
+    @GetMapping("/imports")
+    public ResponseEntity<ApiResponse<List<RateImport>>> listImports() {
+        return ResponseEntity.ok(ApiResponse.success(
+                pricingExcelService.listRecentImports(), "Lịch sử import biểu phí."));
     }
 
     /**

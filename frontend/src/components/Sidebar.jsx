@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   ShieldCheck, Home, ShoppingCart, LayoutDashboard, FileText,
   TableProperties, Gauge, Database, User, X, Users, HandCoins, BarChart3,
-  MessagesSquare, ScrollText,
+  MessagesSquare, ScrollText, CreditCard,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -17,6 +17,7 @@ export function Sidebar({ open, onClose }) {
   const customerLinks = [
     { to: '/', label: 'Hợp đồng của tôi', icon: <Home size={18} />, end: true },
     { to: '/mua-bao-hiem', label: 'Mua bảo hiểm', icon: <ShoppingCart size={18} /> },
+    { to: '/thanh-toan', label: 'Thanh toán', icon: <CreditCard size={18} />, roles: ['ROLE_CUSTOMER'] },
   ];
   // Mỗi mục kèm roles được phép (PLAN §1.4) — filter bằng hasRole, không
   // còn blanket isAdmin cho cả khối menu admin.
@@ -36,6 +37,7 @@ export function Sidebar({ open, onClose }) {
   ];
   const agentLinks = [
     { to: '/agent/khach-hang', label: 'Khách hàng của tôi', icon: <Users size={18} />, roles: ['ROLE_AGENT', 'ROLE_ADMIN'] },
+    { to: '/agent/hoa-hong', label: 'Hoa hồng', icon: <HandCoins size={18} />, roles: ['ROLE_AGENT', 'ROLE_ADMIN'] },
   ];
   const accountLinks = [
     { to: '/ho-so', label: 'Hồ sơ cá nhân', icon: <User size={18} /> },

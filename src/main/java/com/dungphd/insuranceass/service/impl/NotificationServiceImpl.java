@@ -167,6 +167,25 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
+    public void notifyRenewalReminder(Policy policy, int daysBefore) {
+        try {
+            if (policy == null || policy.getPolicyNumber() == null) {
+                return;
+            }
+            notifyMany(policyRecipients(policy, null),
+                    Notification.TYPE_RENEWAL_REMINDER,
+                    "Hop dong sap het han",
+                    "Hop dong " + policy.getPolicyNumber() + " sap het han trong "
+                            + daysBefore + " ngay. Vui long lien he de tai tuc truoc khi het han.",
+                    "/hop-dong/" + policy.getPolicyNumber());
+        } catch (Exception e) {
+            // Failure-isolated: loi notification khong duoc pha luong quet tai tuc.
+            log.warn("Failed to create RENEWAL_REMINDER notification for policy {}: {}",
+                    policy != null ? policy.getPolicyNumber() : null, e.getMessage());
+        }
+    }
+
+    @Override
     public List<Notification> listForPrincipal(String principalEmail, boolean unreadOnly) {
         String principal = requirePrincipal(principalEmail);
         if (unreadOnly) {

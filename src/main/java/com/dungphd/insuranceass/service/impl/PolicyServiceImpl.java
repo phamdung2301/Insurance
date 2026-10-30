@@ -18,7 +18,9 @@ import com.dungphd.insuranceass.model.*;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyTransactionRepository;
 import com.dungphd.insuranceass.repository.PriceNegotiationRepository;
+import com.dungphd.insuranceass.service.CommissionService;
 import com.dungphd.insuranceass.service.NotificationService;
+import com.dungphd.insuranceass.service.RefundService;
 import com.dungphd.insuranceass.service.PermissionService;
 import com.dungphd.insuranceass.service.PolicyService;
 import com.dungphd.insuranceass.service.PremiumCalculationService;
@@ -66,6 +68,14 @@ public class PolicyServiceImpl implements PolicyService {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private NotificationService notificationService;
+
+    // Hook đợt 3 (nối ở merge, theo pattern notificationService): 2 service
+    // này failure-isolated nên không cần try/catch thêm ở đây.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private CommissionService commissionService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private RefundService refundService;
 
     public static final int DEFAULT_PAGE_SIZE = 10;
     public static final int MAX_PAGE_SIZE = 100;
@@ -512,6 +522,20 @@ public class PolicyServiceImpl implements PolicyService {
         if (currentStatus == PolicyStatus.BOUND && targetStatus == PolicyStatus.ACTIVE
                 && notificationService != null) {
             notificationService.notifyPolicyActivated(savedPolicy);
+        }
+
+        // Hook đợt 3 (nối ở merge): hoa hồng + hoàn phí, SAU khi policy đã save.
+        // Cả 2 service đều failure-isolated + idempotent, không làm fail transition.
+        if (targetStatus == PolicyStatus.BOUND && commissionService != null) {
+            commissionService.createForBound(savedPolicy);
+        }
+        if (currentStatus == PolicyStatus.BOUND && targetStatus == PolicyStatus.ACTIVE
+                && commissionService != null) {
+            commissionService.markEarned(savedPolicy);
+        }
+        if (currentStatus == PolicyStatus.ACTIVE && targetStatus == PolicyStatus.CANCELLED
+                && refundService != null) {
+            refundService.createForCancellation(savedPolicy);
         }
 
         // Tác dụng phụ lên negotiation (PLAN §2.3).
