@@ -1,5 +1,7 @@
 package com.dungphd.insuranceass.config;
 
+import com.dungphd.insuranceass.model.User;
+import com.dungphd.insuranceass.repository.UserRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,6 +29,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
 
+    private final UserRepository userRepository;
+
     @Override
     protected void doFilterInternal(
             @NonNull HttpServletRequest request,
@@ -37,7 +41,29 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String jwt = parseJwt(request);
             if (StringUtils.hasText(jwt) && jwtTokenProvider.validateToken(jwt)) {
                 String email = jwtTokenProvider.getEmailFromToken(jwt);
-                List<String> roles = jwtTokenProvider.getRolesFromToken(jwt);
+                // Lookup DB mỗi request (PLAN §1.7): tài khoản bị khóa thì token cũ
+                // bị từ chối ngay; roles lấy MỚI NHẤT từ DB thay vì tin claims trong JWT
+                // nên đổi role qua màn admin có hiệu lực ngay request tiếp theo.
+                // Không phá luồng OAuth2/anonymous: filter này chỉ chạy ở chain JWT
+                // chính; không có token hoặc không tìm thấy user thì đơn giản là
+                // không set authentication, request sau đó do SecurityConfig xử lý.
+                User user = email != null
+                        ? userRepository.findByEmail(email.trim().toLowerCase()).orElse(null)
+                        : null;
+                if (user == null) {
+                    log.warn("JWT hợp lệ nhưng không tìm thấy user: {}", email);
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+                if (Boolean.FALSE.equals(user.getEnabled())) {
+                    log.warn("Từ chối token của tài khoản đã khóa: {}", email);
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+                List<String> dbRoles = user.getRoles();
+                List<String> roles = (dbRoles != null && !dbRoles.isEmpty())
+                        ? dbRoles
+                        : jwtTokenProvider.getRolesFromToken(jwt);
 
                 List<SimpleGrantedAuthority> authorities = roles != null
                         ? roles.stream().map(SimpleGrantedAuthority::new).collect(Collectors.toList())

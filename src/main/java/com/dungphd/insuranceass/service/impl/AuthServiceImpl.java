@@ -7,6 +7,7 @@ import com.dungphd.insuranceass.dto.request.VerifyOtpRequest;
 import com.dungphd.insuranceass.dto.response.AuthResponse;
 import com.dungphd.insuranceass.dto.response.UserProfileResponse;
 import com.dungphd.insuranceass.exception.BadRequestException;
+import com.dungphd.insuranceass.exception.ForbiddenException;
 import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.User;
 import com.dungphd.insuranceass.repository.UserRepository;
@@ -54,6 +55,7 @@ public class AuthServiceImpl implements AuthService {
             throw new BadRequestException("Mã OTP không chính xác hoặc đã hết hạn (300s). Vui lòng thử lại.");
         }
 
+        assertNotDisabled(email);
         User user = upsertUser(email, null, null);
         return buildAuthResponse(user);
     }
@@ -67,21 +69,36 @@ public class AuthServiceImpl implements AuthService {
             if (!devQuickSwitchEnabled) {
                 throw new BadRequestException("Dev quick-switch đã bị tắt. Vui lòng đăng nhập bằng OTP.");
             }
-            String roleUpper = request.getRole().trim().toUpperCase();
-            boolean isAdmin = roleUpper.contains("ADMIN");
+            // Allowlist khớp CHÍNH XÁC 5 role (PLAN §1.7): không dùng contains("ADMIN")
+            // nữa — chuỗi lạ chứa "ADMIN" không còn qua được.
+            String roleRaw = request.getRole().trim().toUpperCase();
+            String role = roleRaw.startsWith("ROLE_") ? roleRaw : "ROLE_" + roleRaw;
+            Set<String> allowedQuickSwitchRoles = Set.of(
+                    "ROLE_CUSTOMER", "ROLE_AGENT", "ROLE_UNDERWRITER", "ROLE_FINANCE", "ROLE_ADMIN");
+            if (!allowedQuickSwitchRoles.contains(role)) {
+                throw new BadRequestException("Role quick-switch không hợp lệ: " + request.getRole());
+            }
+            boolean isAdmin = "ROLE_ADMIN".equals(role);
 
             if (email == null || email.isBlank()) {
-                email = isAdmin ? "admin@insurtech.vn" : "user@insurtech.vn";
+                email = switch (role) {
+                    case "ROLE_ADMIN" -> "admin@insurtech.vn";
+                    case "ROLE_AGENT" -> "agent@insurtech.vn";
+                    case "ROLE_UNDERWRITER" -> "uw@insurtech.vn";
+                    case "ROLE_FINANCE" -> "finance@insurtech.vn";
+                    default -> "user@insurtech.vn";
+                };
             }
 
             List<String> explicitRoles = isAdmin
                     ? List.of("ROLE_ADMIN", "ROLE_USER")
-                    : List.of("ROLE_USER");
+                    : List.of(role);
 
             String fullName = request.getFullName() != null && !request.getFullName().isBlank()
                     ? request.getFullName()
                     : (isAdmin ? "Quản trị viên Hệ thống" : "Khách hàng Mẫu");
 
+            assertNotDisabled(email);
             User user = upsertUser(email, fullName, explicitRoles);
             return buildAuthResponse(user);
         }
@@ -100,15 +117,32 @@ public class AuthServiceImpl implements AuthService {
             throw new BadRequestException("OTP or Role must be provided for login");
         }
 
+        assertNotDisabled(email);
         User user = upsertUser(email, request.getFullName(), null);
         return buildAuthResponse(user);
     }
 
     @Override
     public AuthResponse loginWithOAuth2(String email, String fullName) {
-        // upsert với explicitRoles=null -> tự cấp ROLE_ADMIN nếu email nằm trong app.admin.emails
-        User user = upsertUser(email, fullName, null);
+        String normalized = email != null ? email.trim().toLowerCase() : null;
+        assertNotDisabled(normalized);
+        // upsert với explicitRoles=null -> chỉ cấp ROLE_ADMIN lúc TẠO MỚI nếu email
+        // nằm trong app.admin.emails (xem upsertUser); login sau không tự cộng lại.
+        User user = upsertUser(normalized, fullName, null);
         return buildAuthResponse(user);
+    }
+
+    /** Tài khoản bị khóa → 403 ở cả 3 login path (PLAN §1.7). */
+    private void assertNotDisabled(String email) {
+        if (email == null || email.isBlank()) {
+            return;
+        }
+        userRepository.findByEmail(email.trim().toLowerCase())
+                .ifPresent(existing -> {
+                    if (Boolean.FALSE.equals(existing.getEnabled())) {
+                        throw new ForbiddenException("Tài khoản này đã bị khóa. Vui lòng liên hệ quản trị viên.");
+                    }
+                });
     }
 
     @Override
@@ -150,10 +184,15 @@ public class AuthServiceImpl implements AuthService {
             if (user.getRoles() == null) {
                 user.setRoles(new ArrayList<>());
             }
-            // Update roles if needed
-            for (String r : assignedRoles) {
-                if (!user.getRoles().contains(r)) {
-                    user.getRoles().add(r);
+            // ADMIN_EMAILS chỉ gán lúc TẠO MỚI (PLAN §1.7): user đã tồn tại thì
+            // KHÔNG tự cộng role từ env nữa — quyết định gỡ role qua màn admin
+            // phải có hiệu lực thật. Chỉ explicitRoles (dev quick-switch) mới
+            // được cộng thêm vào user đã tồn tại.
+            if (explicitRoles != null && !explicitRoles.isEmpty()) {
+                for (String r : explicitRoles) {
+                    if (!user.getRoles().contains(r)) {
+                        user.getRoles().add(r);
+                    }
                 }
             }
             if (fullName != null && !fullName.isBlank()) {

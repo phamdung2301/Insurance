@@ -3,8 +3,14 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 
+/**
+ * Route guard tổng quát theo role (PLAN §1.4): roles là danh sách role được
+ * phép, so sánh qua hasRole() (chuẩn hóa prefix ROLE_). Không đủ role ->
+ * về trang chủ (quyết định nhất quán cho mọi route; không dùng trang 403
+ * riêng). FE chỉ là UX — BE mới là chốt chặn (403 thật từ API).
+ */
 export function ProtectedRoute({ children, roles }) {
-  const { isAuthenticated, isAdmin, loading } = useAuth();
+  const { isAuthenticated, hasAnyRole, loading } = useAuth();
   const location = useLocation();
   const toast = useToast();
 
@@ -19,8 +25,8 @@ export function ProtectedRoute({ children, roles }) {
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
-  if (roles?.includes('ROLE_ADMIN') && !isAdmin) {
-    toast.info('Khu vực này chỉ dành cho quản trị viên.');
+  if (roles && roles.length > 0 && !hasAnyRole(roles)) {
+    toast.info('Bạn không có quyền truy cập trang này.');
     return <Navigate to="/" replace />;
   }
   return children;

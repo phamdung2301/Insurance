@@ -23,6 +23,12 @@ public class PolicySearchCriteria {
     /** Lọc chính xác theo email người được bảo hiểm (dùng cho /policies/mine) */
     private String insuredEmail;
 
+    /** Lọc theo agent được giao (server ép theo role, PLAN §1.4) */
+    private String assignedAgentEmail;
+
+    /** true → chỉ trả policy có paymentClaimedAt != null (hàng đợi FINANCE, PLAN §1.6) */
+    private Boolean paymentClaimedOnly;
+
     @jakarta.validation.constraints.Size(max = 100, message = "Keyword must not exceed 100 characters")
     private String keyword;
 

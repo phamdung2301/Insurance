@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import {
   policyService, policyLocationService, policyCoverageService,
-  documentService, downloadBlob,
+  documentService, downloadBlob, negotiationService,
 } from '../services/api';
 import { isBackendMissing, BACKEND_TODO_HINT } from '../utils/backend';
 import { StatusBadge, LifecycleStepper } from '../components/Status';
@@ -40,7 +40,7 @@ export function PolicyDetailPage() {
   const { policyNumber } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { isAdmin } = useAuth();
+  const { user, hasRole, hasAnyRole } = useAuth();
 
   const [policy, setPolicy] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -101,9 +101,21 @@ export function PolicyDetailPage() {
     if (ok) setPayOpen(true);
   };
   const confirmPayment = async () => {
-    // "Tôi đã chuyển khoản" -> BOUND -> ACTIVE
-    const ok = await doTransition('ACTIVE', 'Thanh toán thành công. Hợp đồng đã có hiệu lực.');
-    if (ok) setPayOpen(false);
+    // PLAN §1.6: "Tôi đã chuyển khoản" chỉ ghi nhận đã báo trả (marker
+    // paymentClaimedAt / paymentStatus=CLAIMED), policy GIỮ BOUND và hiển thị
+    // "Đang chờ đối soát". Kích hoạt ACTIVE là bước riêng của FINANCE ở trang
+    // đối soát (ADMIN giữ nút override "Kích hoạt trực tiếp" bên dưới).
+    setBusy(true);
+    try {
+      await policyService.claimPayment(policyNumber);
+      toast.success('Đã ghi nhận khai báo chuyển khoản. Hợp đồng đang chờ kế toán đối soát trước khi kích hoạt.');
+      setPayOpen(false);
+      await load();
+    } catch (err) {
+      failToast(err, 'ghi nhận chuyển khoản');
+    } finally {
+      setBusy(false);
+    }
   };
   const adminActivate = async () => {
     if (!window.confirm('Kích hoạt trực tiếp hợp đồng này mà không qua thanh toán?')) return;
@@ -230,6 +242,13 @@ export function PolicyDetailPage() {
 
   const status = policy.status;
   const locations = safeList(policy.locations);
+  // PLAN §1.6: marker "đã báo trả" — BOUND + marker = đang chờ đối soát.
+  const isPaymentClaimed = policy.paymentStatus === 'CLAIMED' || policy.paymentClaimedAt != null;
+  // Ma trận PLAN §1.3 (FE chỉ ẩn/hiện cho UX, BE mới là chốt chặn):
+  // chuyển trạng thái / thanh toán / endorsement thuộc CUSTOMER (chủ), AGENT
+  // (được giao) và ADMIN; UNDERWRITER/FINANCE xem chi tiết ở chế độ đọc.
+  const canManage = hasAnyRole(['ROLE_CUSTOMER', 'ROLE_AGENT', 'ROLE_ADMIN']);
+  const isAdmin = hasRole('ROLE_ADMIN');
 
   return (
     <>
@@ -251,10 +270,21 @@ export function PolicyDetailPage() {
         <LifecycleStepper status={status} />
       </div>
 
-      {/* Action bar theo trạng thái */}
+      {/* Trạng thái chờ đối soát (PLAN §1.6): BOUND + đã báo trả, chưa ACTIVE */}
+      {status === 'BOUND' && isPaymentClaimed && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '0.8rem 1rem', marginBottom: '1.5rem', fontSize: '0.9rem', color: '#92400e' }}>
+          <strong>Đang chờ đối soát:</strong> bạn đã khai báo chuyển khoản
+          {policy.paymentClaimedAt ? ` lúc ${formatDateTime(policy.paymentClaimedAt)}` : ''}. Hợp đồng sẽ
+          được kích hoạt sau khi kế toán xác nhận đã nhận tiền.
+        </div>
+      )}
+
+      {/* Action bar theo trạng thái + vai trò */}
       <ActionBar
         status={status}
         isAdmin={isAdmin}
+        canManage={canManage}
+        isPaymentClaimed={isPaymentClaimed}
         busy={busy}
         onRequestQuote={requestQuote}
         onAcceptQuote={acceptQuote}
@@ -263,6 +293,11 @@ export function PolicyDetailPage() {
         onEndorse={() => setEndorseOpen(true)}
         onDelete={() => setDelPolicy(true)}
       />
+
+      {/* Panel thương lượng giá — CHỈ hiện khi QUOTED (PLAN §2.5) */}
+      {status === 'QUOTED' && (
+        <NegotiationPanel policy={policy} user={user} onPolicyReload={load} failToast={failToast} />
+      )}
 
       {/* Tabs */}
       <div className="tabs" role="tablist" aria-label="Chi tiết hợp đồng">
@@ -371,26 +406,254 @@ export function PolicyDetailPage() {
 }
 
 // ---------------------------------------------------------------- Action bar
-function ActionBar({ status, isAdmin, busy, onRequestQuote, onAcceptQuote, onPayNow, onAdminActivate, onEndorse, onDelete }) {
+// Nút bấm filter theo role VÀ status (PLAN §1.4/§1.3): FE chỉ ẩn/hiện cho UX,
+// BE vẫn check lại mọi transition. Nút xác nhận thu tiền của FINANCE KHÔNG ở
+// đây mà ở trang đối soát /admin/doi-soat.
+function ActionBar({ status, isAdmin, canManage, isPaymentClaimed, busy, onRequestQuote, onAcceptQuote, onPayNow, onAdminActivate, onEndorse, onDelete }) {
   const btn = (props, children) => (
     <button type="button" className="btn" disabled={busy} {...props}>{children}</button>
   );
   return (
     <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-      {status === 'DRAFT' && (
+      {status === 'DRAFT' && canManage && (
         <>
           {btn({ className: 'btn btn-primary', onClick: onRequestQuote }, <><Send size={16} /> Yêu cầu báo giá</>)}
           {btn({ className: 'btn btn-danger', onClick: onDelete }, <><Trash2 size={16} /> Xóa hợp đồng</>)}
         </>
       )}
-      {status === 'QUOTED' && btn({ className: 'btn btn-primary', onClick: onAcceptQuote }, <><Check size={16} /> Chấp nhận & thanh toán</>)}
+      {status === 'QUOTED' && canManage && btn({ className: 'btn btn-primary', onClick: onAcceptQuote }, <><Check size={16} /> Chấp nhận & thanh toán</>)}
       {status === 'BOUND' && (
         <>
-          {btn({ className: 'btn btn-primary', onClick: onPayNow }, <><CreditCard size={16} /> Thanh toán ngay</>)}
+          {canManage && !isPaymentClaimed && btn({ className: 'btn btn-primary', onClick: onPayNow }, <><CreditCard size={16} /> Thanh toán ngay</>)}
           {isAdmin && btn({ className: 'btn btn-secondary', onClick: onAdminActivate }, <><Zap size={16} /> Kích hoạt trực tiếp</>)}
         </>
       )}
-      {status === 'ACTIVE' && btn({ className: 'btn btn-secondary', onClick: onEndorse }, <><SlidersHorizontal size={16} /> Yêu cầu điều chỉnh</>)}
+      {status === 'ACTIVE' && canManage && btn({ className: 'btn btn-secondary', onClick: onEndorse }, <><SlidersHorizontal size={16} /> Yêu cầu điều chỉnh</>)}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Negotiation
+// Panel "Thương lượng giá" (PLAN §2): chỉ render khi policy = QUOTED (guard ở
+// component cha). Lượt đi tính theo PHE, không theo người: phe cầu = chủ
+// policy (insured.email) hoặc đại lý được giao (assignedAgentEmail); phe cung
+// = UNDERWRITER. ADMIN chỉ xem (PLAN §2.1: ADMIN bị từ chối mọi write dù là
+// chủ policy). Accept/reject KHÔNG append offer — chỉ flip status negotiation.
+// Mọi nút chỉ là UX, BE check lại lượt đi / trạng thái / giá.
+const NEG_STATUS_LABEL = {
+  OPEN: 'Đang thương lượng', ACCEPTED: 'Đã chốt giá', REJECTED: 'Đã từ chối', SUPERSEDED: 'Đã thay thế',
+};
+
+function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
+  const toast = useToast();
+  const { hasRole } = useAuth();
+  const [negotiations, setNegotiations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
+  const [premium, setPremium] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const loadNeg = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await negotiationService.list(policy.policyNumber);
+      const d = res?.data;
+      const list = Array.isArray(d) ? d : d?.items ?? d?.negotiations ?? [];
+      setNegotiations(list);
+      setUnavailable(false);
+    } catch (err) {
+      if (isBackendMissing(err)) setUnavailable(true);
+      else toast.error(err.message || 'Không tải được lịch sử thương lượng.');
+    } finally {
+      setLoading(false);
+    }
+  }, [policy.policyNumber, toast]);
+
+  useEffect(() => { loadNeg(); }, [loadNeg]);
+
+  const me = String(user?.email || '').toLowerCase();
+  const isDemand = me && (
+    me === String(policy.insured?.email || '').toLowerCase() ||
+    (policy.assignedAgentEmail && me === String(policy.assignedAgentEmail).toLowerCase())
+  );
+  const isSupply = hasRole('ROLE_UNDERWRITER');
+  const isAdminView = hasRole('ROLE_ADMIN');
+  // ADMIN chỉ xem kể cả khi mang thêm role khác (PLAN §2.1).
+  const canWrite = !isAdminView && (isDemand || isSupply);
+
+  // GET trả list mới nhất trước (contract) — phần tử đầu là negotiation mới nhất.
+  const openNeg = negotiations.find((n) => n.status === 'OPEN');
+  const latest = negotiations[0] || null;
+  const shown = openNeg || latest;
+  const offers = safeList(shown?.offers);
+  // Offer cuối = round lớn nhất (timeline hiển thị theo round tăng dần).
+  const sortedOffers = [...offers].sort((a, b) => (a.round ?? 0) - (b.round ?? 0));
+  const lastOffer = sortedOffers[sortedOffers.length - 1];
+  // BE trả currentOffer dạng object PriceOffer (PLAN §2.2 "trỏ vào offers cuối"),
+  // không phải số — lấy số từ proposedPremium, fallback offer round lớn nhất.
+  const currentPrice = shown?.currentOffer?.proposedPremium ?? lastOffer?.proposedPremium ?? null;
+  // Lượt đi: offer cuối của phe cung -> tới lượt phe cầu, và ngược lại.
+  const demandTurn = !lastOffer || lastOffer.proposedByRole === 'UNDERWRITER';
+  const myTurn = openNeg && canWrite && ((isDemand && demandTurn) || (isSupply && !demandTurn));
+  const canOpen = !openNeg && !(latest && latest.status === 'ACCEPTED') && isDemand && !isAdminView;
+  const listPremium = shown?.listPremium ?? policy.totalPremium;
+
+  const submit = async (kind) => {
+    const value = Number(premium);
+    if (!Number.isFinite(value) || value <= 0) {
+      toast.error('Giá đề xuất phải lớn hơn 0.');
+      return;
+    }
+    if (listPremium != null && value > Number(listPremium)) {
+      toast.error(`Giá đề xuất không được vượt giá hệ thống (${formatMoney(listPremium)}).`);
+      return;
+    }
+    setBusy(true);
+    try {
+      if (kind === 'open') {
+        await negotiationService.open(policy.policyNumber, { proposedPremium: value, message: message.trim() || undefined });
+        toast.success('Đã gửi đề xuất giá.');
+      } else if (kind === 'counter') {
+        await negotiationService.addOffer(policy.policyNumber, openNeg.id, { proposedPremium: value, message: message.trim() || undefined });
+        toast.success('Đã gửi phản hồi giá.');
+      } else if (kind === 'accept') {
+        await negotiationService.accept(policy.policyNumber, openNeg.id);
+        toast.success('Đã chấp nhận giá. Hợp đồng vẫn ở QUOTED — bấm "Chấp nhận & thanh toán" để sang BOUND.');
+        await onPolicyReload();
+      } else if (kind === 'reject') {
+        await negotiationService.reject(policy.policyNumber, openNeg.id);
+        toast.success('Đã từ chối mức giá này. Hợp đồng giữ nguyên giá hệ thống.');
+        await onPolicyReload();
+      }
+      setPremium('');
+      setMessage('');
+      await loadNeg();
+    } catch (err) {
+      failToast(err, 'thương lượng giá');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) return (<div className="glass-card" style={{ marginBottom: '1.5rem' }}><Skeleton height={120} /></div>);
+  if (unavailable) return null;
+
+  return (
+    <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
+      <h3 style={{ marginBottom: '1rem' }}>Thương lượng giá</h3>
+
+      {shown ? (
+        <>
+          <dl className="kv" style={{ marginBottom: '1rem' }}>
+            <dt>Giá hệ thống</dt><dd><strong>{formatMoney(shown.listPremium)}</strong></dd>
+            <dt>Giá hiện tại</dt><dd><strong style={{ color: '#1663d9' }}>{formatMoney(currentPrice)}</strong></dd>
+            {shown.acceptedPremium != null && (<><dt>Giá đã chốt</dt><dd><strong style={{ color: '#047857' }}>{formatMoney(shown.acceptedPremium)}</strong></dd></>)}
+            <dt>Trạng thái</dt><dd><span className="badge badge-info">{NEG_STATUS_LABEL[shown.status] || shown.status}</span></dd>
+            <dt>Mở bởi</dt><dd>{shown.openedBy || '—'} — {formatDateTime(shown.openedAt)}</dd>
+            {shown.closedBy && (<><dt>Đóng bởi</dt><dd>{shown.closedBy} — {formatDateTime(shown.closedAt)}</dd></>)}
+          </dl>
+
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>Lịch sử đề xuất</div>
+            {sortedOffers.length === 0 ? (
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Chưa có đề xuất nào.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {sortedOffers.map((o, i) => (
+                  <div key={o.round ?? i} style={{ display: 'flex', gap: '0.75rem', padding: '0.6rem 0.8rem', border: '1px solid var(--border-subtle)', borderRadius: '10px' }}>
+                    <span className="badge badge-info" style={{ height: 'fit-content' }}>Vòng {o.round ?? i + 1}</span>
+                    <div style={{ flex: 1 }}>
+                      <div><strong style={{ color: '#1663d9' }}>{formatMoney(o.proposedPremium)}</strong>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}> — {o.proposedByEmail} ({o.proposedByRole})</span>
+                      </div>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                        {formatDateTime(o.createdAt)} · {o.decision === 'COUNTERED' ? 'Phản hồi giá' : 'Đề xuất'}
+                        {o.message ? ` · “${o.message}”` : ''}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {negotiations.length > 1 && (
+            <div style={{ marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Các phiên thương lượng trước:{' '}
+              {negotiations.slice(1).map((n) => `${NEG_STATUS_LABEL[n.status] || n.status} (${formatMoney(n.currentOffer?.proposedPremium)})`).join(' · ')}
+            </div>
+          )}
+        </>
+      ) : (
+        <p style={{ color: 'var(--text-secondary)' }}>
+          Chưa có phiên thương lượng nào cho hợp đồng này. Giá hệ thống hiện tại là{' '}
+          <strong style={{ color: '#1663d9' }}>{formatMoney(policy.totalPremium)}</strong>.
+        </p>
+      )}
+
+      {isAdminView && (
+        <p className="form-hint">Bạn đang xem với quyền quản trị — ADMIN chỉ xem thương lượng, không đề xuất/chấp nhận/từ chối.</p>
+      )}
+      {openNeg && !myTurn && canWrite && (
+        <p className="form-hint">
+          {demandTurn ? 'Đang tới lượt khách hàng / đại lý phản hồi.' : 'Đang tới lượt chuyên viên thẩm định phản hồi.'}
+          {' '}Bạn sẽ thao tác được khi tới lượt phe của mình.
+        </p>
+      )}
+      {latest && latest.status === 'ACCEPTED' && !openNeg && (
+        <p className="form-hint">
+          Giá đã chốt ở mức {formatMoney(latest.acceptedPremium)} và hợp đồng vẫn ở QUOTED.
+          Không mở được phiên mới cho tới khi hợp đồng rời QUOTED (thanh toán hoặc hủy).
+        </p>
+      )}
+
+      {(canOpen || myTurn) && (
+        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem', marginTop: '0.5rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label" htmlFor="neg-premium">
+                {canOpen ? 'Giá bạn đề xuất (VND) *' : 'Giá phản hồi (VND) *'}
+              </label>
+              <input
+                id="neg-premium" type="number" min="1" max={listPremium ?? undefined} className="form-control"
+                value={premium} onChange={(e) => setPremium(e.target.value)}
+                placeholder={`Tối đa ${formatMoney(listPremium)}`}
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label" htmlFor="neg-msg">Lý do / ghi chú</label>
+              <input
+                id="neg-msg" className="form-control" value={message}
+                onChange={(e) => setMessage(e.target.value)} placeholder="Không bắt buộc"
+              />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem', flexWrap: 'wrap' }}>
+            {canOpen && (
+              <button type="button" className="btn btn-primary" disabled={busy || !premium} onClick={() => submit('open')}>
+                {busy ? <span className="spinner" /> : null} Gửi đề xuất
+              </button>
+            )}
+            {myTurn && (
+              <>
+                <button type="button" className="btn btn-primary" disabled={busy || !premium} onClick={() => submit('counter')}>
+                  {busy ? <span className="spinner" /> : null} Gửi phản hồi giá
+                </button>
+                <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => submit('accept')}>
+                  Chấp nhận mức giá hiện tại
+                </button>
+                <button type="button" className="btn btn-danger" disabled={busy} onClick={() => submit('reject')}>
+                  Từ chối
+                </button>
+              </>
+            )}
+          </div>
+          <p className="form-hint" style={{ marginTop: '0.75rem' }}>
+            Giá đề xuất phải lớn hơn 0 và không vượt giá hệ thống. Lịch sử các mức giá cũ không bị ghi đè.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -409,6 +672,8 @@ function OverviewTab({ policy, locations }) {
           <dt>Điện thoại</dt><dd>{ins.phone || '—'}</dd>
           <dt>Địa chỉ</dt><dd>{ins.address || '—'}</dd>
           <dt>Loại khách hàng</dt><dd>{ins.type === 'DOANH_NGHIEP' ? 'Doanh nghiệp' : 'Cá nhân'}</dd>
+          {policy.assignedAgentEmail && (<><dt>Đại lý phụ trách</dt><dd>{policy.assignedAgentEmail}</dd></>)}
+          {policy.paymentStatus && (<><dt>Thanh toán</dt><dd>{policy.paymentStatus === 'CLAIMED' ? 'Đã khai báo — chờ đối soát' : policy.paymentStatus === 'CONFIRMED' ? 'Đã xác nhận thu tiền' : 'Chưa khai báo'}</dd></>)}
         </dl>
       </div>
       <div className="glass-card">
@@ -429,6 +694,7 @@ function OverviewTab({ policy, locations }) {
               <dd>{formatMoney(locPremium(l))}</dd>
             </React.Fragment>
           ))}
+          {policy.negotiatedPremium != null && (<><dt>Giá đã thương lượng</dt><dd><strong style={{ color: '#047857' }}>{formatMoney(policy.negotiatedPremium)}</strong></dd></>)}
           <dt style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '0.6rem' }}><strong>Tổng cộng</strong></dt>
           <dd style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '0.6rem' }}>
             <strong style={{ color: '#1663d9' }}>{formatMoney(policy.totalPremium)}</strong>

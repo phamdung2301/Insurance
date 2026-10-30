@@ -29,10 +29,9 @@ public class UserController {
      */
     @GetMapping("/profile")
     public ResponseEntity<ApiResponse<UserProfileResponse>> getProfile(
-            Principal principal,
-            @RequestParam(value = "email", required = false) String paramEmail
+            Principal principal
     ) {
-        String email = resolveEmail(principal, paramEmail);
+        String email = resolveEmail(principal);
         UserProfileResponse profile = userService.getProfile(email);
         return ResponseEntity.ok(ApiResponse.success(profile, "Profile retrieved successfully"));
     }
@@ -44,10 +43,9 @@ public class UserController {
     @PutMapping("/profile")
     public ResponseEntity<ApiResponse<UserProfileResponse>> updateProfile(
             @Valid @RequestBody UpdateProfileRequest request,
-            Principal principal,
-            @RequestParam(value = "email", required = false) String paramEmail
+            Principal principal
     ) {
-        String email = resolveEmail(principal, paramEmail);
+        String email = resolveEmail(principal);
         UserProfileResponse updatedProfile = userService.updateProfile(email, request);
         return ResponseEntity.ok(ApiResponse.success(updatedProfile, "Profile updated successfully"));
     }
@@ -59,10 +57,9 @@ public class UserController {
     @PostMapping("/change-password")
     public ResponseEntity<ApiResponse<Void>> changePassword(
             @Valid @RequestBody ChangePasswordRequest request,
-            Principal principal,
-            @RequestParam(value = "email", required = false) String paramEmail
+            Principal principal
     ) {
-        String email = resolveEmail(principal, paramEmail);
+        String email = resolveEmail(principal);
         userService.changePassword(email, request);
         return ResponseEntity.ok(ApiResponse.success(null, "Password changed successfully"));
     }
@@ -74,18 +71,21 @@ public class UserController {
      */
     @GetMapping({"/activity", "/transactions"})
     public ResponseEntity<ApiResponse<List<PolicyTransaction>>> getUserActivity(
-            Principal principal,
-            @RequestParam(value = "email", required = false) String paramEmail
+            Principal principal
     ) {
-        String email = resolveEmail(principal, paramEmail);
+        String email = resolveEmail(principal);
         List<PolicyTransaction> transactions = userService.getUserTransactions(email);
         return ResponseEntity.ok(ApiResponse.success(transactions, "User activity retrieved successfully"));
     }
 
-    private String resolveEmail(Principal principal, String paramEmail) {
+    /**
+     * Chỉ lấy email từ JWT/Principal. Bỏ fallback ?email= (PLAN §1.5):
+     * không có principal hợp lệ thì 401, không dùng email client gửi lên.
+     */
+    private String resolveEmail(Principal principal) {
         if (principal != null && principal.getName() != null && !principal.getName().isBlank() && !"anonymousUser".equalsIgnoreCase(principal.getName())) {
             return principal.getName();
         }
-        return paramEmail;
+        throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Yêu cầu đăng nhập");
     }
 }

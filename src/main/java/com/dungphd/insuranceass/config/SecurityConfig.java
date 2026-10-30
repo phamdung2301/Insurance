@@ -52,7 +52,6 @@ public class SecurityConfig {
         config.setAllowedHeaders(List.of(
                 "Authorization",
                 "Content-Type",
-                "X-User-Email",
                 "X-Requested-With",
                 "Accept",
                 "Origin",
@@ -111,17 +110,21 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/user/**", "/api/user/**").authenticated()
+                        // Thứ tự quan trọng (match đầu tiên thắng): /excel trước /admin
+                        // vì UNDERWRITER được vào excel nhưng không được vào /admin/**.
+                        .requestMatchers("/excel/**", "/api/excel/**").hasAnyRole("ADMIN", "UNDERWRITER")
+                        .requestMatchers("/admin/**", "/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/benchmark/**", "/api/benchmark/**").hasRole("ADMIN")
                         .requestMatchers("/reports/**", "/api/reports/**").hasRole("ADMIN")
-                        .requestMatchers("/admin/**", "/api/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/excel/**", "/api/excel/**").hasRole("ADMIN")
                         // Khóa các endpoint nghiệp vụ: yêu cầu đăng nhập (đóng lỗ hổng 28 endpoints public)
                         // Frontend mọi trang đều qua ProtectedRoute nên không gãy luồng nào
                         .requestMatchers("/policies/**", "/api/policies/**").authenticated()
                         .requestMatchers("/endorsements", "/api/endorsements").authenticated()
                         .requestMatchers("/history", "/api/history").authenticated()
                         .requestMatchers("/versions/**", "/api/versions/**").authenticated()
-                        .anyRequest().permitAll()
+                        // Fallback cuối: authenticated thay vì permitAll (PLAN §1.4) —
+                        // path mới quên khai báo sẽ không public mặc định.
+                        .anyRequest().authenticated()
                 )
                 .addFilterBefore(rateLimitingFilter, org.springframework.security.web.authentication.logout.LogoutFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

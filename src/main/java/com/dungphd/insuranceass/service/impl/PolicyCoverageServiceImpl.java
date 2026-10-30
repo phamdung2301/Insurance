@@ -31,9 +31,16 @@ public class PolicyCoverageServiceImpl implements PolicyCoverageService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.dungphd.insuranceass.service.TransactionLedgerService transactionLedgerService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.dungphd.insuranceass.service.PermissionService permissionService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.dungphd.insuranceass.repository.PriceNegotiationRepository negotiationRepository;
+
     @Override
     public List<Coverage> getCoverages(String policyIdOrNumber, String locationId) {
         Policy policy = findPolicy(policyIdOrNumber);
+        checkRead(policy);
         Location location = findLocationInPolicy(policy, locationId);
         return location.getCoverages() != null ? location.getCoverages() : Collections.emptyList();
     }
@@ -41,6 +48,7 @@ public class PolicyCoverageServiceImpl implements PolicyCoverageService {
     @Override
     public Coverage getCoverageByCode(String policyIdOrNumber, String locationId, String coverageCode) {
         Policy policy = findPolicy(policyIdOrNumber);
+        checkRead(policy);
         Location location = findLocationInPolicy(policy, locationId);
         return findCoverageInLocation(location, coverageCode);
     }
@@ -223,8 +231,28 @@ public class PolicyCoverageServiceImpl implements PolicyCoverageService {
     }
 
     private void validatePolicyModifiable(Policy policy) {
-        if (policy.getStatus() == PolicyStatus.CANCELLED || policy.getStatus() == PolicyStatus.EXPIRED) {
-            throw new BadRequestException("Cannot modify coverages on a " + policy.getStatus() + " policy");
+        // Siết về DRAFT/QUOTED/BOUND (PLAN §1.4): ACTIVE phải đi endorsement.
+        if (policy.getStatus() != PolicyStatus.DRAFT && policy.getStatus() != PolicyStatus.QUOTED
+                && policy.getStatus() != PolicyStatus.BOUND) {
+            throw new BadRequestException("Không thể sửa gói bảo hiểm khi hợp đồng ở trạng thái " + policy.getStatus()
+                    + ". Vui lòng dùng endorsement để thay đổi hợp đồng đã có hiệu lực.");
+        }
+        checkWrite(policy);
+        if (negotiationRepository != null && policy.getStatus() == PolicyStatus.QUOTED
+                && negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), com.dungphd.insuranceass.model.NegotiationStatus.ACCEPTED)) {
+            throw new BadRequestException("Giá hợp đồng đã chốt qua thương lượng, không được sửa đổi phí khi còn ở trạng thái QUOTED.");
+        }
+    }
+
+    private void checkRead(Policy policy) {
+        if (permissionService != null) {
+            permissionService.checkPolicyRead(policy);
+        }
+    }
+
+    private void checkWrite(Policy policy) {
+        if (permissionService != null) {
+            permissionService.checkPolicyWrite(policy);
         }
     }
 }

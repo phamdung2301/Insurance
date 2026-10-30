@@ -21,6 +21,10 @@ import { AdminPolicyListPage } from './pages/AdminPolicyListPage';
 import { ExcelToolsPage } from './pages/ExcelToolsPage';
 import { BenchmarkPage } from './pages/BenchmarkPage';
 import { IndexAuditPage } from './pages/IndexAuditPage';
+import { ReportsPage } from './pages/ReportsPage';
+import { AdminUserPage } from './pages/AdminUserPage';
+import { FinanceQueuePage } from './pages/FinanceQueuePage';
+import { AgentCustomerPage } from './pages/AgentCustomerPage';
 
 const TITLES = {
   '/': 'Hợp đồng của tôi',
@@ -30,7 +34,12 @@ const TITLES = {
   '/admin': 'Tổng quan quản trị',
   '/admin/hop-dong': 'Quản lý hợp đồng',
   '/admin/excel': 'Bảng giá Excel',
+  '/admin/doi-soat': 'Đối soát thanh toán',
+  '/admin/users': 'Quản lý người dùng',
   '/admin/benchmark': 'Kiểm thử hiệu năng',
+  '/admin/index-audit': 'Kiểm tra index DB',
+  '/admin/reports': 'Báo cáo',
+  '/agent/khach-hang': 'Khách hàng của tôi',
 };
 
 function Shell({ title, children }) {
@@ -46,25 +55,14 @@ function Shell({ title, children }) {
   );
 }
 
-const page = (path, el) => (
+// Route có phân quyền theo bảng PLAN §1.4 — roles rỗng = chỉ cần đăng nhập
+// (scope dữ liệu do BE enforce). Không còn bọc adminPage() blanket.
+const page = (path, el, roles) => (
   <Route
     path={path}
     element={
-      <ProtectedRoute>
+      <ProtectedRoute roles={roles}>
         <Shell title={path.startsWith('/hop-dong/') ? 'Chi tiết hợp đồng' : TITLES[path] || ''}>
-          <div className="page-wrapper"><PageShell>{withErrorBoundary(el, TITLES[path] || path)}</PageShell></div>
-        </Shell>
-      </ProtectedRoute>
-    }
-  />
-);
-
-const adminPage = (path, el) => (
-  <Route
-    path={path}
-    element={
-      <ProtectedRoute roles={['ROLE_ADMIN']}>
-        <Shell title={TITLES[path] || ''}>
           <div className="page-wrapper"><PageShell>{withErrorBoundary(el, TITLES[path] || path)}</PageShell></div>
         </Shell>
       </ProtectedRoute>
@@ -84,11 +82,15 @@ function AnimatedRoutes() {
         {page('/hop-dong/:policyNumber', <PolicyDetailPage />)}
         {page('/ho-so', <ProfilePage />)}
         {page('/doi-mat-khau', <ChangePasswordPage />)}
-        {adminPage('/admin', <AdminDashboardPage />)}
-        {adminPage('/admin/hop-dong', <AdminPolicyListPage />)}
-        {adminPage('/admin/excel', <ExcelToolsPage />)}
-        {adminPage('/admin/benchmark', <BenchmarkPage />)}
-        {adminPage('/admin/index-audit', <IndexAuditPage />)}
+        {page('/admin', <AdminDashboardPage />, ['ROLE_ADMIN'])}
+        {page('/admin/hop-dong', <AdminPolicyListPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER', 'ROLE_FINANCE'])}
+        {page('/admin/excel', <ExcelToolsPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER'])}
+        {page('/admin/doi-soat', <FinanceQueuePage />, ['ROLE_FINANCE', 'ROLE_ADMIN'])}
+        {page('/admin/users', <AdminUserPage />, ['ROLE_ADMIN'])}
+        {page('/admin/benchmark', <BenchmarkPage />, ['ROLE_ADMIN'])}
+        {page('/admin/index-audit', <IndexAuditPage />, ['ROLE_ADMIN'])}
+        {page('/admin/reports', <ReportsPage />, ['ROLE_ADMIN'])}
+        {page('/agent/khach-hang', <AgentCustomerPage />, ['ROLE_AGENT', 'ROLE_ADMIN'])}
         {import.meta.env.DEV && (
           <Route path="/dev/api-tester" element={<DevTester />} />
         )}

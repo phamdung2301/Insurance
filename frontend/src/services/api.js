@@ -82,6 +82,15 @@ export const policyService = {
   /** Chuyển trạng thái vòng đời — backend: POST /policies/{n}/status-transitions */
   transition: (policyNumber, toStatus, extra = {}) =>
     api.post(`/policies/${encodeURIComponent(policyNumber)}/status-transitions`, { targetStatus: toStatus, ...extra }),
+  /**
+   * Khai báo đã chuyển khoản (PLAN §1.6): chỉ set paymentClaimedAt, policy GIỮ
+   * BOUND, chờ FINANCE đối soát rồi mới BOUND→ACTIVE. KHÔNG tự chuyển ACTIVE.
+   * LƯU Ý CHO BE: endpoint này chưa có trong contract brief của FE — FE đang
+   * dùng POST /policies/{n}/payment-claim; nếu BE chọn tên khác, đổi đúng 1
+   * dòng này trong api.js (xem báo cáo FE gửi coordinator).
+   */
+  claimPayment: (policyNumber) =>
+    api.post(`/policies/${encodeURIComponent(policyNumber)}/payment-claim`),
   /** Yêu cầu điều chỉnh (endorsement) — backend: POST /policies/{n}/endorsements */
   endorse: (policyNumber, payload) => api.post(`/policies/${encodeURIComponent(policyNumber)}/endorsements`, payload),
   getHistory: (policyNumber) => api.get(`/policies/${encodeURIComponent(policyNumber)}/history`),
@@ -158,6 +167,43 @@ export const documentService = {
       params: version ? { version } : {},
       responseType: 'blob',
     }),
+};
+
+// ---------------------------------------------------------------- Admin users & audit (RBAC, PLAN §1.2/§1.4)
+// Quy ước repo: dùng path trần (/admin/...) như /admin/indexes hiện có — BE
+// map dual ("/admin/...", "/api/admin/...") nên FE không cần prefix /api.
+export const adminUserService = {
+  /** GET /admin/users -> list {id, email, fullName, roles[], enabled, createdAt} */
+  listUsers: () => api.get('/admin/users'),
+  /** POST /admin/users {email, password, fullName, roles[]} */
+  createUser: (data) => api.post('/admin/users', data),
+  /** PUT /admin/users/{id}/roles {roles: [...]} */
+  updateRoles: (userId, roles) =>
+    api.put(`/admin/users/${encodeURIComponent(userId)}/roles`, { roles }),
+  /** PUT /admin/users/{id}/enabled {enabled} */
+  setEnabled: (userId, enabled) =>
+    api.put(`/admin/users/${encodeURIComponent(userId)}/enabled`, { enabled }),
+  /** GET /admin/audit-logs -> list {id, actorEmail, targetEmail, action, rolesBefore[], rolesAfter[], createdAt} */
+  listAuditLogs: () => api.get('/admin/audit-logs'),
+};
+
+// ---------------------------------------------------------------- Price negotiations (PLAN §2.4)
+export const negotiationService = {
+  /** POST /policies/{n}/negotiations {proposedPremium, message?} -> 201, OPEN, round 1 */
+  open: (policyNumber, data) =>
+    api.post(`/policies/${encodeURIComponent(policyNumber)}/negotiations`, data),
+  /** GET /policies/{n}/negotiations -> list mới nhất trước, kèm offers đầy đủ */
+  list: (policyNumber) =>
+    api.get(`/policies/${encodeURIComponent(policyNumber)}/negotiations`),
+  /** POST /policies/{n}/negotiations/{id}/offers {proposedPremium, message?} */
+  addOffer: (policyNumber, negotiationId, data) =>
+    api.post(`/policies/${encodeURIComponent(policyNumber)}/negotiations/${encodeURIComponent(negotiationId)}/offers`, data),
+  /** POST /policies/{n}/negotiations/{id}/accept (không body) */
+  accept: (policyNumber, negotiationId) =>
+    api.post(`/policies/${encodeURIComponent(policyNumber)}/negotiations/${encodeURIComponent(negotiationId)}/accept`),
+  /** POST /policies/{n}/negotiations/{id}/reject (không body) */
+  reject: (policyNumber, negotiationId) =>
+    api.post(`/policies/${encodeURIComponent(policyNumber)}/negotiations/${encodeURIComponent(negotiationId)}/reject`),
 };
 
 // ---------------------------------------------------------------- Index audit (admin)

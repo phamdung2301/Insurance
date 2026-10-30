@@ -100,7 +100,8 @@ export function PaymentModal({ open, onClose, policy, onConfirmed }) {
       </div>
       <p className="form-hint" style={{ marginTop: '0.75rem' }}>
         Vui lòng ghi đúng nội dung chuyển khoản là <strong style={{ color: 'var(--text-primary)' }}>{reference}</strong> để
-        hệ thống đối soát tự động. Sau khi chuyển khoản, bấm “Tôi đã chuyển khoản” để kích hoạt hợp đồng.
+        hệ thống đối soát tự động. Sau khi chuyển khoản, bấm “Tôi đã chuyển khoản” để báo đã thanh toán —
+        hợp đồng giữ trạng thái BOUND và chờ kế toán đối soát trước khi kích hoạt.
       </p>
     </Modal>
   );

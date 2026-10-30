@@ -31,11 +31,18 @@ public class EndorsementServiceImpl implements EndorsementService {
     private final TransactionLedgerService transactionLedgerService;
     private final PremiumCalculationService premiumCalculationService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.dungphd.insuranceass.service.PermissionService permissionService;
+
     @Override
     public PolicyResponse applyEndorsement(String policyNumber, EndorsementRequest request, String actor) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
                 .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
+
+        if (permissionService != null) {
+            permissionService.checkPolicyWrite(policy);
+        }
 
         if (policy.getStatus() != PolicyStatus.ACTIVE) {
             throw new BadRequestException("Endorsement can only be applied to ACTIVE policies. Current status is " + policy.getStatus());
@@ -104,6 +111,10 @@ public class EndorsementServiceImpl implements EndorsementService {
                 .or(() -> policyRepository.findById(policyNumber))
                 .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
 
+        if (permissionService != null) {
+            permissionService.checkPolicyRead(policy);
+        }
+
         return policyVersionRepository.findByPolicyNumberOrderByVersionDesc(policy.getPolicyNumber());
     }
 
@@ -112,6 +123,10 @@ public class EndorsementServiceImpl implements EndorsementService {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
                 .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
+
+        if (permissionService != null) {
+            permissionService.checkPolicyRead(policy);
+        }
 
         return policyVersionRepository.findByPolicyNumberAndVersion(policy.getPolicyNumber(), version)
                 .orElseThrow(() -> new ResourceNotFoundException("Version snapshot " + version + " not found for policy " + policy.getPolicyNumber()));
@@ -122,6 +137,10 @@ public class EndorsementServiceImpl implements EndorsementService {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
                 .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
+
+        if (permissionService != null) {
+            permissionService.checkPolicyRead(policy);
+        }
 
         Policy snap1 = resolvePolicyForVersion(policy, v1);
         Policy snap2 = resolvePolicyForVersion(policy, v2);
@@ -217,6 +236,10 @@ public class EndorsementServiceImpl implements EndorsementService {
                 .insured(clonedInsured)
                 .locations(clonedLocations)
                 .totalPremium(origin.getTotalPremium())
+                .assignedAgentEmail(origin.getAssignedAgentEmail())
+                .negotiatedPremium(origin.getNegotiatedPremium())
+                .paymentClaimedAt(origin.getPaymentClaimedAt())
+                .paymentStatus(origin.getPaymentStatus())
                 .effectiveDate(origin.getEffectiveDate())
                 .expirationDate(origin.getExpirationDate())
                 .boundDate(origin.getBoundDate())
@@ -275,6 +298,10 @@ public class EndorsementServiceImpl implements EndorsementService {
                         .map(LocationDto::fromEntity)
                         .collect(Collectors.toList()) : new ArrayList<>())
                 .totalPremium(policy.getTotalPremium())
+                .assignedAgentEmail(policy.getAssignedAgentEmail())
+                .negotiatedPremium(policy.getNegotiatedPremium())
+                .paymentClaimedAt(policy.getPaymentClaimedAt())
+                .paymentStatus(policy.getPaymentStatus())
                 .effectiveDate(policy.getEffectiveDate())
                 .expirationDate(policy.getExpirationDate())
                 .boundDate(policy.getBoundDate())

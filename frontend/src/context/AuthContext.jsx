@@ -4,6 +4,54 @@ import { authService, userService, extractAuth } from '../services/api';
 
 const AuthContext = createContext(null);
 
+/**
+ * Chuẩn hóa 1 role về dạng có prefix ROLE_ (chấp nhận cả "AGENT" lẫn
+ * "ROLE_AGENT", không phân biệt hoa/thường, trim khoảng trắng).
+ */
+export function normalizeRole(role) {
+  const u = String(role ?? '').trim().toUpperCase();
+  if (!u) return '';
+  return u.startsWith('ROLE_') ? u : `ROLE_${u}`;
+}
+
+/**
+ * Tập role hiệu lực của user. PLAN §1.1: ROLE_USER cũ tương đương
+ * ROLE_CUSTOMER ở mọi chỗ check quyền — mở rộng cả 2 chiều để hasRole
+ * không phụ thuộc vào việc BE trả chuỗi nào.
+ */
+export function effectiveRoles(roles) {
+  const set = new Set((Array.isArray(roles) ? roles : []).map(normalizeRole).filter(Boolean));
+  if (set.has('ROLE_USER')) set.add('ROLE_CUSTOMER');
+  if (set.has('ROLE_CUSTOMER')) set.add('ROLE_USER');
+  return set;
+}
+
+export function hasRoleIn(roles, role) {
+  return effectiveRoles(roles).has(normalizeRole(role));
+}
+
+/** Fallback: đọc roles từ claim "roles" trong JWT khi profile chưa có roles. */
+export function rolesFromToken(token) {
+  try {
+    const payload = String(token || '').split('.')[1];
+    if (!payload) return [];
+    const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    const roles = json?.roles;
+    return Array.isArray(roles) ? roles : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Gắn roles từ JWT vào user nếu user chưa có roles (profile là nguồn chính). */
+function enrichUser(usr, token) {
+  if (!usr) return usr;
+  if (Array.isArray(usr.roles) && usr.roles.length > 0) return usr;
+  const fromToken = rolesFromToken(token);
+  if (fromToken.length > 0) return { ...usr, roles: fromToken };
+  return usr;
+}
+
 export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
   const [token, setToken] = useState(() => localStorage.getItem('itoken') || '');
@@ -16,10 +64,11 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   const persist = (tok, usr) => {
+    const enriched = enrichUser(usr, tok);
     setToken(tok || '');
-    setUser(usr || null);
+    setUser(enriched || null);
     if (tok) localStorage.setItem('itoken', tok); else localStorage.removeItem('itoken');
-    if (usr) localStorage.setItem('iuser', JSON.stringify(usr)); else localStorage.removeItem('iuser');
+    if (enriched) localStorage.setItem('iuser', JSON.stringify(enriched)); else localStorage.removeItem('iuser');
   };
 
   const logout = useCallback(() => {
@@ -60,7 +109,7 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithToken = useCallback((tok, usr) => {
     persist(tok, usr);
-    navigate(usr?.roles?.includes('ROLE_ADMIN') ? '/admin' : '/', { replace: true });
+    navigate(hasRoleIn(usr?.roles ?? rolesFromToken(tok), 'ROLE_ADMIN') ? '/admin' : '/', { replace: true });
   }, [navigate]);
 
   const loginOtp = useCallback(async (email, otp) => {
@@ -92,11 +141,16 @@ export const AuthProvider = ({ children }) => {
   }, [token, user]);
 
   const isAuthenticated = Boolean(token);
-  const isAdmin = Boolean(user?.roles?.includes('ROLE_ADMIN'));
+  const hasRole = useCallback((role) => hasRoleIn(user?.roles, role), [user?.roles]);
+  const hasAnyRole = useCallback(
+    (roles) => (Array.isArray(roles) ? roles : []).some((r) => hasRoleIn(user?.roles, r)),
+    [user?.roles],
+  );
+  const isAdmin = hasRole('ROLE_ADMIN');
 
   return (
     <AuthContext.Provider value={{
-      user, token, loading, isAuthenticated, isAdmin,
+      user, token, loading, isAuthenticated, isAdmin, hasRole, hasAnyRole,
       loginWithToken, loginOtp, devLogin, logout, refreshProfile,
     }}>
       {children}

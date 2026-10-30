@@ -32,6 +32,9 @@ public class DocumentGenerationServiceImpl implements DocumentGenerationService 
     private final PolicyRepository policyRepository;
     private final PolicyVersionRepository policyVersionRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.dungphd.insuranceass.service.PermissionService permissionService;
+
     private static final Color PRIMARY_COLOR = new Color(30, 58, 138);       // Navy Blue #1E3A8A
     private static final Color PRIMARY_DARK = new Color(15, 23, 42);         // Dark Slate #0F172A
     private static final Color PRIMARY_LIGHT = new Color(239, 246, 255);     // Light Blue Tint #EFF6FF
@@ -119,6 +122,10 @@ public class DocumentGenerationServiceImpl implements DocumentGenerationService 
                 .or(() -> policyRepository.findById(policyNumber))
                 .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
 
+        if (permissionService != null) {
+            permissionService.checkPolicyRead(policy);
+        }
+
         int currentVer = policy.getVersion() != null ? policy.getVersion() : 1;
 
         List<DocumentMetadataDto> docs = new ArrayList<>();
@@ -160,6 +167,10 @@ public class DocumentGenerationServiceImpl implements DocumentGenerationService 
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
                 .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
+
+        if (permissionService != null) {
+            permissionService.checkPolicyRead(policy);
+        }
 
         if (version != null && !version.equals(policy.getVersion())) {
             // Retrieve historical snapshot
