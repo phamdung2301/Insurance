@@ -42,6 +42,11 @@ class EndorsementServiceImplTest {
     @Mock
     private PremiumCalculationService premiumCalculationService;
 
+    // Đợt 4B: bean pending (mock) để luồng maker-checker có repo; case thành
+    // công dưới đây giữ ở đúng biên ngưỡng 20% nên không chạm tới repo này.
+    @Mock
+    private com.dungphd.insuranceass.repository.PendingEndorsementRepository pendingEndorsementRepository;
+
     @InjectMocks
     private EndorsementServiceImpl endorsementService;
 
@@ -78,10 +83,13 @@ class EndorsementServiceImplTest {
         when(policyRepository.findByPolicyNumber("POL-ACTIVE-01")).thenReturn(Optional.of(activePolicy));
         when(policyRepository.save(any(Policy.class))).thenAnswer(inv -> inv.getArgument(0));
 
+        // Đợt 4B: 750 -> 900 = +20% đúng biên ngưỡng nên vẫn apply ngay.
+        // (Premium cũ 1200 cho tổng 1950 = +160% sẽ đi pending theo luật mới,
+        // xem PendingEndorsementMakerCheckerTest.)
         CoverageDto newCoverage = CoverageDto.builder()
                 .coverageCode("GEN_LIAB")
                 .limit(2000000.0)
-                .premium(1200.0)
+                .premium(150.0)
                 .build();
 
         LocationDto newLoc = LocationDto.builder()
@@ -103,7 +111,7 @@ class EndorsementServiceImplTest {
         assertNotNull(res);
         assertEquals(2, res.getVersion());
         assertEquals(2, res.getLocations().size());
-        assertEquals(1950.0, res.getTotalPremium()); // 750 + 1200
+        assertEquals(900.0, res.getTotalPremium()); // 750 + 150
 
         // Verify version snapshot 1 was saved into policy_versions
         verify(policyVersionRepository).save(argThat(v ->

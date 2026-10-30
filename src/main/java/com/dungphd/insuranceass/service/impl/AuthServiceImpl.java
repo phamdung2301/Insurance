@@ -12,6 +12,7 @@ import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.User;
 import com.dungphd.insuranceass.repository.UserRepository;
 import com.dungphd.insuranceass.service.AuthService;
+import com.dungphd.insuranceass.service.LoginHistoryService;
 import com.dungphd.insuranceass.service.MailService;
 import com.dungphd.insuranceass.service.OtpService;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +35,12 @@ public class AuthServiceImpl implements AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    /**
+     * Ghi lịch sử đăng nhập (đợt 4D). Có thể null trong test cũ dùng
+     * @InjectMocks mà không khai mock cho bean này — recordLogin() guard
+     * null nên các test cũ vẫn chạy; test mới khai mock để verify hook.
+     */
+    private final LoginHistoryService loginHistoryService;
 
     @Value("${app.admin.emails:dungphdse@gmail.com,admin@insurtech.vn}")
     private String adminEmailsConfig;
@@ -63,9 +70,15 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse verifyOtp(VerifyOtpRequest request) {
+        return verifyOtp(request, "unknown", null);
+    }
+
+    @Override
+    public AuthResponse verifyOtp(VerifyOtpRequest request, String ip, String userAgent) {
         String email = request.getEmail().trim().toLowerCase();
         boolean valid = otpService.validateOtp(email, request.getOtp());
         if (!valid) {
+            // OTP sai → KHÔNG ghi lịch sử (chỉ ghi khi thành công).
             throw new BadRequestException("Mã OTP không chính xác hoặc đã hết hạn (300s). Vui lòng thử lại.");
         }
 
@@ -73,11 +86,20 @@ public class AuthServiceImpl implements AuthService {
         // OTP đúng = một lần xác thực thành công → mở khóa password (nếu có).
         otpService.clearPasswordLockout(email);
         User user = upsertUser(email, null, null);
+        // Đường thành công 1/3 (OTP qua /auth/verify-otp): ghi SAU khi mọi
+        // bước xác thực đã qua; recordLogin failure-isolated nên không thể
+        // làm fail lần đăng nhập này.
+        recordLogin(user.getEmail(), ip, userAgent);
         return buildAuthResponse(user);
     }
 
     @Override
     public AuthResponse login(AuthLoginRequest request) {
+        return login(request, "unknown", null);
+    }
+
+    @Override
+    public AuthResponse login(AuthLoginRequest request, String ip, String userAgent) {
         String email = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
 
         // 1. Dev Login / Quick Switch mode (chỉ khi bật cờ app.dev.quick-switch-enabled)
@@ -154,6 +176,9 @@ public class AuthServiceImpl implements AuthService {
             if (user.getRoles() == null) {
                 user.setRoles(new ArrayList<>(List.of("ROLE_USER")));
             }
+            // Đường thành công 2/3 (password). Sai mật khẩu đã throw ở trên
+            // nên tới đây chắc chắn là thành công → mới ghi.
+            recordLogin(user.getEmail(), ip, userAgent);
             return buildAuthResponse(user);
         }
 
@@ -175,11 +200,19 @@ public class AuthServiceImpl implements AuthService {
         // OTP đúng qua login() = xác thực thành công → mở khóa password.
         otpService.clearPasswordLockout(email);
         User user = upsertUser(email, request.getFullName(), null);
+        // Đường thành công 3a/3 (OTP qua /auth/login). Nhánh dev quick-switch
+        // ở đầu method return riêng và KHÔNG gọi recordLogin — cố tình.
+        recordLogin(user.getEmail(), ip, userAgent);
         return buildAuthResponse(user);
     }
 
     @Override
     public AuthResponse loginWithOAuth2(String email, String fullName) {
+        return loginWithOAuth2(email, fullName, "unknown", null);
+    }
+
+    @Override
+    public AuthResponse loginWithOAuth2(String email, String fullName, String ip, String userAgent) {
         String normalized = email != null ? email.trim().toLowerCase() : null;
         assertNotDisabled(normalized);
         // Google login thành công → mở khóa password (nếu có).
@@ -187,7 +220,26 @@ public class AuthServiceImpl implements AuthService {
         // upsert với explicitRoles=null -> chỉ cấp ROLE_ADMIN lúc TẠO MỚI nếu email
         // nằm trong app.admin.emails (xem upsertUser); login sau không tự cộng lại.
         User user = upsertUser(normalized, fullName, null);
+        // Đường thành công 3b/3 (Google). Tới đây OAuth2 đã xác thực xong
+        // (handler chỉ gọi khi Google trả email hợp lệ) → mới ghi.
+        recordLogin(user.getEmail(), ip, userAgent);
         return buildAuthResponse(user);
+    }
+
+    /**
+     * Ghi lịch sử, failure-isolated 2 lớp: LoginHistoryServiceImpl đã
+     * catch + log mọi lỗi lưu trữ; ở đây bọc thêm try/catch + guard null
+     * (test cũ không có mock bean này) để lần đăng nhập không bao giờ
+     * fail vì bước ghi lịch sử.
+     */
+    private void recordLogin(String email, String ip, String userAgent) {
+        try {
+            if (loginHistoryService != null) {
+                loginHistoryService.recordSuccessfulLogin(email, ip, userAgent);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to record login history for {}: {}", email, e.getMessage());
+        }
     }
 
     /** Tài khoản bị khóa → 403 ở mọi login path (OTP, dev, mật khẩu). */

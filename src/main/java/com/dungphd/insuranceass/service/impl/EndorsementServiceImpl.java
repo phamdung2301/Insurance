@@ -6,8 +6,10 @@ import com.dungphd.insuranceass.dto.LocationDto;
 import com.dungphd.insuranceass.dto.request.EndorsementRequest;
 import com.dungphd.insuranceass.dto.response.PolicyResponse;
 import com.dungphd.insuranceass.exception.BadRequestException;
+import com.dungphd.insuranceass.exception.PendingEndorsementException;
 import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.*;
+import com.dungphd.insuranceass.repository.PendingEndorsementRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyVersionRepository;
 import com.dungphd.insuranceass.service.EndorsementService;
@@ -27,6 +29,14 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class EndorsementServiceImpl implements EndorsementService {
 
+    /**
+     * Đợt 4B — Ngưỡng maker-checker: |phí mới - phí cũ| / phí cũ vượt số này
+     * thì endorsement KHÔNG apply ngay mà lưu PendingEndorsement chờ UW duyệt.
+     * USER CHỈ CẦN ĐỔI 1 SỐ NÀY là xong (ví dụ 0.10 = 10%, 0.30 = 30%).
+     * So sánh: pct <= ngưỡng thì apply ngay (biên 20% đúng vẫn apply ngay).
+     */
+    public static final double PREMIUM_CHANGE_THRESHOLD = 0.20;
+
     private final PolicyRepository policyRepository;
     private final PolicyVersionRepository policyVersionRepository;
     private final TransactionLedgerService transactionLedgerService;
@@ -38,18 +48,70 @@ public class EndorsementServiceImpl implements EndorsementService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private NotificationService notificationService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private PendingEndorsementRepository pendingEndorsementRepository;
+
     @Override
     public PolicyResponse applyEndorsement(String policyNumber, EndorsementRequest request, String actor) {
+        return applyEndorsementInternal(policyNumber, request, actor, false);
+    }
+
+    @Override
+    public PolicyResponse applyEndorsementBypassingThreshold(String policyNumber, EndorsementRequest request, String actor) {
+        return applyEndorsementInternal(policyNumber, request, actor, true);
+    }
+
+    /**
+     * Luồng apply duy nhất. bypassThreshold = true chỉ dùng cho checker duyệt
+     * pending (đã qua enforce UW ở PendingEndorsementService): bỏ qua ngưỡng
+     * VÀ bỏ qua checkPolicyWrite (UW không nằm trong phe cầu nên check đó sẽ
+     * 403 oan); vẫn giữ check ACTIVE, snapshot, tính phí, notification, ledger.
+     */
+    private PolicyResponse applyEndorsementInternal(String policyNumber, EndorsementRequest request, String actor, boolean bypassThreshold) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
                 .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
 
-        if (permissionService != null) {
+        if (!bypassThreshold && permissionService != null) {
             permissionService.checkPolicyWrite(policy);
         }
 
         if (policy.getStatus() != PolicyStatus.ACTIVE) {
             throw new BadRequestException("Endorsement can only be applied to ACTIVE policies. Current status is " + policy.getStatus());
+        }
+
+        // Đợt 4B — Maker-checker, TÍNH TRƯỚC KHI SAVE: build policy SAU
+        // endorsement trên bản clone (chưa save, policy gốc chưa đổi), tính phí
+        // dự kiến bằng đúng recalculateTotalPremium() như luồng apply thật
+        // (mapToLocation đã tính premium cho coverage thiếu premium qua
+        // PremiumCalculationService, giống hệt code cũ). Chỉ khi quyết định
+        // apply mới chạm tới policy gốc + snapshot + ledger bên dưới.
+        if (!bypassThreshold) {
+            Policy projected = buildProjectedPolicy(policy, request);
+            double oldPremium = policy.getTotalPremium() != null ? policy.getTotalPremium() : 0.0;
+            double projectedPremium = projected.getTotalPremium() != null ? projected.getTotalPremium() : 0.0;
+            double premiumChangePct = computePremiumChangePct(oldPremium, projectedPremium);
+            if (premiumChangePct > PREMIUM_CHANGE_THRESHOLD) {
+                // KHÔNG apply, KHÔNG đổi policy, KHÔNG snapshot, KHÔNG ledger.
+                // Chỉ lưu pending; caller nhận biết qua PendingEndorsementException
+                // -> HTTP 202 (xem GlobalExceptionHandler), không phải 200 + PolicyResponse.
+                PendingEndorsement pending = PendingEndorsement.builder()
+                        .policyNumber(policy.getPolicyNumber())
+                        .request(request)
+                        .requestedBy(actor != null && !actor.isBlank() ? actor.trim() : "System")
+                        .requestedAt(Instant.now())
+                        .premiumChangePct(premiumChangePct)
+                        .oldPremium(oldPremium)
+                        .projectedPremium(projectedPremium)
+                        .status(PendingEndorsementStatus.PENDING)
+                        .build();
+                if (pendingEndorsementRepository != null) {
+                    pending = pendingEndorsementRepository.save(pending);
+                }
+                log.info("Endorsement on policy {} exceeds threshold (pct={}, old={}, projected={}) -> pending {}",
+                        policy.getPolicyNumber(), premiumChangePct, oldPremium, projectedPremium, pending.getId());
+                throw new PendingEndorsementException(pending.getId(), policy.getPolicyNumber(), premiumChangePct);
+            }
         }
 
         int currentVersion = policy.getVersion() != null ? policy.getVersion() : 1;
@@ -66,25 +128,9 @@ public class EndorsementServiceImpl implements EndorsementService {
         policyVersionRepository.save(versionDoc);
         log.info("Saved snapshot for policy {} at version {}", policy.getPolicyNumber(), currentVersion);
 
-        // 2. Apply modifications from EndorsementRequest
-        if (request.getInsured() != null) {
-            policy.setInsured(mapToInsured(request.getInsured()));
-        }
-
-        if (request.getLocations() != null) {
-            List<Location> updatedLocations = request.getLocations().stream()
-                    .map(this::mapToLocation)
-                    .collect(Collectors.toList());
-            policy.setLocations(updatedLocations);
-        }
-
-        if (request.getEffectiveDate() != null) {
-            policy.setEffectiveDate(request.getEffectiveDate());
-        }
-
-        if (request.getExpirationDate() != null) {
-            policy.setExpirationDate(request.getExpirationDate());
-        }
+        // 2. Apply modifications from EndorsementRequest (cùng helper mà bước
+        // tính phí dự kiến dùng trên bản clone, nên phí dự kiến = phí thật).
+        applyRequestToPolicy(policy, request);
 
         // 3. Increment version and recalculate total premium
         int newVersion = currentVersion + 1;
@@ -197,6 +243,51 @@ public class EndorsementServiceImpl implements EndorsementService {
                 .filter(loc -> loc.getCoverages() != null)
                 .mapToInt(loc -> loc.getCoverages().size())
                 .sum();
+    }
+
+    /**
+     * Áp đúng các sửa đổi của EndorsementRequest lên một policy (gốc khi apply
+     * thật, clone khi tính phí dự kiến). Tách ra từ code cũ, không đổi logic.
+     */
+    private void applyRequestToPolicy(Policy policy, EndorsementRequest request) {
+        if (request.getInsured() != null) {
+            policy.setInsured(mapToInsured(request.getInsured()));
+        }
+        if (request.getLocations() != null) {
+            List<Location> updatedLocations = request.getLocations().stream()
+                    .map(this::mapToLocation)
+                    .collect(Collectors.toList());
+            policy.setLocations(updatedLocations);
+        }
+        if (request.getEffectiveDate() != null) {
+            policy.setEffectiveDate(request.getEffectiveDate());
+        }
+        if (request.getExpirationDate() != null) {
+            policy.setExpirationDate(request.getExpirationDate());
+        }
+    }
+
+    /** Policy SAU endorsement nhưng CHƯA save — chỉ để tính phí dự kiến. */
+    private Policy buildProjectedPolicy(Policy policy, EndorsementRequest request) {
+        Policy projected = clonePolicy(policy);
+        applyRequestToPolicy(projected, request);
+        projected.recalculateTotalPremium();
+        return projected;
+    }
+
+    /**
+     * premiumChangePct = |phí mới - phí cũ| / phí cũ (làm tròn 4 chữ số).
+     * Phí cũ = 0: phí mới = 0 thì 0.0, phí mới khác 0 thì 1.0 (coi như vượt
+     * ngưỡng, vì không chia được cho 0; không dùng Infinity để JSON/DB an toàn).
+     */
+    static double computePremiumChangePct(double oldPremium, double newPremium) {
+        double pct;
+        if (oldPremium == 0.0) {
+            pct = (newPremium == 0.0) ? 0.0 : 1.0;
+        } else {
+            pct = Math.abs(newPremium - oldPremium) / Math.abs(oldPremium);
+        }
+        return Math.round(pct * 10000.0) / 10000.0;
     }
 
     private Policy clonePolicy(Policy origin) {

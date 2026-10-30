@@ -7,6 +7,8 @@ import com.dungphd.insuranceass.dto.response.ApiResponse;
 import com.dungphd.insuranceass.dto.response.AuthResponse;
 import com.dungphd.insuranceass.dto.response.UserProfileResponse;
 import com.dungphd.insuranceass.service.AuthService;
+import com.dungphd.insuranceass.util.ClientRequestInfo;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -41,18 +43,28 @@ public class AuthController {
      * Verify 6-digit OTP and return JWT token
      */
     @PostMapping("/verify-otp")
-    public ResponseEntity<ApiResponse<AuthResponse>> verifyOtp(@Valid @RequestBody VerifyOtpRequest request) {
-        AuthResponse response = authService.verifyOtp(request);
+    public ResponseEntity<ApiResponse<AuthResponse>> verifyOtp(@Valid @RequestBody VerifyOtpRequest request,
+                                                                HttpServletRequest httpRequest) {
+        // Edge trích xuất ip + userAgent rồi truyền xuống service (đợt 4D);
+        // service không bao giờ nhận HttpServletRequest.
+        AuthResponse response = authService.verifyOtp(request,
+                ClientRequestInfo.extractIp(httpRequest),
+                ClientRequestInfo.extractUserAgent(httpRequest));
         return ResponseEntity.ok(ApiResponse.success(response, "Xác thực OTP thành công, đăng nhập hoàn tất"));
     }
 
     /**
      * POST /auth/login
-     * Supports both OTP login and Dev Quick Switch (ROLE_USER / ROLE_ADMIN)
+     * Supports both OTP login and Dev Quick Switch (ROLE_USER / ROLE_ADMIN).
+     * Dev quick-switch cũng đi qua overload này nhưng AuthServiceImpl KHÔNG
+     * ghi lịch sử cho nhánh dev — chỉ password và OTP qua login() mới ghi.
      */
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<AuthResponse>> login(@RequestBody AuthLoginRequest request) {
-        AuthResponse response = authService.login(request);
+    public ResponseEntity<ApiResponse<AuthResponse>> login(@RequestBody AuthLoginRequest request,
+                                                            HttpServletRequest httpRequest) {
+        AuthResponse response = authService.login(request,
+                ClientRequestInfo.extractIp(httpRequest),
+                ClientRequestInfo.extractUserAgent(httpRequest));
         return ResponseEntity.ok(ApiResponse.success(response, "Đăng nhập thành công"));
     }
 

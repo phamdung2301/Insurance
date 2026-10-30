@@ -130,6 +130,11 @@ public class SecurityConfig {
                         .requestMatchers("/reports/**", "/api/reports/**").hasRole("ADMIN")
                         // Khóa các endpoint nghiệp vụ: yêu cầu đăng nhập (đóng lỗ hổng 28 endpoints public)
                         // Frontend mọi trang đều qua ProtectedRoute nên không gãy luồng nào
+                        // Đợt 4B: maker-checker endorsement — matcher CHỈ authenticated
+                        // vì danh sách có scope theo role và approve/reject do service
+                        // tự enforce (UW-only); chặn role ở matcher sẽ phá scope
+                        // "ADMIN xem, FINANCE 403, customer/agent theo phạm vi".
+                        .requestMatchers("/pending-endorsements/**", "/api/pending-endorsements/**").authenticated()
                         .requestMatchers("/policies/**", "/api/policies/**").authenticated()
                         .requestMatchers("/endorsements", "/api/endorsements").authenticated()
                         .requestMatchers("/history", "/api/history").authenticated()

@@ -30,6 +30,10 @@ import { PaymentPage } from './pages/PaymentPage';
 import { UnderwriterQueuePage } from './pages/UnderwriterQueuePage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { AdminAuditLogPage } from './pages/AdminAuditLogPage';
+import { ComparePackagesPage } from './pages/ComparePackagesPage';
+import { PendingEndorsementsPage } from './pages/PendingEndorsementsPage';
+import { PermissionMatrixPage } from './pages/PermissionMatrixPage';
+import { LoginHistoryPage } from './pages/LoginHistoryPage';
 
 const TITLES = {
   '/': 'Hợp đồng của tôi',
@@ -50,6 +54,10 @@ const TITLES = {
   '/admin/audit-logs': 'Nhật ký quản trị',
   '/agent/hoa-hong': 'Hoa hồng của tôi',
   '/thanh-toan': 'Thanh toán của tôi',
+  '/so-sanh-goi': 'So sánh gói',
+  '/cho-duyet': 'Chờ duyệt endorsement',
+  '/admin/phan-quyen': 'Ma trận phân quyền',
+  '/ho-so/lich-su-dang-nhap': 'Lịch sử đăng nhập',
 };
 
 function Shell({ title, children }) {
@@ -115,6 +123,10 @@ function AnimatedRoutes() {
         {page('/agent/khach-hang', <AgentCustomerPage />, ['ROLE_AGENT', 'ROLE_ADMIN'])}
         {page('/agent/hoa-hong', <AgentCommissionPage />, ['ROLE_AGENT', 'ROLE_ADMIN'])}
         {page('/thanh-toan', <PaymentPage />)}
+        {page('/so-sanh-goi', <ComparePackagesPage />)}
+        {page('/cho-duyet', <PendingEndorsementsPage />)}
+        {page('/admin/phan-quyen', <PermissionMatrixPage />, ['ROLE_ADMIN'])}
+        {page('/ho-so/lich-su-dang-nhap', <LoginHistoryPage />)}
         {import.meta.env.DEV && (
           <Route path="/dev/api-tester" element={<DevTester />} />
         )}

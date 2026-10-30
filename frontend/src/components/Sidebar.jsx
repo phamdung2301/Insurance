@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   ShieldCheck, Home, ShoppingCart, LayoutDashboard, FileText,
   TableProperties, Gauge, Database, User, X, Users, HandCoins, BarChart3,
-  MessagesSquare, ScrollText, CreditCard,
+  MessagesSquare, ScrollText, CreditCard, Scale, Clock, History,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -18,6 +18,7 @@ export function Sidebar({ open, onClose }) {
     { to: '/', label: 'Hợp đồng của tôi', icon: <Home size={18} />, end: true },
     { to: '/mua-bao-hiem', label: 'Mua bảo hiểm', icon: <ShoppingCart size={18} /> },
     { to: '/thanh-toan', label: 'Thanh toán', icon: <CreditCard size={18} />, roles: ['ROLE_CUSTOMER'] },
+    { to: '/so-sanh-goi', label: 'So sánh gói', icon: <Scale size={18} /> },
   ];
   // Mỗi mục kèm roles được phép (PLAN §1.4) — filter bằng hasRole, không
   // còn blanket isAdmin cho cả khối menu admin.
@@ -30,6 +31,7 @@ export function Sidebar({ open, onClose }) {
     { to: '/admin/reports', label: 'Báo cáo', icon: <BarChart3 size={18} />, roles: ['ROLE_ADMIN', 'ROLE_FINANCE'] },
     { to: '/admin/thuong-luong', label: 'Thương lượng', icon: <MessagesSquare size={18} />, roles: ['ROLE_UNDERWRITER', 'ROLE_ADMIN'] },
     { to: '/admin/audit-logs', label: 'Nhật ký quản trị', icon: <ScrollText size={18} />, roles: ['ROLE_ADMIN'] },
+    { to: '/admin/phan-quyen', label: 'Ma trận phân quyền', icon: <ShieldCheck size={18} />, roles: ['ROLE_ADMIN'] },
     ...(benchmarkEnabled
       ? [{ to: '/admin/benchmark', label: 'Kiểm thử hiệu năng', icon: <Gauge size={18} />, roles: ['ROLE_ADMIN'] }]
       : []),
@@ -41,6 +43,8 @@ export function Sidebar({ open, onClose }) {
   ];
   const accountLinks = [
     { to: '/ho-so', label: 'Hồ sơ cá nhân', icon: <User size={18} /> },
+    { to: '/ho-so/lich-su-dang-nhap', label: 'Lịch sử đăng nhập', icon: <History size={18} /> },
+    { to: '/cho-duyet', label: 'Chờ duyệt', icon: <Clock size={18} /> },
   ];
 
   const visible = (links) => links.filter((l) => !l.roles || hasAnyRole(l.roles));
