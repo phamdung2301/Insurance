@@ -13,6 +13,9 @@ public interface PriceNegotiationRepository extends MongoRepository<PriceNegotia
 
     List<PriceNegotiation> findByPolicyNumberOrderByOpenedAtDesc(String policyNumber);
 
+    /** Hàng đợi UW (đợt 2A): mọi negotiation OPEN, cũ nhất trước; lượt xử lý lọc thêm ở service. */
+    List<PriceNegotiation> findByStatusOrderByOpenedAtAsc(NegotiationStatus status);
+
     List<PriceNegotiation> findByPolicyNumberAndStatus(String policyNumber, NegotiationStatus status);
 
     boolean existsByPolicyNumberAndStatus(String policyNumber, NegotiationStatus status);

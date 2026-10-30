@@ -110,6 +110,10 @@ public class SecurityConfig {
                         // Thứ tự quan trọng (match đầu tiên thắng): /excel trước /admin
                         // vì UNDERWRITER được vào excel nhưng không được vào /admin/**.
                         .requestMatchers("/excel/**", "/api/excel/**").hasAnyRole("ADMIN", "UNDERWRITER")
+                        // Đợt 2A: hàng đợi thương lượng cho UNDERWRITER (+ ADMIN xem).
+                        // Prefix riêng, không xung đột matcher khác; đứng trong nhóm
+                        // matcher có role, trước anyRequest().authenticated() cuối.
+                        .requestMatchers("/underwriter/**", "/api/underwriter/**").hasAnyRole("UNDERWRITER", "ADMIN")
                         .requestMatchers("/admin/**", "/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/benchmark/**", "/api/benchmark/**").hasRole("ADMIN")
                         // Đợt 1C §3(b): FINANCE chỉ được ĐỌC báo cáo. Matcher GET PHẢI

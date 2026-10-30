@@ -18,6 +18,7 @@ import com.dungphd.insuranceass.model.*;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyTransactionRepository;
 import com.dungphd.insuranceass.repository.PriceNegotiationRepository;
+import com.dungphd.insuranceass.service.NotificationService;
 import com.dungphd.insuranceass.service.PermissionService;
 import com.dungphd.insuranceass.service.PolicyService;
 import com.dungphd.insuranceass.service.PremiumCalculationService;
@@ -62,6 +63,9 @@ public class PolicyServiceImpl implements PolicyService {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private PriceNegotiationRepository negotiationRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private NotificationService notificationService;
 
     public static final int DEFAULT_PAGE_SIZE = 10;
     public static final int MAX_PAGE_SIZE = 100;
@@ -503,6 +507,13 @@ public class PolicyServiceImpl implements PolicyService {
         policy.setUpdatedAt(Instant.now());
         Policy savedPolicy = policyRepository.save(policy);
 
+        // Hook đợt 2B: chỉ BOUND → ACTIVE, SAU khi policy đã save thành công.
+        // NotificationService failure-isolated nên không cần try/catch thêm ở đây.
+        if (currentStatus == PolicyStatus.BOUND && targetStatus == PolicyStatus.ACTIVE
+                && notificationService != null) {
+            notificationService.notifyPolicyActivated(savedPolicy);
+        }
+
         // Tác dụng phụ lên negotiation (PLAN §2.3).
         if (negotiationRepository != null) {
             if (targetStatus == PolicyStatus.BOUND) {
@@ -519,6 +530,16 @@ public class PolicyServiceImpl implements PolicyService {
                     accepted.setClosedBy(actor);
                     accepted.setClosedAt(Instant.now());
                     negotiationRepository.save(accepted);
+                }
+                // Sửa đợt 2 (phát hiện khi làm hàng đợi UW): trước đây chỉ ACCEPTED
+                // bị supersede khi về DRAFT, còn OPEN vẫn tồn tại — item stale trong
+                // hàng đợi UW dù offer mới đã bị chặn (policy không còn QUOTED).
+                // Bất biến cần giữ: OPEN chỉ tồn tại khi policy còn QUOTED.
+                for (PriceNegotiation open : negotiationRepository.findByPolicyNumberAndStatus(savedPolicy.getPolicyNumber(), NegotiationStatus.OPEN)) {
+                    open.setStatus(NegotiationStatus.SUPERSEDED);
+                    open.setClosedBy(actor);
+                    open.setClosedAt(Instant.now());
+                    negotiationRepository.save(open);
                 }
             }
         }

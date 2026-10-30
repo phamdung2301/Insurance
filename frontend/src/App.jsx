@@ -25,6 +25,9 @@ import { ReportsPage } from './pages/ReportsPage';
 import { AdminUserPage } from './pages/AdminUserPage';
 import { FinanceQueuePage } from './pages/FinanceQueuePage';
 import { AgentCustomerPage } from './pages/AgentCustomerPage';
+import { UnderwriterQueuePage } from './pages/UnderwriterQueuePage';
+import { NotificationsPage } from './pages/NotificationsPage';
+import { AdminAuditLogPage } from './pages/AdminAuditLogPage';
 
 const TITLES = {
   '/': 'Hợp đồng của tôi',
@@ -40,6 +43,9 @@ const TITLES = {
   '/admin/index-audit': 'Kiểm tra index DB',
   '/admin/reports': 'Báo cáo',
   '/agent/khach-hang': 'Khách hàng của tôi',
+  '/admin/thuong-luong': 'Hàng đợi thương lượng',
+  '/thong-bao': 'Thông báo',
+  '/admin/audit-logs': 'Nhật ký quản trị',
 };
 
 function Shell({ title, children }) {
@@ -89,6 +95,7 @@ function AnimatedRoutes() {
         {page('/hop-dong/:policyNumber', <PolicyDetailPage />)}
         {page('/ho-so', <ProfilePage />)}
         {page('/doi-mat-khau', <ChangePasswordPage />)}
+        {page('/thong-bao', <NotificationsPage />)}
         {page('/admin', <AdminDashboardPage />, ['ROLE_ADMIN'])}
         {page('/admin/hop-dong', <AdminPolicyListPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER', 'ROLE_FINANCE'])}
         {page('/admin/excel', <ExcelToolsPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER'])}
@@ -99,6 +106,8 @@ function AnimatedRoutes() {
           : <Route path="/admin/benchmark" element={<Navigate to="/admin" replace />} />}
         {page('/admin/index-audit', <IndexAuditPage />, ['ROLE_ADMIN'])}
         {page('/admin/reports', <ReportsPage />, ['ROLE_ADMIN', 'ROLE_FINANCE'])}
+        {page('/admin/thuong-luong', <UnderwriterQueuePage />, ['ROLE_UNDERWRITER', 'ROLE_ADMIN'])}
+        {page('/admin/audit-logs', <AdminAuditLogPage />, ['ROLE_ADMIN'])}
         {page('/agent/khach-hang', <AgentCustomerPage />, ['ROLE_AGENT', 'ROLE_ADMIN'])}
         {import.meta.env.DEV && (
           <Route path="/dev/api-tester" element={<DevTester />} />

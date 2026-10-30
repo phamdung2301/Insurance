@@ -15,6 +15,7 @@ import com.dungphd.insuranceass.model.PriceOffer;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PriceNegotiationRepository;
 import com.dungphd.insuranceass.service.NegotiationService;
+import com.dungphd.insuranceass.service.NotificationService;
 import com.dungphd.insuranceass.service.PermissionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,10 @@ public class NegotiationServiceImpl implements NegotiationService {
     private final PolicyRepository policyRepository;
     private final PriceNegotiationRepository negotiationRepository;
     private final PermissionService permissionService;
+
+    /** Optional như pattern PolicyServiceImpl: test cũ không có mock này thì null → bỏ qua hook. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private NotificationService notificationService;
 
     @Override
     public NegotiationResponse createNegotiation(String policyNumber, NegotiationOfferRequest request, String actor) {
@@ -124,6 +129,11 @@ public class NegotiationServiceImpl implements NegotiationService {
         negotiation.getOffers().add(offer);
         negotiation.setCurrentOffer(offer);
         PriceNegotiation saved = negotiationRepository.save(negotiation);
+        // Hook đợt 2B: SAU khi offer đã save thành công. NotificationService
+        // failure-isolated nên không cần try/catch thêm ở đây.
+        if (notificationService != null) {
+            notificationService.notifyNewOffer(policy, offer.getProposedByRole(), principal);
+        }
         return mapToResponse(saved);
     }
 

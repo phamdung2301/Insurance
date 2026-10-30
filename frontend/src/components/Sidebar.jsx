@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   ShieldCheck, Home, ShoppingCart, LayoutDashboard, FileText,
   TableProperties, Gauge, Database, User, X, Users, HandCoins, BarChart3,
+  MessagesSquare, ScrollText,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -26,6 +27,8 @@ export function Sidebar({ open, onClose }) {
     { to: '/admin/doi-soat', label: 'Đối soát', icon: <HandCoins size={18} />, roles: ['ROLE_FINANCE', 'ROLE_ADMIN'] },
     { to: '/admin/users', label: 'Quản lý người dùng', icon: <Users size={18} />, roles: ['ROLE_ADMIN'] },
     { to: '/admin/reports', label: 'Báo cáo', icon: <BarChart3 size={18} />, roles: ['ROLE_ADMIN', 'ROLE_FINANCE'] },
+    { to: '/admin/thuong-luong', label: 'Thương lượng', icon: <MessagesSquare size={18} />, roles: ['ROLE_UNDERWRITER', 'ROLE_ADMIN'] },
+    { to: '/admin/audit-logs', label: 'Nhật ký quản trị', icon: <ScrollText size={18} />, roles: ['ROLE_ADMIN'] },
     ...(benchmarkEnabled
       ? [{ to: '/admin/benchmark', label: 'Kiểm thử hiệu năng', icon: <Gauge size={18} />, roles: ['ROLE_ADMIN'] }]
       : []),

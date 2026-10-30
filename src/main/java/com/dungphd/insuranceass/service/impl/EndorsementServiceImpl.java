@@ -11,6 +11,7 @@ import com.dungphd.insuranceass.model.*;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyVersionRepository;
 import com.dungphd.insuranceass.service.EndorsementService;
+import com.dungphd.insuranceass.service.NotificationService;
 import com.dungphd.insuranceass.service.PremiumCalculationService;
 import com.dungphd.insuranceass.service.TransactionLedgerService;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,9 @@ public class EndorsementServiceImpl implements EndorsementService {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.dungphd.insuranceass.service.PermissionService permissionService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private NotificationService notificationService;
 
     @Override
     public PolicyResponse applyEndorsement(String policyNumber, EndorsementRequest request, String actor) {
@@ -89,6 +93,12 @@ public class EndorsementServiceImpl implements EndorsementService {
         policy.setUpdatedAt(Instant.now());
 
         Policy savedPolicy = policyRepository.save(policy);
+
+        // Hook đợt 2B: SAU khi endorsement đã save thành công.
+        // NotificationService failure-isolated nên không cần try/catch thêm ở đây.
+        if (notificationService != null) {
+            notificationService.notifyEndorsementApplied(savedPolicy);
+        }
 
         // 4. Record transaction in Ledger
         String desc = "Endorsement (v" + newVersion + "): " + request.getReason()
