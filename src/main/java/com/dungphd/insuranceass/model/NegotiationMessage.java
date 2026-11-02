@@ -24,3 +24,4 @@ public class NegotiationMessage {
 
     private Instant createdAt;
 }
+

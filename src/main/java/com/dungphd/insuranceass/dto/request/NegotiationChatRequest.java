@@ -17,3 +17,4 @@ public class NegotiationChatRequest {
     @Size(max = 1000, message = "Nội dung tin nhắn tối đa 1000 ký tự.")
     private String content;
 }
+

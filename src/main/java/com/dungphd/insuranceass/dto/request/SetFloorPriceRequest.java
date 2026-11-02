@@ -17,3 +17,4 @@ public class SetFloorPriceRequest {
     @Positive(message = "floorPremium phải lớn hơn 0.")
     private Double floorPremium;
 }
+

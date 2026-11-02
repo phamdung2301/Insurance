@@ -26,10 +26,11 @@ public class UnderwriterQueueServiceImpl implements UnderwriterQueueService {
         if (!permissionService.isUnderwriter() && !permissionService.isAdmin()) {
             throw new ForbiddenException("Chỉ chuyên viên thẩm định (UNDERWRITER) hoặc ADMIN mới được xem hàng đợi thương lượng.");
         }
-        return negotiationRepository.findByStatusInOrderByOpenedAtAsc(
-                List.of(NegotiationStatus.OPEN, NegotiationStatus.PENDING_CONFIRMATION)
-        ).stream()
-                .filter(this::isUnderwriterAwaitingAction)
+        return negotiationRepository.findByStatusOrderByOpenedAtAsc(NegotiationStatus.OPEN).stream()
+                // Lọc lại status ở bộ nhớ: query repo đã lọc OPEN, lớp này là
+                // lưới an toàn để CLOSED/ACCEPTED không bao giờ lọt vào hàng đợi.
+                .filter(n -> n.getStatus() == NegotiationStatus.OPEN)
+                .filter(this::isUnderwriterTurn)
                 .sorted(Comparator.comparing(PriceNegotiation::getOpenedAt,
                         Comparator.nullsLast(Comparator.naturalOrder())))
                 .map(this::mapToResponse)
@@ -37,20 +38,14 @@ public class UnderwriterQueueServiceImpl implements UnderwriterQueueService {
     }
 
     /**
-     * Đang chờ UNDERWRITER phản hồi:
-     * - Khi OPEN: chưa có offer nào, hoặc offer cuối không phải của UNDERWRITER.
-     * - Khi PENDING_CONFIRMATION: offer cuối do UNDERWRITER đề xuất và đối phương đã accept, UW cần confirm.
+     * Tới lượt UNDERWRITER khi chưa có offer nào, hoặc offer cuối không phải
+     * của UNDERWRITER. Lọc ở bộ nhớ (không đẩy vào query Mongo) vì điều kiện
+     * "currentOffer null HOẶC proposedByRole != UNDERWRITER" qua derived query
+     * sẽ bỏ sót trường hợp currentOffer == null.
      */
-    private boolean isUnderwriterAwaitingAction(PriceNegotiation negotiation) {
-        if (negotiation.getStatus() == NegotiationStatus.OPEN) {
-            return negotiation.getCurrentOffer() == null
-                    || negotiation.getCurrentOffer().getProposedByRole() != NegotiationRole.UNDERWRITER;
-        }
-        if (negotiation.getStatus() == NegotiationStatus.PENDING_CONFIRMATION) {
-            return negotiation.getCurrentOffer() != null
-                    && negotiation.getCurrentOffer().getProposedByRole() == NegotiationRole.UNDERWRITER;
-        }
-        return false;
+    private boolean isUnderwriterTurn(PriceNegotiation negotiation) {
+        return negotiation.getCurrentOffer() == null
+                || negotiation.getCurrentOffer().getProposedByRole() != NegotiationRole.UNDERWRITER;
     }
 
     private NegotiationResponse mapToResponse(PriceNegotiation negotiation) {
