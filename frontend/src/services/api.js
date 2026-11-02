@@ -196,15 +196,30 @@ export const negotiationService = {
   /** GET /policies/{n}/negotiations -> list mới nhất trước, kèm offers đầy đủ */
   list: (policyNumber) =>
     api.get(`/policies/${encodeURIComponent(policyNumber)}/negotiations`),
+  /** GET /policies/{n}/negotiations/{id} -> chi tiết negotiation */
+  getDetail: (policyNumber, negotiationId) =>
+    api.get(`/policies/${encodeURIComponent(policyNumber)}/negotiations/${encodeURIComponent(negotiationId)}`),
+  /** POST /policies/{n}/negotiations/{id}/floor {floorPremium} */
+  setFloor: (policyNumber, negotiationId, floorPremium) =>
+    api.post(`/policies/${encodeURIComponent(policyNumber)}/negotiations/${encodeURIComponent(negotiationId)}/floor`, { floorPremium }),
   /** POST /policies/{n}/negotiations/{id}/offers {proposedPremium, message?} */
   addOffer: (policyNumber, negotiationId, data) =>
     api.post(`/policies/${encodeURIComponent(policyNumber)}/negotiations/${encodeURIComponent(negotiationId)}/offers`, data),
-  /** POST /policies/{n}/negotiations/{id}/accept (không body) */
+  /** POST /policies/{n}/negotiations/{id}/accept (1/2: chuyển sang PENDING_CONFIRMATION) */
   accept: (policyNumber, negotiationId) =>
     api.post(`/policies/${encodeURIComponent(policyNumber)}/negotiations/${encodeURIComponent(negotiationId)}/accept`),
-  /** POST /policies/{n}/negotiations/{id}/reject (không body) */
+  /** POST /policies/{n}/negotiations/{id}/confirm (2/2: chốt giá ACCEPTED + ghi policy) */
+  confirm: (policyNumber, negotiationId) =>
+    api.post(`/policies/${encodeURIComponent(policyNumber)}/negotiations/${encodeURIComponent(negotiationId)}/confirm`),
+  /** POST /policies/{n}/negotiations/{id}/decline-confirmation (mở lại OPEN) */
+  declineConfirmation: (policyNumber, negotiationId) =>
+    api.post(`/policies/${encodeURIComponent(policyNumber)}/negotiations/${encodeURIComponent(negotiationId)}/decline-confirmation`),
+  /** POST /policies/{n}/negotiations/{id}/reject (từ chối offer, phiên vẫn OPEN) */
   reject: (policyNumber, negotiationId) =>
     api.post(`/policies/${encodeURIComponent(policyNumber)}/negotiations/${encodeURIComponent(negotiationId)}/reject`),
+  /** POST /policies/{n}/negotiations/{id}/messages {content} (chat append-only) */
+  sendMessage: (policyNumber, negotiationId, content) =>
+    api.post(`/policies/${encodeURIComponent(policyNumber)}/negotiations/${encodeURIComponent(negotiationId)}/messages`, { content }),
 };
 
 // ---------------------------------------------------------------- Index audit (admin)

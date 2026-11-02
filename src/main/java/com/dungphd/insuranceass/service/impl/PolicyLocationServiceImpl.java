@@ -216,8 +216,9 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
         checkWrite(policy);
         // Khóa giá sau ACCEPTED, check TRƯỚC khi recalculateTotalPremium chạy (PLAN §2.3).
         if (negotiationRepository != null && policy.getStatus() == PolicyStatus.QUOTED
-                && negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), com.dungphd.insuranceass.model.NegotiationStatus.ACCEPTED)) {
-            throw new BadRequestException("Giá hợp đồng đã chốt qua thương lượng, không được sửa đổi phí khi còn ở trạng thái QUOTED.");
+                && (negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), com.dungphd.insuranceass.model.NegotiationStatus.ACCEPTED)
+                    || negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), com.dungphd.insuranceass.model.NegotiationStatus.PENDING_CONFIRMATION))) {
+            throw new BadRequestException("Giá hợp đồng đã chốt hoặc đang chờ xác nhận qua thương lượng, không được sửa đổi phí khi còn ở trạng thái QUOTED.");
         }
     }
 

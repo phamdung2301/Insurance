@@ -5,18 +5,14 @@ import com.dungphd.insuranceass.dto.response.NegotiationResponse;
 import com.dungphd.insuranceass.exception.BadRequestException;
 import com.dungphd.insuranceass.exception.ForbiddenException;
 import com.dungphd.insuranceass.exception.ResourceNotFoundException;
-import com.dungphd.insuranceass.model.NegotiationRole;
-import com.dungphd.insuranceass.model.NegotiationStatus;
-import com.dungphd.insuranceass.model.OfferDecision;
-import com.dungphd.insuranceass.model.Policy;
-import com.dungphd.insuranceass.model.PolicyStatus;
-import com.dungphd.insuranceass.model.PriceNegotiation;
-import com.dungphd.insuranceass.model.PriceOffer;
+import com.dungphd.insuranceass.model.*;
+import com.dungphd.insuranceass.repository.AdminAuditLogRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PriceNegotiationRepository;
 import com.dungphd.insuranceass.service.NegotiationService;
 import com.dungphd.insuranceass.service.NotificationService;
 import com.dungphd.insuranceass.service.PermissionService;
+import com.dungphd.insuranceass.service.TransactionLedgerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -24,6 +20,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -35,9 +32,14 @@ public class NegotiationServiceImpl implements NegotiationService {
     private final PriceNegotiationRepository negotiationRepository;
     private final PermissionService permissionService;
 
-    /** Optional như pattern PolicyServiceImpl: test cũ không có mock này thì null → bỏ qua hook. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private NotificationService notificationService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private TransactionLedgerService transactionLedgerService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AdminAuditLogRepository auditLogRepository;
 
     @Override
     public NegotiationResponse createNegotiation(String policyNumber, NegotiationOfferRequest request, String actor) {
@@ -50,8 +52,9 @@ public class NegotiationServiceImpl implements NegotiationService {
         if (policy.getStatus() != PolicyStatus.QUOTED) {
             throw new BadRequestException("Chỉ mở thương lượng khi hợp đồng ở trạng thái QUOTED.");
         }
-        if (negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), NegotiationStatus.OPEN)) {
-            throw new BadRequestException("Hợp đồng này đã có thương lượng đang mở.");
+        if (negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), NegotiationStatus.OPEN)
+                || negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), NegotiationStatus.PENDING_CONFIRMATION)) {
+            throw new BadRequestException("Hợp đồng này đã có thương lượng đang mở hoặc chờ xác nhận.");
         }
         if (negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), NegotiationStatus.ACCEPTED)) {
             throw new BadRequestException("Hợp đồng này đã có giá chốt thương lượng còn hiệu lực, không mở thương lượng mới được.");
@@ -75,23 +78,72 @@ public class NegotiationServiceImpl implements NegotiationService {
                 .listPremium(listPremium)
                 .currentOffer(firstOffer)
                 .offers(new ArrayList<>(List.of(firstOffer)))
+                .messages(new ArrayList<>())
                 .openedBy(principal)
                 .openedAt(Instant.now())
                 .build();
 
         PriceNegotiation saved = negotiationRepository.save(negotiation);
+        recordLedger(policy, TransactionType.PRICE_OFFER, principal,
+                "Mở thương lượng giá: đề xuất " + request.getProposedPremium() + " VND");
+        recordAudit(principal, "OPEN_NEGOTIATION", "Policy: " + policy.getPolicyNumber() + ", price: " + request.getProposedPremium());
         log.info("Opened negotiation {} for policy {} by {}", saved.getId(), policy.getPolicyNumber(), principal);
-        return mapToResponse(saved);
+        return mapToResponse(saved, principal, policy);
     }
 
     @Override
     public List<NegotiationResponse> listNegotiations(String policyNumber) {
         Policy policy = resolvePolicy(policyNumber);
         permissionService.checkNegotiationRead(policy);
+        String principal = permissionService.currentPrincipal();
         return negotiationRepository.findByPolicyNumberOrderByOpenedAtDesc(policy.getPolicyNumber())
                 .stream()
-                .map(this::mapToResponse)
+                .map(n -> mapToResponse(n, principal, policy))
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public NegotiationResponse getNegotiation(String policyNumber, String negotiationId, String actor) {
+        Policy policy = resolvePolicy(policyNumber);
+        permissionService.checkNegotiationRead(policy);
+        PriceNegotiation negotiation = resolveNegotiation(policy, negotiationId);
+        String principal = resolveActor(actor);
+        return mapToResponse(negotiation, principal, policy);
+    }
+
+    @Override
+    public NegotiationResponse setFloorPrice(String policyNumber, String negotiationId, Double floorPremium, String actor) {
+        permissionService.checkNegotiationWriteNotAdmin();
+        if (!permissionService.isUnderwriter()) {
+            throw new ForbiddenException("Chỉ chuyên viên thẩm định (UNDERWRITER) mới được đặt giá sàn.");
+        }
+        Policy policy = resolvePolicy(policyNumber);
+        PriceNegotiation negotiation = resolveNegotiation(policy, negotiationId);
+        String principal = resolveActor(actor);
+        checkOpenAndQuoted(policy, negotiation);
+
+        if (negotiation.getFloorPremium() != null) {
+            throw new BadRequestException("Giá sàn chỉ được đặt một lần và không thể thay đổi.");
+        }
+        // Kiểm tra xem UW đã có phản hồi nào trước đó chưa (dù là trả giá hay chấp nhận)
+        boolean uwHasResponded = (negotiation.getOffers() != null && negotiation.getOffers().stream()
+                .anyMatch(o -> o.getProposedByRole() == NegotiationRole.UNDERWRITER));
+        if (uwHasResponded) {
+            throw new BadRequestException("Chỉ được đặt giá sàn trước phản hồi đầu tiên của thẩm định viên.");
+        }
+        if (floorPremium == null || floorPremium <= 0) {
+            throw new BadRequestException("Giá sàn phải lớn hơn 0.");
+        }
+        if (floorPremium > negotiation.getListPremium()) {
+            throw new BadRequestException("Giá sàn không được vượt quá giá hệ thống " + negotiation.getListPremium() + ".");
+        }
+
+        negotiation.setFloorPremium(floorPremium);
+        PriceNegotiation saved = negotiationRepository.save(negotiation);
+        recordLedger(policy, TransactionType.PRICE_FLOOR, principal, "Đặt giá sàn: " + floorPremium + " VND");
+        recordAudit(principal, "SET_FLOOR_PRICE", "Policy: " + policy.getPolicyNumber() + ", floor: " + floorPremium);
+        log.info("Set floor price {} for negotiation {} by {}", floorPremium, negotiationId, principal);
+        return mapToResponse(saved, principal, policy);
     }
 
     @Override
@@ -101,6 +153,7 @@ public class NegotiationServiceImpl implements NegotiationService {
         PriceNegotiation negotiation = resolveNegotiation(policy, negotiationId);
         String principal = resolveActor(actor);
         checkOpenAndQuoted(policy, negotiation);
+
         // Lượt đi theo PHE: offer cuối của phe cầu → tới lượt phe cung và ngược lại.
         PriceOffer last = negotiation.getCurrentOffer();
         boolean lastWasSupply = last != null && last.getProposedByRole() == NegotiationRole.UNDERWRITER;
@@ -113,7 +166,14 @@ public class NegotiationServiceImpl implements NegotiationService {
                 throw new ForbiddenException("Chưa tới lượt của bạn: đang chờ underwriter phản hồi.");
             }
         }
+
         validatePremium(request, negotiation.getListPremium());
+
+        // Nếu người gửi là UNDERWRITER, không được gửi giá dưới sàn
+        if (!lastWasSupply && negotiation.getFloorPremium() != null && request.getProposedPremium() < negotiation.getFloorPremium()) {
+            throw new BadRequestException("Thẩm định viên không được trả giá thấp hơn giá sàn " + negotiation.getFloorPremium() + ".");
+        }
+
         if (negotiation.getOffers() == null) {
             negotiation.setOffers(new ArrayList<>());
         }
@@ -129,12 +189,15 @@ public class NegotiationServiceImpl implements NegotiationService {
         negotiation.getOffers().add(offer);
         negotiation.setCurrentOffer(offer);
         PriceNegotiation saved = negotiationRepository.save(negotiation);
-        // Hook đợt 2B: SAU khi offer đã save thành công. NotificationService
-        // failure-isolated nên không cần try/catch thêm ở đây.
+
+        recordLedger(policy, TransactionType.PRICE_COUNTER, principal,
+                "Trả giá: " + request.getProposedPremium() + " VND (vòng " + offer.getRound() + ")");
+        recordAudit(principal, "COUNTER_OFFER", "Policy: " + policy.getPolicyNumber() + ", price: " + request.getProposedPremium());
+
         if (notificationService != null) {
             notificationService.notifyNewOffer(policy, offer.getProposedByRole(), principal);
         }
-        return mapToResponse(saved);
+        return mapToResponse(saved, principal, policy);
     }
 
     @Override
@@ -145,22 +208,106 @@ public class NegotiationServiceImpl implements NegotiationService {
         String principal = resolveActor(actor);
         checkOpenAndQuoted(policy, negotiation);
         checkTurn(policy, negotiation, principal);
-        // accept/reject CHỈ flip status, KHÔNG append offer (PLAN §2.3).
-        double accepted = negotiation.getCurrentOffer() != null && negotiation.getCurrentOffer().getProposedPremium() != null
-                ? negotiation.getCurrentOffer().getProposedPremium()
-                : 0.0;
-        negotiation.setStatus(NegotiationStatus.ACCEPTED);
+
+        PriceOffer current = negotiation.getCurrentOffer();
+        if (current == null || current.getProposedPremium() == null) {
+            throw new BadRequestException("Không có đề xuất giá hợp lệ để chấp nhận.");
+        }
+
+        // Nếu người chấp nhận là UNDERWRITER, không được chấp nhận giá dưới sàn
+        if (permissionService.isUnderwriter()
+                && negotiation.getFloorPremium() != null
+                && current.getProposedPremium() < negotiation.getFloorPremium()) {
+            throw new BadRequestException("Thẩm định viên không được chấp nhận mức giá dưới giá sàn " + negotiation.getFloorPremium() + ".");
+        }
+
+        double accepted = current.getProposedPremium();
+        // Bước 1/2: Chuyển sang PENDING_CONFIRMATION, CHƯA ghi negotiatedPremium vào Policy
+        negotiation.setStatus(NegotiationStatus.PENDING_CONFIRMATION);
         negotiation.setAcceptedPremium(accepted);
+        PriceNegotiation saved = negotiationRepository.save(negotiation);
+
+        recordLedger(policy, TransactionType.PRICE_ACCEPT, principal,
+                "Chấp nhận mức giá " + accepted + " VND (chờ người đề xuất xác nhận)");
+        recordAudit(principal, "ACCEPT_OFFER", "Policy: " + policy.getPolicyNumber() + ", price: " + accepted);
+
+        log.info("Accepted negotiation {} for policy {} at {} (1/2, pending confirmation)", saved.getId(), policy.getPolicyNumber(), accepted);
+        return mapToResponse(saved, principal, policy);
+    }
+
+    @Override
+    public NegotiationResponse confirmNegotiation(String policyNumber, String negotiationId, String actor) {
+        permissionService.checkNegotiationWriteNotAdmin();
+        Policy policy = resolvePolicy(policyNumber);
+        PriceNegotiation negotiation = resolveNegotiation(policy, negotiationId);
+        String principal = resolveActor(actor);
+
+        if (policy.getStatus() != PolicyStatus.QUOTED) {
+            throw new BadRequestException("Chỉ thao tác thương lượng khi hợp đồng ở trạng thái QUOTED.");
+        }
+        if (negotiation.getStatus() != NegotiationStatus.PENDING_CONFIRMATION) {
+            throw new BadRequestException("Thương lượng không ở trạng thái chờ xác nhận.");
+        }
+
+        PriceOffer acceptedOffer = negotiation.getCurrentOffer();
+        if (acceptedOffer == null || acceptedOffer.getProposedByEmail() == null
+                || !acceptedOffer.getProposedByEmail().trim().equalsIgnoreCase(principal.trim())) {
+            throw new ForbiddenException("Chỉ người đã đề xuất mức giá này mới có quyền xác nhận chốt giá.");
+        }
+
+        double finalPrice = negotiation.getAcceptedPremium() != null ? negotiation.getAcceptedPremium() : acceptedOffer.getProposedPremium();
+        // Bước 2/2: Xác nhận chốt giá -> ACCEPTED và cập nhật Policy
+        negotiation.setStatus(NegotiationStatus.ACCEPTED);
+        negotiation.setAcceptedPremium(finalPrice);
         negotiation.setClosedBy(principal);
         negotiation.setClosedAt(Instant.now());
-        // Lưu negotiation trước để optimistic locking chặn accept đồng thời trước khi đổi giá policy.
         PriceNegotiation saved = negotiationRepository.save(negotiation);
-        policy.setTotalPremium(accepted);
-        policy.setNegotiatedPremium(accepted);
+
+        policy.setTotalPremium(finalPrice);
+        policy.setNegotiatedPremium(finalPrice);
         policy.setUpdatedAt(Instant.now());
         policyRepository.save(policy);
-        log.info("Accepted negotiation {} for policy {} at {}", saved.getId(), policy.getPolicyNumber(), accepted);
-        return mapToResponse(saved);
+
+        recordLedger(policy, TransactionType.PRICE_CONFIRM, principal,
+                "Xác nhận chốt giá thành công: " + finalPrice + " VND (2/2)");
+        recordAudit(principal, "CONFIRM_NEGOTIATION", "Policy: " + policy.getPolicyNumber() + ", price: " + finalPrice);
+
+        log.info("Confirmed negotiation {} for policy {} at {} (2/2, LOCKED)", saved.getId(), policy.getPolicyNumber(), finalPrice);
+        return mapToResponse(saved, principal, policy);
+    }
+
+    @Override
+    public NegotiationResponse declineConfirmation(String policyNumber, String negotiationId, String actor) {
+        permissionService.checkNegotiationWriteNotAdmin();
+        Policy policy = resolvePolicy(policyNumber);
+        PriceNegotiation negotiation = resolveNegotiation(policy, negotiationId);
+        String principal = resolveActor(actor);
+
+        if (policy.getStatus() != PolicyStatus.QUOTED) {
+            throw new BadRequestException("Chỉ thao tác thương lượng khi hợp đồng ở trạng thái QUOTED.");
+        }
+        if (negotiation.getStatus() != NegotiationStatus.PENDING_CONFIRMATION) {
+            throw new BadRequestException("Thương lượng không ở trạng thái chờ xác nhận.");
+        }
+
+        PriceOffer acceptedOffer = negotiation.getCurrentOffer();
+        if (acceptedOffer == null || acceptedOffer.getProposedByEmail() == null
+                || !acceptedOffer.getProposedByEmail().trim().equalsIgnoreCase(principal.trim())) {
+            throw new ForbiddenException("Chỉ người đã đề xuất mức giá này mới có quyền từ chối xác nhận.");
+        }
+
+        // Người đề xuất từ chối xác nhận -> mở lại OPEN, giá chấp nhận bị hủy, offer đó chuyển REJECTED
+        acceptedOffer.setDecision(OfferDecision.REJECTED);
+        negotiation.setStatus(NegotiationStatus.OPEN);
+        negotiation.setAcceptedPremium(null);
+        PriceNegotiation saved = negotiationRepository.save(negotiation);
+
+        recordLedger(policy, TransactionType.PRICE_REJECT, principal,
+                "Từ chối xác nhận chốt giá " + acceptedOffer.getProposedPremium() + " VND, mở lại thương lượng.");
+        recordAudit(principal, "DECLINE_CONFIRMATION", "Policy: " + policy.getPolicyNumber() + ", offer: " + acceptedOffer.getProposedPremium());
+
+        log.info("Declined confirmation for negotiation {} by {}, reopened to OPEN", saved.getId(), principal);
+        return mapToResponse(saved, principal, policy);
     }
 
     @Override
@@ -171,12 +318,70 @@ public class NegotiationServiceImpl implements NegotiationService {
         String principal = resolveActor(actor);
         checkOpenAndQuoted(policy, negotiation);
         checkTurn(policy, negotiation, principal);
-        negotiation.setStatus(NegotiationStatus.REJECTED);
-        negotiation.setClosedBy(principal);
-        negotiation.setClosedAt(Instant.now());
+
+        PriceOffer current = negotiation.getCurrentOffer();
+        if (current == null) {
+            throw new BadRequestException("Không có đề xuất giá để từ chối.");
+        }
+
+        // Theo yêu cầu: từ chối từng giá, giá đó chuyển REJECTED, thương lượng vẫn OPEN để trả giá tiếp
+        current.setDecision(OfferDecision.REJECTED);
+        negotiation.setStatus(NegotiationStatus.OPEN);
         PriceNegotiation saved = negotiationRepository.save(negotiation);
-        log.info("Rejected negotiation {} for policy {}", saved.getId(), policy.getPolicyNumber());
-        return mapToResponse(saved);
+
+        recordLedger(policy, TransactionType.PRICE_REJECT, principal,
+                "Từ chối mức giá " + current.getProposedPremium() + " VND (vòng " + current.getRound() + "), phiên vẫn mở.");
+        recordAudit(principal, "REJECT_OFFER", "Policy: " + policy.getPolicyNumber() + ", price: " + current.getProposedPremium());
+
+        log.info("Rejected offer round {} in negotiation {} by {}, negotiation remains OPEN",
+                current.getRound(), saved.getId(), principal);
+        return mapToResponse(saved, principal, policy);
+    }
+
+    @Override
+    public NegotiationResponse sendMessage(String policyNumber, String negotiationId, String content, String actor) {
+        permissionService.checkNegotiationWriteNotAdmin();
+        Policy policy = resolvePolicy(policyNumber);
+        PriceNegotiation negotiation = resolveNegotiation(policy, negotiationId);
+        String principal = resolveActor(actor);
+
+        if (policy.getStatus() != PolicyStatus.QUOTED) {
+            throw new BadRequestException("Chỉ thao tác thương lượng khi hợp đồng ở trạng thái QUOTED.");
+        }
+        if (negotiation.getStatus() == NegotiationStatus.ACCEPTED
+                || negotiation.getStatus() == NegotiationStatus.REJECTED
+                || negotiation.getStatus() == NegotiationStatus.SUPERSEDED) {
+            throw new BadRequestException("Thương lượng đã đóng/khóa, không thể gửi tin nhắn mới.");
+        }
+
+        boolean isDemand = permissionService.isDemandSide(policy, principal);
+        boolean isUW = permissionService.isUnderwriter();
+        if (!isDemand && !isUW) {
+            throw new ForbiddenException("Bạn không có quyền tham gia trao đổi trong hợp đồng này.");
+        }
+
+        if (content == null || content.trim().isBlank()) {
+            throw new BadRequestException("Nội dung tin nhắn không được để trống.");
+        }
+
+        if (negotiation.getMessages() == null) {
+            negotiation.setMessages(new ArrayList<>());
+        }
+
+        NegotiationRole role = isUW ? NegotiationRole.UNDERWRITER : demandRole(policy, principal);
+        NegotiationMessage msg = NegotiationMessage.builder()
+                .messageId(UUID.randomUUID().toString())
+                .senderEmail(principal)
+                .senderRole(role)
+                .content(content.trim())
+                .createdAt(Instant.now())
+                .build();
+
+        negotiation.getMessages().add(msg);
+        PriceNegotiation saved = negotiationRepository.save(negotiation);
+
+        recordLedger(policy, TransactionType.PRICE_CHAT, principal, "Gửi tin nhắn trao đổi thương lượng giá.");
+        return mapToResponse(saved, principal, policy);
     }
 
     private void checkTurn(Policy policy, PriceNegotiation negotiation, String principal) {
@@ -195,7 +400,7 @@ public class NegotiationServiceImpl implements NegotiationService {
 
     private void checkOpenAndQuoted(Policy policy, PriceNegotiation negotiation) {
         if (negotiation.getStatus() != NegotiationStatus.OPEN) {
-            throw new BadRequestException("Thương lượng này đã đóng, không thao tác được nữa.");
+            throw new BadRequestException("Thương lượng không ở trạng thái mở (OPEN), không thể thao tác.");
         }
         if (policy.getStatus() != PolicyStatus.QUOTED) {
             throw new BadRequestException("Chỉ thao tác thương lượng khi hợp đồng ở trạng thái QUOTED.");
@@ -237,19 +442,83 @@ public class NegotiationServiceImpl implements NegotiationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Negotiation not found with id: " + negotiationId));
     }
 
-    private NegotiationResponse mapToResponse(PriceNegotiation negotiation) {
+    private NegotiationResponse mapToResponse(PriceNegotiation negotiation, String principal, Policy policy) {
+        // Giá sàn ẩn với phe cầu: chỉ UW và ADMIN thấy
+        Double floor = null;
+        boolean isUWOrAdmin = permissionService.isUnderwriter() || permissionService.isAdmin();
+        if (isUWOrAdmin) {
+            floor = negotiation.getFloorPremium();
+        }
+
+        int confirmations = 0;
+        if (negotiation.getStatus() == NegotiationStatus.ACCEPTED) {
+            confirmations = 2;
+        } else if (negotiation.getStatus() == NegotiationStatus.PENDING_CONFIRMATION) {
+            confirmations = 1;
+        }
+
+        PriceOffer current = negotiation.getCurrentOffer();
+        String proposerEmail = current != null ? current.getProposedByEmail() : null;
+        boolean canConfirm = false;
+        boolean canDecline = false;
+        if (negotiation.getStatus() == NegotiationStatus.PENDING_CONFIRMATION
+                && proposerEmail != null
+                && principal != null
+                && proposerEmail.trim().equalsIgnoreCase(principal.trim())
+                && !permissionService.isAdmin()) {
+            canConfirm = true;
+            canDecline = true;
+        }
+
         return NegotiationResponse.builder()
                 .id(negotiation.getId())
                 .policyNumber(negotiation.getPolicyNumber())
                 .status(negotiation.getStatus())
                 .listPremium(negotiation.getListPremium())
+                .floorPremium(floor)
                 .currentOffer(negotiation.getCurrentOffer())
                 .acceptedPremium(negotiation.getAcceptedPremium())
-                .offers(negotiation.getOffers())
+                .offers(negotiation.getOffers() != null ? List.copyOf(negotiation.getOffers()) : List.of())
+                .messages(negotiation.getMessages() != null ? List.copyOf(negotiation.getMessages()) : List.of())
                 .openedBy(negotiation.getOpenedBy())
                 .openedAt(negotiation.getOpenedAt())
                 .closedBy(negotiation.getClosedBy())
                 .closedAt(negotiation.getClosedAt())
+                .confirmations(confirmations)
+                .proposerEmail(proposerEmail)
+                .canConfirm(canConfirm)
+                .canDecline(canDecline)
                 .build();
+    }
+
+    private void recordLedger(Policy policy, TransactionType type, String actor, String desc) {
+        if (transactionLedgerService != null) {
+            try {
+                transactionLedgerService.recordTransaction(
+                        policy.getPolicyNumber(),
+                        policy.getVersion(),
+                        type,
+                        actor != null ? actor : "System",
+                        desc
+                );
+            } catch (Exception e) {
+                log.warn("Failed to record ledger for policy {}: {}", policy.getPolicyNumber(), e.getMessage());
+            }
+        }
+    }
+
+    private void recordAudit(String actor, String action, String details) {
+        if (auditLogRepository != null) {
+            try {
+                auditLogRepository.save(AdminAuditLog.builder()
+                        .actorEmail(actor != null ? actor : "System")
+                        .targetEmail(details)
+                        .action(action)
+                        .createdAt(Instant.now())
+                        .build());
+            } catch (Exception e) {
+                log.warn("Failed to record audit log: {}", e.getMessage());
+            }
+        }
     }
 }

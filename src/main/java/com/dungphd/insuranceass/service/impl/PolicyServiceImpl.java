@@ -547,6 +547,12 @@ public class PolicyServiceImpl implements PolicyService {
                     open.setClosedAt(Instant.now());
                     negotiationRepository.save(open);
                 }
+                for (PriceNegotiation pending : negotiationRepository.findByPolicyNumberAndStatus(savedPolicy.getPolicyNumber(), NegotiationStatus.PENDING_CONFIRMATION)) {
+                    pending.setStatus(NegotiationStatus.REJECTED);
+                    pending.setClosedBy(actor);
+                    pending.setClosedAt(Instant.now());
+                    negotiationRepository.save(pending);
+                }
             }
             if (targetStatus == PolicyStatus.DRAFT) {
                 for (PriceNegotiation accepted : negotiationRepository.findByPolicyNumberAndStatus(savedPolicy.getPolicyNumber(), NegotiationStatus.ACCEPTED)) {
@@ -565,6 +571,12 @@ public class PolicyServiceImpl implements PolicyService {
                     open.setClosedAt(Instant.now());
                     negotiationRepository.save(open);
                 }
+                for (PriceNegotiation pending : negotiationRepository.findByPolicyNumberAndStatus(savedPolicy.getPolicyNumber(), NegotiationStatus.PENDING_CONFIRMATION)) {
+                    pending.setStatus(NegotiationStatus.SUPERSEDED);
+                    pending.setClosedBy(actor);
+                    pending.setClosedAt(Instant.now());
+                    negotiationRepository.save(pending);
+                }
             }
         }
 
@@ -582,11 +594,12 @@ public class PolicyServiceImpl implements PolicyService {
         return mapToPolicyResponse(savedPolicy);
     }
 
-    /** Khóa giá sau ACCEPTED còn hiệu lực (policy vẫn QUOTED): mọi update đổi phí → 400. */
+    /** Khóa giá sau ACCEPTED hoặc PENDING_CONFIRMATION còn hiệu lực (policy vẫn QUOTED): mọi update đổi phí → 400. */
     private void checkAcceptedNegotiationLock(Policy policy) {
         if (negotiationRepository != null && policy.getStatus() == PolicyStatus.QUOTED
-                && negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), NegotiationStatus.ACCEPTED)) {
-            throw new InvalidRequestException("Giá hợp đồng đã chốt qua thương lượng, không được sửa đổi phí khi còn ở trạng thái QUOTED.");
+                && (negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), NegotiationStatus.ACCEPTED)
+                    || negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), NegotiationStatus.PENDING_CONFIRMATION))) {
+            throw new InvalidRequestException("Giá hợp đồng đã chốt hoặc đang chờ xác nhận qua thương lượng, không được sửa đổi phí khi còn ở trạng thái QUOTED.");
         }
     }
 

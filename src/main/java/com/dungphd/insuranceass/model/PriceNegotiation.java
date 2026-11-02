@@ -32,14 +32,20 @@ public class PriceNegotiation {
     /** Giá hệ thống lúc mở (snapshot, không đổi trong vòng thương lượng). */
     private Double listPremium;
 
+    /** Giá sàn nội bộ: chỉ UNDERWRITER đặt tối đa 1 lần trước phản hồi đầu tiên của UW; ẩn đối với phe cầu. */
+    private Double floorPremium;
+
     /** Offer mới nhất (trỏ vào phần tử cuối của offers). */
     private PriceOffer currentOffer;
 
-    /** Set khi ACCEPTED. */
+    /** Mức giá đã được accept (khi PENDING_CONFIRMATION hoặc ACCEPTED). */
     private Double acceptedPremium;
 
     @Builder.Default
     private List<PriceOffer> offers = new ArrayList<>();
+
+    @Builder.Default
+    private List<NegotiationMessage> messages = new ArrayList<>();
 
     private String openedBy;
 

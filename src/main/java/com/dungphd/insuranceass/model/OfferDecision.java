@@ -1,7 +1,8 @@
 package com.dungphd.insuranceass.model;
 
-/** Chỉ 2 giá trị cho offer thường (PLAN §2.2). Accept/reject không append offer. */
+/** Trạng thái/hành động cho từng offer (PROPOSED, COUNTERED, REJECTED). */
 public enum OfferDecision {
     PROPOSED,
-    COUNTERED
+    COUNTERED,
+    REJECTED
 }
