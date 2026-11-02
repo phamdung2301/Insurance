@@ -214,6 +214,20 @@ public class NegotiationServiceImpl implements NegotiationService {
             throw new BadRequestException("Không có đề xuất giá hợp lệ để chấp nhận.");
         }
 
+        // LUẬT MỚI: Quyền quyết định thuộc về KHÁCH HÀNG
+        // - Giá do UW đưa -> chỉ CUSTOMER được chấp nhận. AGENT gọi -> 403.
+        // - Giá do phe cầu đưa -> chỉ UNDERWRITER được chấp nhận.
+        boolean lastWasSupply = current.getProposedByRole() == NegotiationRole.UNDERWRITER;
+        if (lastWasSupply) {
+            if (!isCustomer(policy, principal)) {
+                throw new ForbiddenException("Chỉ khách hàng (CUSTOMER) mới có quyền chấp nhận giá. Đại lý chỉ hỗ trợ deal giá.");
+            }
+        } else {
+            if (!permissionService.isUnderwriter()) {
+                throw new ForbiddenException("Chỉ chuyên viên thẩm định (UNDERWRITER) mới có quyền chấp nhận giá của phe cầu.");
+            }
+        }
+
         // Nếu người chấp nhận là UNDERWRITER, không được chấp nhận giá dưới sàn
         if (permissionService.isUnderwriter()
                 && negotiation.getFloorPremium() != null
@@ -250,9 +264,24 @@ public class NegotiationServiceImpl implements NegotiationService {
         }
 
         PriceOffer acceptedOffer = negotiation.getCurrentOffer();
-        if (acceptedOffer == null || acceptedOffer.getProposedByEmail() == null
-                || !acceptedOffer.getProposedByEmail().trim().equalsIgnoreCase(principal.trim())) {
-            throw new ForbiddenException("Chỉ người đã đề xuất mức giá này mới có quyền xác nhận chốt giá.");
+        if (acceptedOffer == null) {
+            throw new BadRequestException("Không có đề xuất giá để xác nhận.");
+        }
+
+        // LUẬT MỚI:
+        // - Offer do UW đưa -> chỉ UW xác nhận.
+        // - Offer do phe cầu đưa (CUSTOMER hoặc AGENT đưa) -> chỉ CUSTOMER xác nhận, kể cả khi AGENT là người đưa. AGENT gọi confirm -> 403.
+        boolean offerWasSupply = acceptedOffer.getProposedByRole() == NegotiationRole.UNDERWRITER;
+        if (offerWasSupply) {
+            if (!permissionService.isUnderwriter()
+                    || acceptedOffer.getProposedByEmail() == null
+                    || !acceptedOffer.getProposedByEmail().trim().equalsIgnoreCase(principal.trim())) {
+                throw new ForbiddenException("Chỉ thẩm định viên đã đề xuất mức giá này mới có quyền xác nhận chốt giá.");
+            }
+        } else {
+            if (!isCustomer(policy, principal)) {
+                throw new ForbiddenException("Chỉ khách hàng (CUSTOMER) mới có quyền xác nhận chốt giá khi giá do phe cầu đề xuất. Đại lý không có quyền xác nhận.");
+            }
         }
 
         double finalPrice = negotiation.getAcceptedPremium() != null ? negotiation.getAcceptedPremium() : acceptedOffer.getProposedPremium();
@@ -291,12 +320,24 @@ public class NegotiationServiceImpl implements NegotiationService {
         }
 
         PriceOffer acceptedOffer = negotiation.getCurrentOffer();
-        if (acceptedOffer == null || acceptedOffer.getProposedByEmail() == null
-                || !acceptedOffer.getProposedByEmail().trim().equalsIgnoreCase(principal.trim())) {
-            throw new ForbiddenException("Chỉ người đã đề xuất mức giá này mới có quyền từ chối xác nhận.");
+        if (acceptedOffer == null) {
+            throw new BadRequestException("Không có đề xuất giá để từ chối xác nhận.");
         }
 
-        // Người đề xuất từ chối xác nhận -> mở lại OPEN, giá chấp nhận bị hủy, offer đó chuyển REJECTED
+        boolean offerWasSupply = acceptedOffer.getProposedByRole() == NegotiationRole.UNDERWRITER;
+        if (offerWasSupply) {
+            if (!permissionService.isUnderwriter()
+                    || acceptedOffer.getProposedByEmail() == null
+                    || !acceptedOffer.getProposedByEmail().trim().equalsIgnoreCase(principal.trim())) {
+                throw new ForbiddenException("Chỉ thẩm định viên đã đề xuất mức giá này mới có quyền từ chối xác nhận.");
+            }
+        } else {
+            if (!isCustomer(policy, principal)) {
+                throw new ForbiddenException("Chỉ khách hàng (CUSTOMER) mới có quyền từ chối xác nhận chốt giá. Đại lý không có quyền này.");
+            }
+        }
+
+        // Người có thẩm quyền từ chối xác nhận -> mở lại OPEN, giá chấp nhận bị hủy, offer đó chuyển REJECTED
         acceptedOffer.setDecision(OfferDecision.REJECTED);
         negotiation.setStatus(NegotiationStatus.OPEN);
         negotiation.setAcceptedPremium(null);
@@ -416,9 +457,15 @@ public class NegotiationServiceImpl implements NegotiationService {
         }
     }
 
+    private boolean isCustomer(Policy policy, String principal) {
+        if (policy == null || policy.getInsured() == null || policy.getInsured().getEmail() == null || principal == null) {
+            return false;
+        }
+        return policy.getInsured().getEmail().trim().equalsIgnoreCase(principal.trim());
+    }
+
     private NegotiationRole demandRole(Policy policy, String principal) {
-        String insuredEmail = policy.getInsured() != null ? policy.getInsured().getEmail() : null;
-        if (insuredEmail != null && insuredEmail.trim().equalsIgnoreCase(principal.trim())) {
+        if (isCustomer(policy, principal)) {
             return NegotiationRole.CUSTOMER;
         }
         return NegotiationRole.AGENT;
@@ -462,12 +509,25 @@ public class NegotiationServiceImpl implements NegotiationService {
         boolean canConfirm = false;
         boolean canDecline = false;
         if (negotiation.getStatus() == NegotiationStatus.PENDING_CONFIRMATION
-                && proposerEmail != null
+                && current != null
                 && principal != null
-                && proposerEmail.trim().equalsIgnoreCase(principal.trim())
                 && !permissionService.isAdmin()) {
-            canConfirm = true;
-            canDecline = true;
+            boolean offerWasSupply = current.getProposedByRole() == NegotiationRole.UNDERWRITER;
+            if (offerWasSupply) {
+                // Offer do UW đưa -> chỉ UW (người đưa giá) mới có quyền confirm
+                if (permissionService.isUnderwriter()
+                        && current.getProposedByEmail() != null
+                        && current.getProposedByEmail().trim().equalsIgnoreCase(principal.trim())) {
+                    canConfirm = true;
+                    canDecline = true;
+                }
+            } else {
+                // Offer do phe cầu đưa (CUSTOMER hoặc AGENT) -> chỉ CUSTOMER mới có quyền confirm
+                if (isCustomer(policy, principal)) {
+                    canConfirm = true;
+                    canDecline = true;
+                }
+            }
         }
 
         return NegotiationResponse.builder()

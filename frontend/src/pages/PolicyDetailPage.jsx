@@ -520,8 +520,12 @@ function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
   // Kiểm tra xác nhận 2 lớp
   const isPendingConfirmation = shown?.status === 'PENDING_CONFIRMATION';
   const proposerEmail = shown?.proposerEmail || lastOffer?.proposedByEmail || '';
-  const canConfirm = isPendingConfirmation && !isAdminView && (
-    shown?.canConfirm || (proposerEmail && me === proposerEmail.toLowerCase())
+  const offerWasSupply = lastOffer?.proposedByRole === 'UNDERWRITER';
+  // LUẬT MỚI: AGENT không bao giờ canConfirm. Offer phe cầu đưa thì chỉ CUSTOMER canConfirm.
+  const canConfirm = isPendingConfirmation && !isAdminView && !isAgent && (
+    shown?.canConfirm != null ? shown.canConfirm : (
+      offerWasSupply ? (isSupply && lastOffer?.proposedByEmail?.toLowerCase() === me) : isCustomer
+    )
   );
 
   // Tiến trình xác nhận: 0/2, 1/2, 2/2
@@ -696,6 +700,13 @@ function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.25rem', alignItems: 'start' }}>
         {/* CỘT TRÁI: Tóm tắt giá, Tiến trình, Form gửi giá / đặt sàn, Lịch sử */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {isAgent && (
+            <div className="glass-card" style={{ padding: '0.75rem 1rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px' }}>
+              <span style={{ color: '#1e40af', fontSize: '0.875rem' }}>
+                ℹ️ <strong>Vai trò Đại lý:</strong> Bạn chỉ hỗ trợ khách hàng trả giá và trao đổi trực tiếp; quyền quyết định chấp nhận mức giá và xác nhận chốt hợp đồng hoàn toàn thuộc về khách hàng.
+              </span>
+            </div>
+          )}
           {/* Card Tóm tắt giá */}
           <div className="glass-card">
             <h4 style={{ marginTop: 0, marginBottom: '0.75rem' }}>Thông tin mức giá</h4>
@@ -827,9 +838,11 @@ function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
                     </button>
                     {lastOffer && (
                       <>
-                        <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => submitAction('accept')}>
-                          Chấp nhận mức giá hiện tại (1/2)
-                        </button>
+                        {(isSupply || isCustomer) && (
+                          <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => submitAction('accept')}>
+                            Chấp nhận mức giá hiện tại (1/2)
+                          </button>
+                        )}
                         <button type="button" className="btn btn-danger" disabled={busy} onClick={() => submitAction('reject')}>
                           Từ chối mức giá này
                         </button>

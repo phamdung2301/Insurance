@@ -314,7 +314,7 @@ class NegotiationServiceImplTest {
 
         ForbiddenException ex = assertThrows(ForbiddenException.class,
                 () -> negotiationService.confirmNegotiation(policyNumber, "neg-1", agentEmail));
-        assertTrue(ex.getMessage().contains("Chỉ người đã đề xuất mức giá này mới có quyền xác nhận chốt giá"));
+        assertTrue(ex.getMessage().contains("Đại lý không có quyền xác nhận") || ex.getMessage().contains("Chỉ khách hàng"));
     }
 
     @Test
@@ -441,6 +441,142 @@ class NegotiationServiceImplTest {
         assertEquals("Em xin giảm 15% ạ", resp.getMessages().get(0).getContent());
         assertEquals(customerEmail, resp.getMessages().get(0).getSenderEmail());
         assertEquals(NegotiationRole.CUSTOMER, resp.getMessages().get(0).getSenderRole());
+    }
+
+    @Test
+    @DisplayName("Luật mới 1: Agent gọi accept -> 403 Forbidden")
+    void agentAccept_ThrowsForbidden() {
+        // Offer hiện tại do UW đưa -> tới lượt phe cầu
+        PriceOffer uwOffer = PriceOffer.builder()
+                .round(2)
+                .proposedPremium(9_000_000.0)
+                .proposedByRole(NegotiationRole.UNDERWRITER)
+                .proposedByEmail(uwEmail)
+                .build();
+        openNegotiation.setCurrentOffer(uwOffer);
+        openNegotiation.getOffers().add(uwOffer);
+
+        when(permissionService.isDemandSide(quotedPolicy, agentEmail)).thenReturn(true);
+        when(negotiationRepository.findByIdAndPolicyNumber("neg-1", policyNumber)).thenReturn(Optional.of(openNegotiation));
+
+        ForbiddenException ex = assertThrows(ForbiddenException.class,
+                () -> negotiationService.acceptNegotiation(policyNumber, "neg-1", agentEmail));
+        assertTrue(ex.getMessage().contains("Chỉ khách hàng (CUSTOMER) mới có quyền chấp nhận giá"));
+    }
+
+    @Test
+    @DisplayName("Luật mới 2: Agent gọi confirm -> 403 Forbidden kể cả khi agent là người đưa giá")
+    void agentConfirm_EvenIfAgentProposed_ThrowsForbidden() {
+        // Offer do Agent đề xuất, UW đã accept (chuyển sang PENDING_CONFIRMATION)
+        PriceOffer agentOffer = PriceOffer.builder()
+                .round(1)
+                .proposedPremium(8_000_000.0)
+                .proposedByRole(NegotiationRole.AGENT)
+                .proposedByEmail(agentEmail)
+                .build();
+        openNegotiation.setCurrentOffer(agentOffer);
+        openNegotiation.setStatus(NegotiationStatus.PENDING_CONFIRMATION);
+        openNegotiation.setAcceptedPremium(8_000_000.0);
+
+        when(negotiationRepository.findByIdAndPolicyNumber("neg-1", policyNumber)).thenReturn(Optional.of(openNegotiation));
+
+        ForbiddenException ex = assertThrows(ForbiddenException.class,
+                () -> negotiationService.confirmNegotiation(policyNumber, "neg-1", agentEmail));
+        assertTrue(ex.getMessage().contains("Chỉ khách hàng (CUSTOMER) mới có quyền xác nhận chốt giá"));
+    }
+
+    @Test
+    @DisplayName("Luật mới 3: Agent đưa giá, UW chấp nhận, CUSTOMER xác nhận -> thành công, ghi giá chốt")
+    void agentProposed_UWAccepted_CustomerConfirmed_Success() {
+        PriceOffer agentOffer = PriceOffer.builder()
+                .round(1)
+                .proposedPremium(8_000_000.0)
+                .proposedByRole(NegotiationRole.AGENT)
+                .proposedByEmail(agentEmail)
+                .build();
+        openNegotiation.setCurrentOffer(agentOffer);
+        openNegotiation.setStatus(NegotiationStatus.PENDING_CONFIRMATION);
+        openNegotiation.setAcceptedPremium(8_000_000.0);
+
+        when(negotiationRepository.findByIdAndPolicyNumber("neg-1", policyNumber)).thenReturn(Optional.of(openNegotiation));
+        when(negotiationRepository.save(any(PriceNegotiation.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        NegotiationResponse resp = negotiationService.confirmNegotiation(policyNumber, "neg-1", customerEmail);
+        assertNotNull(resp);
+        assertEquals(NegotiationStatus.ACCEPTED, resp.getStatus());
+        assertEquals(2, resp.getConfirmations());
+        assertEquals(customerEmail, resp.getClosedBy());
+
+        // Policy được cập nhật cả totalPremium và negotiatedPremium
+        assertEquals(8_000_000.0, quotedPolicy.getTotalPremium());
+        assertEquals(8_000_000.0, quotedPolicy.getNegotiatedPremium());
+        verify(policyRepository).save(quotedPolicy);
+    }
+
+    @Test
+    @DisplayName("Luật mới 4: Agent đưa giá xong thì tới lượt UW (lượt phe cầu đã đi)")
+    void agentAddOffer_ThenUWTurn_DemandSideBlocked() {
+        // Offer hiện tại do UW đưa -> tới lượt phe cầu
+        PriceOffer uwOffer = PriceOffer.builder()
+                .round(2)
+                .proposedPremium(9_000_000.0)
+                .proposedByRole(NegotiationRole.UNDERWRITER)
+                .proposedByEmail(uwEmail)
+                .build();
+        openNegotiation.setCurrentOffer(uwOffer);
+        openNegotiation.getOffers().add(uwOffer);
+
+        when(permissionService.isDemandSide(quotedPolicy, agentEmail)).thenReturn(true);
+        when(negotiationRepository.findByIdAndPolicyNumber("neg-1", policyNumber)).thenReturn(Optional.of(openNegotiation));
+        when(negotiationRepository.save(any(PriceNegotiation.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // Agent đưa giá -> thành công (vòng 3)
+        NegotiationOfferRequest req = NegotiationOfferRequest.builder().proposedPremium(8_700_000.0).build();
+        NegotiationResponse resp = negotiationService.addOffer(policyNumber, "neg-1", req, agentEmail);
+        assertNotNull(resp);
+        assertEquals(3, resp.getOffers().size());
+        assertEquals(NegotiationRole.AGENT, resp.getCurrentOffer().getProposedByRole());
+
+        // Sau khi Agent đưa giá xong, lượt phe cầu đã đi -> phe cầu (Customer hoặc Agent) gửi tiếp sẽ bị 403 (đang chờ UW)
+        ForbiddenException ex = assertThrows(ForbiddenException.class,
+                () -> negotiationService.addOffer(policyNumber, "neg-1", req, customerEmail));
+        assertTrue(ex.getMessage().contains("đang chờ underwriter phản hồi"));
+    }
+
+    @Test
+    @DisplayName("Luật mới 5: UW đưa giá, CUSTOMER chấp nhận, UW xác nhận -> thành công")
+    void uwProposed_CustomerAccepted_UWConfirmed_Success() {
+        // Offer do UW đưa
+        PriceOffer uwOffer = PriceOffer.builder()
+                .round(2)
+                .proposedPremium(8_800_000.0)
+                .proposedByRole(NegotiationRole.UNDERWRITER)
+                .proposedByEmail(uwEmail)
+                .build();
+        openNegotiation.setCurrentOffer(uwOffer);
+        openNegotiation.getOffers().add(uwOffer);
+
+        when(permissionService.isDemandSide(quotedPolicy, customerEmail)).thenReturn(true);
+        when(permissionService.isUnderwriter()).thenReturn(true);
+        when(negotiationRepository.findByIdAndPolicyNumber("neg-1", policyNumber)).thenReturn(Optional.of(openNegotiation));
+        when(negotiationRepository.save(any(PriceNegotiation.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // 1. Customer chấp nhận giá của UW -> 1/2 PENDING_CONFIRMATION
+        NegotiationResponse acceptResp = negotiationService.acceptNegotiation(policyNumber, "neg-1", customerEmail);
+        assertEquals(NegotiationStatus.PENDING_CONFIRMATION, acceptResp.getStatus());
+        assertEquals(1, acceptResp.getConfirmations());
+        assertEquals(8_800_000.0, acceptResp.getAcceptedPremium());
+
+        // 2. UW xác nhận chốt giá -> 2/2 ACCEPTED
+        NegotiationResponse confirmResp = negotiationService.confirmNegotiation(policyNumber, "neg-1", uwEmail);
+        assertEquals(NegotiationStatus.ACCEPTED, confirmResp.getStatus());
+        assertEquals(2, confirmResp.getConfirmations());
+        assertEquals(uwEmail, confirmResp.getClosedBy());
+
+        // Giá chốt được ghi vào policy
+        assertEquals(8_800_000.0, quotedPolicy.getTotalPremium());
+        assertEquals(8_800_000.0, quotedPolicy.getNegotiatedPremium());
+        verify(policyRepository).save(quotedPolicy);
     }
 }
 
