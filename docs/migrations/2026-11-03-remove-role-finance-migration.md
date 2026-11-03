@@ -38,3 +38,4 @@ db.users.find({ roles: "ROLE_ADMIN" }).forEach(function(u) {
 // 4. Kiểm tra lại sau migration
 db.users.find({ roles: "ROLE_FINANCE" }).count(); // Kết quả mong đợi: 0
 ```
+

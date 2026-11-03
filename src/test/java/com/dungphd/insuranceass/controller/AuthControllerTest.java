@@ -117,7 +117,8 @@ class AuthControllerTest {
 
         when(authService.getMe("user@gmail.com")).thenReturn(profile);
 
-        mockMvc.perform(get("/auth/me")
+        java.security.Principal mockPrincipal = () -> "user@gmail.com";
+        mockMvc.perform(get("/auth/me").principal(mockPrincipal)
                         .header("X-User-Email", "user@gmail.com"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))

@@ -82,7 +82,7 @@ class UnderwriterQueueServiceImplTest {
     @Test
     void underwriter_filtersToOpenAndUnderwriterTurnOnly() {
         authenticateAs("uw@example.com", "ROLE_UNDERWRITER");
-        when(negotiationRepository.findByStatusOrderByOpenedAtAsc(any())).thenReturn(List.of(
+        when(negotiationRepository.findByStatusInOrderByOpenedAtAsc(any())).thenReturn(List.of(
                 negotiation("POL-OPEN-DEMAND", NegotiationStatus.OPEN, NegotiationRole.CUSTOMER,
                         Instant.parse("2026-10-20T00:00:00Z")),
                 negotiation("POL-OPEN-AGENT", NegotiationStatus.OPEN, NegotiationRole.AGENT,
@@ -110,7 +110,7 @@ class UnderwriterQueueServiceImplTest {
     @Test
     void underwriter_sortsByOpenedAtAscending_oldestFirst() {
         authenticateAs("uw@example.com", "ROLE_UNDERWRITER");
-        when(negotiationRepository.findByStatusOrderByOpenedAtAsc(any())).thenReturn(List.of(
+        when(negotiationRepository.findByStatusInOrderByOpenedAtAsc(any())).thenReturn(List.of(
                 negotiation("POL-NEW", NegotiationStatus.OPEN, NegotiationRole.CUSTOMER,
                         Instant.parse("2026-10-29T00:00:00Z")),
                 negotiation("POL-OLD", NegotiationStatus.OPEN, NegotiationRole.CUSTOMER,
@@ -128,7 +128,7 @@ class UnderwriterQueueServiceImplTest {
     @Test
     void admin_canAccessQueue() {
         authenticateAs("admin@example.com", "ROLE_ADMIN");
-        when(negotiationRepository.findByStatusOrderByOpenedAtAsc(any())).thenReturn(List.of(
+        when(negotiationRepository.findByStatusInOrderByOpenedAtAsc(any())).thenReturn(List.of(
                 negotiation("POL-1", NegotiationStatus.OPEN, NegotiationRole.CUSTOMER,
                         Instant.parse("2026-10-20T00:00:00Z"))));
 

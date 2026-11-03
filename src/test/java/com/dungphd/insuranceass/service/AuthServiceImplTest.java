@@ -54,6 +54,7 @@ class AuthServiceImplTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(authService, "adminEmailsConfig", "dungphdse@gmail.com,admin@insurtech.vn");
+        ReflectionTestUtils.setField(authService, "devQuickSwitchEnabled", true);
     }
 
     @Test

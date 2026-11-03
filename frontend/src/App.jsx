@@ -33,6 +33,9 @@ import { ComparePackagesPage } from './pages/ComparePackagesPage';
 import { PendingEndorsementsPage } from './pages/PendingEndorsementsPage';
 import { PermissionMatrixPage } from './pages/PermissionMatrixPage';
 import { LoginHistoryPage } from './pages/LoginHistoryPage';
+import { ClaimsPage } from './pages/ClaimsPage';
+import { CreateClaimPage } from './pages/CreateClaimPage';
+import { ClaimDetailPage } from './pages/ClaimDetailPage';
 
 const TITLES = {
   '/': 'Hợp đồng của tôi',
@@ -57,6 +60,8 @@ const TITLES = {
   '/cho-duyet': 'Chờ duyệt endorsement',
   '/admin/phan-quyen': 'Ma trận phân quyền',
   '/ho-so/lich-su-dang-nhap': 'Lịch sử đăng nhập',
+  '/claims': 'Hồ sơ bồi thường',
+  '/claims/new': 'Yêu cầu bồi thường mới',
 };
 
 function Shell({ title, children }) {
@@ -79,7 +84,7 @@ const page = (path, el, roles) => (
     path={path}
     element={
       <ProtectedRoute roles={roles}>
-        <Shell title={path.startsWith('/hop-dong/') ? 'Chi tiết hợp đồng' : TITLES[path] || ''}>
+        <Shell title={path.startsWith('/hop-dong/') ? 'Chi tiết hợp đồng' : (path.startsWith('/claims/') && path !== '/claims/new') ? 'Chi tiết bồi thường' : TITLES[path] || ''}>
           <div className="page-wrapper"><PageShell>{withErrorBoundary(el, TITLES[path] || path)}</PageShell></div>
         </Shell>
       </ProtectedRoute>
@@ -110,7 +115,7 @@ function AnimatedRoutes() {
         {page('/admin', <AdminDashboardPage />, ['ROLE_ADMIN'])}
         {page('/admin/hop-dong', <AdminPolicyListPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER'])}
         {page('/admin/excel', <ExcelToolsPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER'])}
-                {page('/admin/users', <AdminUserPage />, ['ROLE_ADMIN'])}
+        {page('/admin/users', <AdminUserPage />, ['ROLE_ADMIN'])}
         {BENCHMARK_ENABLED
           ? page('/admin/benchmark', <BenchmarkPage />, ['ROLE_ADMIN'])
           : <Route path="/admin/benchmark" element={<Navigate to="/admin" replace />} />}
@@ -125,6 +130,9 @@ function AnimatedRoutes() {
         {page('/cho-duyet', <PendingEndorsementsPage />)}
         {page('/admin/phan-quyen', <PermissionMatrixPage />, ['ROLE_ADMIN'])}
         {page('/ho-so/lich-su-dang-nhap', <LoginHistoryPage />)}
+        {page('/claims', <ClaimsPage />)}
+        {page('/claims/new', <CreateClaimPage />, ['ROLE_CUSTOMER', 'ROLE_USER'])}
+        {page('/claims/:id', <ClaimDetailPage />)}
         {import.meta.env.DEV && (
           <Route path="/dev/api-tester" element={<DevTester />} />
         )}

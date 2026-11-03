@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   MapPin, Plus, Pencil, Trash2, ChevronDown, History,
-  FileText, ArrowLeft, CreditCard, Zap, Send, SlidersHorizontal, Download, Check,
+  FileText, ArrowLeft, CreditCard, Zap, Send, SlidersHorizontal, Download, Check, ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -248,6 +248,8 @@ export function PolicyDetailPage() {
   // chuyển trạng thái / thanh toán / endorsement thuộc CUSTOMER (chủ), AGENT
   // (được giao) và ADMIN; UNDERWRITER/FINANCE xem chi tiết ở chế độ đọc.
   const canManage = hasAnyRole(['ROLE_CUSTOMER', 'ROLE_AGENT', 'ROLE_ADMIN']);
+  const isInsured = !policy.insured?.email || (user?.email && policy.insured.email.toLowerCase() === user.email.toLowerCase());
+  const canClaim = (hasRole('ROLE_CUSTOMER') || hasRole('ROLE_USER')) && isInsured;
   const isAdmin = hasRole('ROLE_ADMIN');
 
   return (
@@ -285,6 +287,8 @@ export function PolicyDetailPage() {
         isAdmin={isAdmin}
         canManage={canManage}
         isPaymentClaimed={isPaymentClaimed}
+        canClaim={canClaim}
+        onClaim={() => navigate(`/claims/new?policyNumber=${policy.policyNumber}`)}
         busy={busy}
         onRequestQuote={requestQuote}
         onAcceptQuote={acceptQuote}
@@ -413,7 +417,7 @@ export function PolicyDetailPage() {
 // Nút bấm filter theo role VÀ status (PLAN §1.4/§1.3): FE chỉ ẩn/hiện cho UX,
 // BE vẫn check lại mọi transition. Nút xác nhận thu tiền của FINANCE KHÔNG ở
 // đây mà ở trang đối soát /admin/doi-soat.
-function ActionBar({ status, isAdmin, canManage, isPaymentClaimed, busy, onRequestQuote, onAcceptQuote, onPayNow, onAdminActivate, onEndorse, onDelete }) {
+function ActionBar({ status, isAdmin, canManage, isPaymentClaimed, canClaim, onClaim, busy, onRequestQuote, onAcceptQuote, onPayNow, onAdminActivate, onEndorse, onDelete }) {
   const btn = (props, children) => (
     <button type="button" className="btn" disabled={busy} {...props}>{children}</button>
   );
@@ -432,7 +436,12 @@ function ActionBar({ status, isAdmin, canManage, isPaymentClaimed, busy, onReque
           {isAdmin && btn({ className: 'btn btn-secondary', onClick: onAdminActivate }, <><Zap size={16} /> Kích hoạt trực tiếp</>)}
         </>
       )}
-      {status === 'ACTIVE' && canManage && btn({ className: 'btn btn-secondary', onClick: onEndorse }, <><SlidersHorizontal size={16} /> Yêu cầu điều chỉnh</>)}
+      {status === 'ACTIVE' && (
+        <>
+          {canManage && btn({ className: 'btn btn-secondary', onClick: onEndorse }, <><SlidersHorizontal size={16} /> Yêu cầu điều chỉnh</>)}
+          {canClaim && btn({ className: 'btn btn-warning', style: { backgroundColor: '#ea580c', borderColor: '#ea580c', color: '#fff' }, onClick: onClaim }, <><ShieldAlert size={16} /> Yêu cầu bồi thường</>)}
+        </>
+      )}
     </div>
   );
 }
