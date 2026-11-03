@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   ShieldCheck, ShieldAlert, Home, ShoppingCart, LayoutDashboard, FileText,
-  TableProperties, Gauge, Database, User, X, Users, HandCoins, BarChart3,
+  Gauge, Database, User, X, Users, HandCoins, BarChart3,
   MessagesSquare, ScrollText, CreditCard, Scale, Clock, History,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -27,7 +27,6 @@ export function Sidebar({ open, onClose }) {
     { to: '/admin', label: 'Tổng quan', icon: <LayoutDashboard size={18} />, end: true, roles: ['ROLE_ADMIN'] },
     { to: '/admin/hop-dong', label: 'Quản lý hợp đồng', icon: <FileText size={18} />, roles: ['ROLE_ADMIN', 'ROLE_UNDERWRITER'] },
     { to: '/claims', label: 'Duyệt bồi thường', icon: <ShieldAlert size={18} />, roles: ['ROLE_ADMIN', 'ROLE_UNDERWRITER'] },
-    { to: '/admin/excel', label: 'Bảng giá Excel', icon: <TableProperties size={18} />, roles: ['ROLE_ADMIN', 'ROLE_UNDERWRITER'] },
     { to: '/admin/users', label: 'Quản lý người dùng', icon: <Users size={18} />, roles: ['ROLE_ADMIN'] },
     { to: '/admin/reports', label: 'Báo cáo', icon: <BarChart3 size={18} />, roles: ['ROLE_ADMIN', 'ROLE_UNDERWRITER'] },
     { to: '/admin/thuong-luong', label: 'Thương lượng', icon: <MessagesSquare size={18} />, roles: ['ROLE_UNDERWRITER', 'ROLE_ADMIN'] },

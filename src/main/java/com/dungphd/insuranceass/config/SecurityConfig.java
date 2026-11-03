@@ -107,9 +107,6 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/**").authenticated()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/user/**", "/api/user/**").authenticated()
-                        // Thứ tự quan trọng (match đầu tiên thắng): /excel trước /admin
-                        // vì UNDERWRITER được vào excel nhưng không được vào /admin/**.
-                        .requestMatchers("/excel/**", "/api/excel/**").hasAnyRole("ADMIN", "UNDERWRITER")
                         // Đợt 2A: hàng đợi thương lượng cho UNDERWRITER (+ ADMIN xem).
                         // Prefix riêng, không xung đột matcher khác; đứng trong nhóm
                         // matcher có role, trước anyRequest().authenticated() cuối.

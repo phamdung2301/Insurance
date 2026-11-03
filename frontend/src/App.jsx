@@ -18,7 +18,6 @@ import { ProfilePage } from './pages/ProfilePage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { AdminPolicyListPage } from './pages/AdminPolicyListPage';
-import { ExcelToolsPage } from './pages/ExcelToolsPage';
 import { BenchmarkPage } from './pages/BenchmarkPage';
 import { IndexAuditPage } from './pages/IndexAuditPage';
 import { ReportsPage } from './pages/ReportsPage';
@@ -44,7 +43,6 @@ const TITLES = {
   '/doi-mat-khau': 'Đổi mật khẩu',
   '/admin': 'Tổng quan quản trị',
   '/admin/hop-dong': 'Quản lý hợp đồng',
-  '/admin/excel': 'Bảng giá Excel',
   '/admin/doi-soat': 'Đối soát thanh toán',
   '/admin/users': 'Quản lý người dùng',
   '/admin/benchmark': 'Kiểm thử hiệu năng',
@@ -114,7 +112,6 @@ function AnimatedRoutes() {
         {page('/thong-bao', <NotificationsPage />)}
         {page('/admin', <AdminDashboardPage />, ['ROLE_ADMIN'])}
         {page('/admin/hop-dong', <AdminPolicyListPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER'])}
-        {page('/admin/excel', <ExcelToolsPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER'])}
         {page('/admin/users', <AdminUserPage />, ['ROLE_ADMIN'])}
         {BENCHMARK_ENABLED
           ? page('/admin/benchmark', <BenchmarkPage />, ['ROLE_ADMIN'])

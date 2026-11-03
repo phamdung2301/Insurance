@@ -135,8 +135,6 @@ export const excelService = {
     });
   },
   calculate: (payload) => api.post('/excel/calculate', payload),
-  downloadBreakdown: (policyNumber) =>
-    api.get(`/excel/policy/${encodeURIComponent(policyNumber)}/download`, { responseType: 'blob' }),
   getRates: () => api.get('/excel/rates'),
 };
 

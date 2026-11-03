@@ -5,15 +5,12 @@ import com.dungphd.insuranceass.model.Insured;
 import com.dungphd.insuranceass.model.Policy;
 import com.dungphd.insuranceass.model.PolicyNote;
 import com.dungphd.insuranceass.model.PolicyStatus;
-import com.dungphd.insuranceass.model.RateImport;
 import com.dungphd.insuranceass.model.RefundRecord;
 import com.dungphd.insuranceass.repository.PolicyNoteRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
-import com.dungphd.insuranceass.repository.RateImportRepository;
 import com.dungphd.insuranceass.repository.RefundRecordRepository;
 import com.dungphd.insuranceass.service.impl.FinanceReconciliationServiceImpl;
 import com.dungphd.insuranceass.service.impl.PolicyNoteServiceImpl;
-import com.dungphd.insuranceass.service.impl.PricingExcelServiceImpl;
 import com.dungphd.insuranceass.service.impl.RefundServiceImpl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,24 +19,21 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 /**
- * Đợt 3C: notes UW, lịch sử import rates, refund + export đối soát.
+ * Đợt 3C: notes UW, refund + export đối soát.
  * PermissionService thật + SecurityContextHolder thật (mẫu đợt 2A) để
  * fail-closed được kiểm chứng thật, không mock permission.
  */
@@ -54,9 +48,6 @@ class W3cNotesRefundRateImportTest {
 
     @Mock
     private PolicyRepository policyRepository;
-
-    @Mock
-    private RateImportRepository rateImportRepository;
 
     private final PermissionService permissionService = new PermissionService();
 
@@ -117,64 +108,6 @@ class W3cNotesRefundRateImportTest {
         assertThrows(ForbiddenException.class, () -> noteService.listNotes("HD-1"));
         assertThrows(ForbiddenException.class, () -> noteService.addNote("HD-1", "x"));
         verifyNoInteractions(policyNoteRepository);
-    }
-
-    // ---------- Việc 2: lịch sử import ----------
-
-    private MockMultipartFile templateFile() {
-        PricingExcelServiceImpl svc = new PricingExcelServiceImpl(policyRepository);
-        byte[] bytes = svc.generatePricingTemplate();
-        return new MockMultipartFile("file", "matrix.xlsx",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes);
-    }
-
-    @Test
-    void rateImport_savesHistoryWithPrincipalFileNameAndCount() {
-        PricingExcelServiceImpl svc = new PricingExcelServiceImpl(policyRepository);
-        ReflectionTestUtils.setField(svc, "rateImportRepository", rateImportRepository);
-        ReflectionTestUtils.setField(svc, "permissionService", permissionService);
-        when(rateImportRepository.save(any(RateImport.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        authenticateAs("admin@x.vn", "ROLE_ADMIN");
-        Map<String, Object> result = svc.importRatesFromExcel(templateFile());
-        assertTrue((int) result.get("updatedCount") >= 6);
-
-        ArgumentCaptor<RateImport> captor = ArgumentCaptor.forClass(RateImport.class);
-        verify(rateImportRepository).save(captor.capture());
-        RateImport history = captor.getValue();
-        assertEquals("admin@x.vn", history.getImportedBy());
-        assertEquals("matrix.xlsx", history.getFileName());
-        assertEquals((int) result.get("updatedCount"), history.getRatesCount());
-        assertNotNull(history.getImportedAt());
-    }
-
-    @Test
-    void rateImport_mainImportStillSucceedsWhenHistorySaveFails() {
-        PricingExcelServiceImpl svc = new PricingExcelServiceImpl(policyRepository);
-        ReflectionTestUtils.setField(svc, "rateImportRepository", rateImportRepository);
-        ReflectionTestUtils.setField(svc, "permissionService", permissionService);
-        when(rateImportRepository.save(any(RateImport.class)))
-                .thenThrow(new RuntimeException("Mongo down"));
-
-        // Không principal → importedBy rơi về "System", nhưng save lỗi vẫn
-        // phải bị nuốt và import chính trả kết quả bình thường.
-        SecurityContextHolder.clearContext();
-        Map<String, Object> result = svc.importRatesFromExcel(templateFile());
-        assertTrue((int) result.get("updatedCount") >= 6);
-    }
-
-    @Test
-    void rateImport_noPrincipalRecordsSystem() {
-        PricingExcelServiceImpl svc = new PricingExcelServiceImpl(policyRepository);
-        ReflectionTestUtils.setField(svc, "rateImportRepository", rateImportRepository);
-        ReflectionTestUtils.setField(svc, "permissionService", permissionService);
-        when(rateImportRepository.save(any(RateImport.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        SecurityContextHolder.clearContext();
-        svc.importRatesFromExcel(templateFile());
-        ArgumentCaptor<RateImport> captor = ArgumentCaptor.forClass(RateImport.class);
-        verify(rateImportRepository).save(captor.capture());
-        assertEquals("System", captor.getValue().getImportedBy());
     }
 
     // ---------- Việc 3: refund ----------
