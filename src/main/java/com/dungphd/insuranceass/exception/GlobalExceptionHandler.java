@@ -8,6 +8,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -91,6 +92,29 @@ public class GlobalExceptionHandler {
                         .message("Validation failed: " + errorSummary)
                         .data(errors)
                         .build());
+    }
+
+    /**
+     * ResponseStatusException thrown by controllers (e.g. UNAUTHORIZED "Yêu cầu
+     * đăng nhập" from User/Policy/AgentCommission/LoginHistory/Notification
+     * controllers) must keep its original status. Without this handler Spring
+     * resolves the most specific match in this advice, which was the generic
+     * {@code Exception} handler below, turning every such error into 500.
+     * This handler is more specific than {@code Exception}, so it wins
+     * regardless of declaration order. Filter-chain 401s never reach this
+     * advice and are unaffected. Body shape matches the other error handlers:
+     * {@code ApiResponse.error(message)} (success=false, message, data=null).
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiResponse<Void>> handleResponseStatus(ResponseStatusException ex) {
+        String message = ex.getReason();
+        if (message == null || message.isBlank()) {
+            message = ex.getStatusCode() instanceof HttpStatus status
+                    ? status.getReasonPhrase()
+                    : ex.getStatusCode().toString();
+        }
+        return ResponseEntity.status(ex.getStatusCode())
+                .body(ApiResponse.error(message));
     }
 
     @ExceptionHandler(Exception.class)
