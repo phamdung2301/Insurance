@@ -79,7 +79,6 @@ class PendingEndorsementServiceImplTest {
         lenient().when(permissionService.currentPrincipal()).thenReturn("uw@x.com");
         lenient().when(permissionService.isUnderwriter()).thenReturn(true);
         lenient().when(permissionService.isAdmin()).thenReturn(false);
-        lenient().when(permissionService.isFinance()).thenReturn(false);
     }
 
     @Test
@@ -170,23 +169,10 @@ class PendingEndorsementServiceImplTest {
     }
 
     @Test
-    void list_Finance_Forbidden() {
-        when(permissionService.currentPrincipal()).thenReturn("fin@x.com");
-        when(permissionService.isUnderwriter()).thenReturn(false);
-        when(permissionService.isAdmin()).thenReturn(false);
-        when(permissionService.isFinance()).thenReturn(true);
-        when(pendingRepository.findByStatusOrderByRequestedAtAsc(PendingEndorsementStatus.PENDING))
-                .thenReturn(List.of(pending));
-
-        assertThrows(ForbiddenException.class, () -> pendingService.listPendingForCurrentUser());
-    }
-
-    @Test
     void list_Customer_SeesOnlyOwnPolicies() {
         when(permissionService.currentPrincipal()).thenReturn("cust@x.com");
         when(permissionService.isUnderwriter()).thenReturn(false);
         when(permissionService.isAdmin()).thenReturn(false);
-        when(permissionService.isFinance()).thenReturn(false);
         Policy otherPolicy = Policy.builder().policyNumber("POL-OTHER").build();
         when(policyRepository.findByPolicyNumber("POL-OTHER")).thenReturn(Optional.of(otherPolicy));
         when(permissionService.isDemandSide(eq(policy), eq("cust@x.com"))).thenReturn(true);

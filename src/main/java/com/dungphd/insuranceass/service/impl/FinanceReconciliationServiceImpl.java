@@ -27,21 +27,21 @@ public class FinanceReconciliationServiceImpl implements FinanceReconciliationSe
     private final PolicyRepository policyRepository;
     private final PermissionService permissionService;
 
-    private void checkFinanceOrAdmin() {
-        if (!permissionService.isFinance() && !permissionService.isAdmin()) {
-            throw new ForbiddenException("Chỉ FINANCE hoặc ADMIN mới được xem dữ liệu đối soát.");
+    private void checkAdmin() {
+        if (!permissionService.isAdmin()) {
+            throw new ForbiddenException("Chỉ ADMIN mới được xem dữ liệu đối soát.");
         }
     }
 
     @Override
     public List<RefundRecord> listRefunds() {
-        checkFinanceOrAdmin();
+        checkAdmin();
         return refundRecordRepository.findAllByOrderByCreatedAtDesc();
     }
 
     @Override
     public String exportReconciliationCsv(LocalDate from, LocalDate to) {
-        checkFinanceOrAdmin();
+        checkAdmin();
         // Khoảng ngày bao cả 2 đầu: [from 00:00 UTC, to+1 ngày 00:00 UTC).
         Instant fromInstant = from != null ? from.atStartOfDay(ZoneOffset.UTC).toInstant() : null;
         Instant toExclusive = to != null ? to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant() : null;
@@ -67,12 +67,6 @@ public class FinanceReconciliationServiceImpl implements FinanceReconciliationSe
         }
 
         // Nhóm 2 — đã xác nhận: ACTIVE (đi qua BOUND → ACTIVE).
-        // GIẢ ĐỊNH: Policy không có field thời gian xác nhận riêng nên dùng
-        // updatedAt (@LastModifiedDate) làm mốc "ngày xác nhận".
-        // Hạn chế đã biết: ACTIVE do ADMIN kích hoạt trực tiếp (không qua
-        // BOUND) cũng lọt vào nhóm này nếu updatedAt trong khoảng ngày —
-        // không phân biệt được bằng field hiện có; khi có confirmedAt riêng
-        // thì lọc thêm field đó ở đây.
         for (Policy p : policyRepository.findByStatus(PolicyStatus.ACTIVE)) {
             if (p.getUpdatedAt() == null) {
                 continue;

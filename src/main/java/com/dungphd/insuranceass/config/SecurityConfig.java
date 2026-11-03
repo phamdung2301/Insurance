@@ -114,20 +114,15 @@ public class SecurityConfig {
                         // Prefix riêng, không xung đột matcher khác; đứng trong nhóm
                         // matcher có role, trước anyRequest().authenticated() cuối.
                         .requestMatchers("/underwriter/**", "/api/underwriter/**").hasAnyRole("UNDERWRITER", "ADMIN")
-                        // Đợt 3C: đối soát cho FINANCE (+ ADMIN xem). Prefix
-                        // riêng, đứng trong nhóm matcher có role, trước
-                        // anyRequest().authenticated() cuối.
-                        .requestMatchers("/finance/**", "/api/finance/**").hasAnyRole("FINANCE", "ADMIN")
                         // Nối ở merge đợt 3 (tăng cường, service vẫn enforce lại):
                         // /agent/** chỉ AGENT + ADMIN (trước đây rơi vào anyRequest).
                         .requestMatchers("/agent/**", "/api/agent/**").hasAnyRole("AGENT", "ADMIN")
                         .requestMatchers("/admin/**", "/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/benchmark/**", "/api/benchmark/**").hasRole("ADMIN")
-                        // Đợt 1C §3(b): FINANCE chỉ được ĐỌC báo cáo. Matcher GET PHẢI
-                        // đứng trước matcher chung (match đầu thắng); POST/PUT/DELETE
-                        // trên /reports/** vẫn chỉ ADMIN (matcher chung phía dưới).
-                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/reports/**", "/api/reports/**").hasAnyRole("ADMIN", "FINANCE")
+                        // GET báo cáo: ADMIN + UNDERWRITER được đọc.
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/reports/**", "/api/reports/**").hasAnyRole("ADMIN", "UNDERWRITER")
                         .requestMatchers("/reports/**", "/api/reports/**").hasRole("ADMIN")
+                        .requestMatchers("/claims/**", "/api/claims/**").authenticated()
                         // Khóa các endpoint nghiệp vụ: yêu cầu đăng nhập (đóng lỗ hổng 28 endpoints public)
                         // Frontend mọi trang đều qua ProtectedRoute nên không gãy luồng nào
                         // Đợt 4B: maker-checker endorsement — matcher CHỈ authenticated

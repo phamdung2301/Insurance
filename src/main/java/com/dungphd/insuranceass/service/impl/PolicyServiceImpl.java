@@ -107,9 +107,6 @@ public class PolicyServiceImpl implements PolicyService {
             if (permissionService.isUnderwriter()) {
                 throw new ForbiddenException("Vai trò UNDERWRITER không được tạo hợp đồng.");
             }
-            if (permissionService.isFinance()) {
-                throw new ForbiddenException("Vai trò FINANCE không được tạo hợp đồng.");
-            }
         }
         if (policyRepository.existsByPolicyNumber(request.getPolicyNumber())) {
             throw new DuplicateResourceException("Policy with number " + request.getPolicyNumber() + " already exists");

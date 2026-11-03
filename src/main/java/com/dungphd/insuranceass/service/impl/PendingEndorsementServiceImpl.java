@@ -40,9 +40,7 @@ public class PendingEndorsementServiceImpl implements PendingEndorsementService 
         if (permissionService.isUnderwriter() || permissionService.isAdmin()) {
             return allPending;
         }
-        if (permissionService.isFinance()) {
-            throw new ForbiddenException("FINANCE không có quyền xem danh sách chờ duyệt endorsement.");
-        }
+
         // CUSTOMER / AGENT / role khác: chỉ pending của policy trong phạm vi
         // của mình (chủ policy hoặc agent được giao), theo quan hệ — không
         // dùng canReadPolicy vì nó cho FINANCE đọc (đã chặn ở trên) và cho

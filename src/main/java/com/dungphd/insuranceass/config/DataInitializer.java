@@ -72,7 +72,7 @@ public class DataInitializer {
                 seedDemoUser("customer@example.com", "Password123!", "Khách Hàng Mẫu", List.of("ROLE_CUSTOMER"));
                 seedDemoUser("agent@example.com", "Password123!", "Đại Lý Mẫu", List.of("ROLE_AGENT"));
                 seedDemoUser("uw@example.com", "Password123!", "Thẩm Định Viên Mẫu", List.of("ROLE_UNDERWRITER"));
-                seedDemoUser("finance@example.com", "Password123!", "Kế Toán Mẫu", List.of("ROLE_FINANCE"));
+                seedDemoUser("finance@example.com", "Password123!", "Kế Toán Mẫu (Admin)", List.of("ROLE_ADMIN"));
                 // admin@example.com giữ nguyên như seed gốc (ROLE_ADMIN, ROLE_USER).
 
                 // 2. Seed Sample Policy with Nested Locations

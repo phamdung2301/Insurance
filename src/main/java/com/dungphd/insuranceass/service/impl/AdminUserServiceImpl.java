@@ -32,7 +32,6 @@ public class AdminUserServiceImpl implements AdminUserService {
             Role.ROLE_CUSTOMER.name(),
             Role.ROLE_AGENT.name(),
             Role.ROLE_UNDERWRITER.name(),
-            Role.ROLE_FINANCE.name(),
             Role.ROLE_ADMIN.name(),
             Role.ROLE_USER.name()
     );

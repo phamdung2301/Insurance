@@ -26,11 +26,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * Đợt 1C: chỉ overload createPolicy(CreatePolicyRequest) bị chặn với
- * UNDERWRITER / FINANCE. ADMIN (kể cả mang đồng thời UW/FINANCE) vẫn qua;
+ * UNDERWRITER. ADMIN (kể cả mang đồng thời UW) vẫn qua;
  * CUSTOMER / AGENT giữ nguyên ép scope như cũ (test customer ở đây).
- * permissionService == null (test unit cũ không mock) thì gate bỏ qua theo
- * quy ước null-guard sẵn có — không test trường hợp đó ở đây vì @InjectMocks
- * với @Mock PermissionService luôn inject mock.
  */
 @ExtendWith(MockitoExtension.class)
 class PolicyServiceImplCreatePolicyRoleTest {
@@ -56,12 +53,6 @@ class PolicyServiceImplCreatePolicyRoleTest {
     @InjectMocks
     private PolicyServiceImpl policyService;
 
-    /**
-     * @InjectMocks chỉ inject qua constructor của @RequiredArgsConstructor (các
-     * field final); field permissionService là @Autowired(required = false)
-     * ngoài constructor nên Mockito KHÔNG tự inject nó (đã xác nhận bằng lỗi
-     * NPE ở savedPolicy khi gate bị bỏ qua). Inject tường minh tại đây.
-     */
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(policyService, "permissionService", permissionService);
@@ -85,18 +76,6 @@ class PolicyServiceImplCreatePolicyRoleTest {
     }
 
     @Test
-    void createPolicy_finance_throwsForbidden_beforeDuplicateCheck() {
-        when(permissionService.isAdmin()).thenReturn(false);
-        when(permissionService.isUnderwriter()).thenReturn(false);
-        when(permissionService.isFinance()).thenReturn(true);
-
-        ForbiddenException ex = assertThrows(ForbiddenException.class,
-                () -> policyService.createPolicy(request()));
-        assertEquals("Vai trò FINANCE không được tạo hợp đồng.", ex.getMessage());
-        verify(policyRepository, never()).existsByPolicyNumber(anyString());
-    }
-
-    @Test
     void createPolicy_adminAlsoUnderwriter_passesGate() {
         when(permissionService.isAdmin()).thenReturn(true);
         when(policyRepository.existsByPolicyNumber("POL-GATE-1")).thenReturn(false);
@@ -110,7 +89,6 @@ class PolicyServiceImplCreatePolicyRoleTest {
     void createPolicy_customer_passesGateAndKeepsScopeForcing() {
         when(permissionService.isAdmin()).thenReturn(false);
         when(permissionService.isUnderwriter()).thenReturn(false);
-        when(permissionService.isFinance()).thenReturn(false);
         when(permissionService.currentPrincipal()).thenReturn("cust@example.com");
         when(permissionService.hasCustomerRole()).thenReturn(true);
         when(policyRepository.existsByPolicyNumber("POL-GATE-1")).thenReturn(false);

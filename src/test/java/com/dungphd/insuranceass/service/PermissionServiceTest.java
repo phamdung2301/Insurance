@@ -151,9 +151,16 @@ class PermissionServiceTest {
     }
 
     @Test
-    void financeContext_canApproveBoundToActive() {
-        authenticateAs("finance@example.com", "ROLE_FINANCE");
+    void adminContext_canApproveBoundToActive() {
+        authenticateAs("admin@example.com", "ROLE_ADMIN");
         assertDoesNotThrow(() -> permissionService.checkTransition(
+                ownedByCustomer, PolicyStatus.BOUND, PolicyStatus.ACTIVE));
+    }
+
+    @Test
+    void financeContext_cannotApproveBoundToActive() {
+        authenticateAs("finance@example.com", "ROLE_FINANCE");
+        assertThrows(ForbiddenException.class, () -> permissionService.checkTransition(
                 ownedByCustomer, PolicyStatus.BOUND, PolicyStatus.ACTIVE));
     }
 }

@@ -18,13 +18,11 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * Đối soát cho FINANCE (đợt 3C, việc 3).
- * Chặn 2 lớp: matcher "/finance/**", "/api/finance/**" →
- * hasAnyRole("FINANCE", "ADMIN") trong SecurityConfig + kiểm tra lại
- * trong FinanceReconciliationService (chỉ FINANCE/ADMIN, fail-closed).
+ * Đối soát tài chính (hoàn phí, export CSV).
+ * Quyền sở hữu chuyển giao duy nhất cho ADMIN (/admin/finance).
  */
 @RestController
-@RequestMapping({"/finance", "/api/finance"})
+@RequestMapping({"/admin/finance", "/api/admin/finance"})
 @RequiredArgsConstructor
 public class FinanceController {
 

@@ -19,14 +19,8 @@ import java.util.List;
  * Mọi check đọc email + roles từ SecurityContext (JWT đã lookup DB ở filter),
  * KHÔNG tin header X-User-Email hay query param ?email=.
  *
- * FAIL-CLOSED (đợt 1A): không có principal hợp lệ (không có authentication,
- * anonymous) thì mọi check đều từ chối — canReadPolicy trả false, các hàm
- * check* và applySearchScope throw ForbiddenException. Không còn đường bỏ qua
- * cho "gọi nội bộ/test" trong service này: caller nội bộ nào cần gọi các hàm
- * này phải tự set SecurityContext hợp lệ, hoặc tách luồng riêng không qua
- * check (xem báo cáo đợt 1A: hiện không có caller nội bộ nào như vậy —
- * DataInitializer không gọi PermissionService, mọi caller trong main đều đi
- * qua HTTP và production luôn inject bean thật).
+ * FAIL-CLOSED: không có principal hợp lệ (không có authentication,
+ * anonymous) thì mọi check đều từ chối.
  */
 @Slf4j
 @Service
@@ -63,10 +57,6 @@ public class PermissionService {
         return hasRole(Role.ROLE_UNDERWRITER.name());
     }
 
-    public boolean isFinance() {
-        return hasRole(Role.ROLE_FINANCE.name());
-    }
-
     public boolean hasCustomerRole() {
         List<String> roles = currentRoles();
         return roles.contains(Role.ROLE_CUSTOMER.name()) || roles.contains(Role.ROLE_USER.name());
@@ -94,7 +84,7 @@ public class PermissionService {
         if (principal == null) {
             return false;
         }
-        if (isAdmin() || isUnderwriter() || isFinance()) {
+        if (isAdmin() || isUnderwriter()) {
             return true;
         }
         return isDemandSide(policy, principal);
@@ -106,7 +96,7 @@ public class PermissionService {
         }
     }
 
-    /** Ghi (sửa/xóa/location/coverage/endorsement): ADMIN mọi policy, CUSTOMER/AGENT trong phạm vi. UW/FINANCE không ghi. Không principal → 403 (fail-closed). */
+    /** Ghi (sửa/xóa/location/coverage/endorsement): ADMIN mọi policy, CUSTOMER/AGENT trong phạm vi. UW không ghi. */
     public void checkPolicyWrite(Policy policy) {
         String principal = currentPrincipal();
         if (principal == null) {
@@ -118,7 +108,7 @@ public class PermissionService {
         throw new ForbiddenException("Bạn không có quyền sửa hợp đồng này.");
     }
 
-    /** Đọc negotiation: phe cầu trong phạm vi, UNDERWRITER, ADMIN (xem). FINANCE không có quyền ở bảng §1.3. Không principal → 403 (fail-closed). */
+    /** Đọc negotiation: phe cầu trong phạm vi, UNDERWRITER, ADMIN (xem). */
     public void checkNegotiationRead(Policy policy) {
         String principal = currentPrincipal();
         if (principal == null) {
@@ -138,14 +128,11 @@ public class PermissionService {
     }
 
     /**
-     * Bảng chuyển trạng thái → role (PLAN §1.6), enforce ở service.
-     * Không có principal → 403 với thông điệp chuyển trạng thái như cũ
-     * (fail-closed). Principal có nhưng không có role nào cũng bị từ chối
-     * qua nhánh allowed=false bên dưới (không còn đường bỏ qua).
+     * Bảng chuyển trạng thái → role, enforce ở service.
+     * BOUND → ACTIVE chuyển giao duy nhất cho ADMIN.
      */
     public void checkTransition(Policy policy, PolicyStatus from, PolicyStatus to) {
         String principal = currentPrincipal();
-        List<String> roles = currentRoles();
         if (principal == null) {
             throw new ForbiddenException("Vai trò của bạn không được phép chuyển trạng thái từ " + from + " sang " + to + ".");
         }
@@ -155,7 +142,7 @@ public class PermissionService {
         boolean demandAllowed = isDemandSide(policy, principal) && (hasCustomerRole() || hasAgentRole());
         boolean allowed;
         if (from == PolicyStatus.BOUND && to == PolicyStatus.ACTIVE) {
-            allowed = isFinance();
+            allowed = false; // Duy nhất ADMIN được duyệt BOUND -> ACTIVE
         } else if (from == PolicyStatus.BOUND && to == PolicyStatus.DRAFT) {
             allowed = false; // chỉ ADMIN (đã return ở trên)
         } else if (from == PolicyStatus.ACTIVE && to == PolicyStatus.EXPIRED) {
@@ -174,12 +161,8 @@ public class PermissionService {
     }
 
     /**
-     * Ép criteria theo role cho GET /policies (PLAN §1.4): CUSTOMER ép insuredEmail,
-     * AGENT ép assignedAgentEmail (bỏ qua giá trị client gửi), UW/FINANCE/ADMIN giữ nguyên.
-     * Quyết định khi plan mơ hồ: user mang đồng thời CUSTOMER + AGENT thì ép theo
-     * CUSTOMER (an toàn, không lộ policy ngoài phạm vi) — xem báo cáo cuối.
-     * Không có principal → 403 (fail-closed): không được liệt kê policy khi chưa
-     * xác thực, thay vì trả về danh sách không bị ép phạm vi như trước.
+     * Ép criteria theo role cho GET /policies: CUSTOMER ép insuredEmail,
+     * AGENT ép assignedAgentEmail (bỏ qua giá trị client gửi), UW/ADMIN giữ nguyên.
      */
     public void applySearchScope(PolicySearchCriteria criteria) {
         String principal = currentPrincipal();
@@ -189,7 +172,7 @@ public class PermissionService {
         if (criteria == null) {
             return;
         }
-        if (isAdmin() || isUnderwriter() || isFinance()) {
+        if (isAdmin() || isUnderwriter()) {
             return;
         }
         String email = principal.trim().toLowerCase();
@@ -198,7 +181,6 @@ public class PermissionService {
         } else if (hasAgentRole()) {
             criteria.setAssignedAgentEmail(email);
         } else {
-            // Role lạ/không xác định: ép về insuredEmail để mặc định không lộ dữ liệu.
             criteria.setInsuredEmail(email);
         }
     }

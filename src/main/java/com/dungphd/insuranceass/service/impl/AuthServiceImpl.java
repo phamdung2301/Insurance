@@ -112,7 +112,7 @@ public class AuthServiceImpl implements AuthService {
             String roleRaw = request.getRole().trim().toUpperCase();
             String role = roleRaw.startsWith("ROLE_") ? roleRaw : "ROLE_" + roleRaw;
             Set<String> allowedQuickSwitchRoles = Set.of(
-                    "ROLE_CUSTOMER", "ROLE_AGENT", "ROLE_UNDERWRITER", "ROLE_FINANCE", "ROLE_ADMIN");
+                    "ROLE_CUSTOMER", "ROLE_AGENT", "ROLE_UNDERWRITER", "ROLE_ADMIN");
             if (!allowedQuickSwitchRoles.contains(role)) {
                 throw new BadRequestException("Role quick-switch không hợp lệ: " + request.getRole());
             }
@@ -123,7 +123,6 @@ public class AuthServiceImpl implements AuthService {
                     case "ROLE_ADMIN" -> "admin@insurtech.vn";
                     case "ROLE_AGENT" -> "agent@insurtech.vn";
                     case "ROLE_UNDERWRITER" -> "uw@insurtech.vn";
-                    case "ROLE_FINANCE" -> "finance@insurtech.vn";
                     default -> "user@insurtech.vn";
                 };
             }

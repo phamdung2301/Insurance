@@ -454,7 +454,6 @@ const ROLE_LABEL = {
   CUSTOMER: 'Khách hàng',
   AGENT: 'Đại lý',
   ADMIN: 'Quản trị viên',
-  FINANCE: 'Tài chính',
 };
 
 function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
@@ -493,7 +492,6 @@ function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
   const isDemand = isCustomer || isAgent;
   const isSupply = hasRole('ROLE_UNDERWRITER');
   const isAdminView = hasRole('ROLE_ADMIN');
-  const isFinance = hasRole('ROLE_FINANCE') && !isAdminView && !isSupply;
 
   // Lấy phiên thương lượng hiện hành (ưu tiên phiên OPEN hoặc PENDING_CONFIRMATION, fallback phiên mới nhất)
   const activeNeg = negotiations.find((n) => n.status === 'OPEN' || n.status === 'PENDING_CONFIRMATION');
@@ -637,16 +635,7 @@ function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
   if (loading) return (<div className="glass-card" style={{ marginBottom: '1.5rem' }}><Skeleton height={140} /></div>);
   if (unavailable) return null;
 
-  if (isFinance) {
-    return (
-      <div className="glass-card" style={{ marginBottom: '1.5rem', textAlign: 'center', padding: '2rem' }}>
-        <h3>Vai trò Tài chính (FINANCE)</h3>
-        <p style={{ color: 'var(--text-muted)' }}>
-          Bạn không có quyền truy cập vào thông tin thương lượng giá. Bộ phận Tài chính chỉ xử lý hóa đơn khi hợp đồng chuyển sang trạng thái hiệu lực.
-        </p>
-      </div>
-    );
-  }
+
 
   const isLocked = shown?.status === 'ACCEPTED';
   const isQuoted = policy.status === 'QUOTED';

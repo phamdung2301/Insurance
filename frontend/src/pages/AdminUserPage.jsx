@@ -6,7 +6,7 @@ import { EmptyState, Skeleton } from '../components/ui';
 import { formatDateTime } from '../utils/format';
 import { normalizeRole } from '../context/AuthContext';
 
-const ALL_ROLES = ['ROLE_CUSTOMER', 'ROLE_AGENT', 'ROLE_UNDERWRITER', 'ROLE_FINANCE', 'ROLE_ADMIN'];
+const ALL_ROLES = ['ROLE_CUSTOMER', 'ROLE_AGENT', 'ROLE_UNDERWRITER', 'ROLE_ADMIN'];
 const shortRole = (r) => normalizeRole(r).replace(/^ROLE_/, '');
 
 function RoleBadge({ role }) {

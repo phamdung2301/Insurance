@@ -24,11 +24,10 @@ export function Sidebar({ open, onClose }) {
   // còn blanket isAdmin cho cả khối menu admin.
   const adminLinks = [
     { to: '/admin', label: 'Tổng quan', icon: <LayoutDashboard size={18} />, end: true, roles: ['ROLE_ADMIN'] },
-    { to: '/admin/hop-dong', label: 'Quản lý hợp đồng', icon: <FileText size={18} />, roles: ['ROLE_ADMIN', 'ROLE_UNDERWRITER', 'ROLE_FINANCE'] },
+    { to: '/admin/hop-dong', label: 'Quản lý hợp đồng', icon: <FileText size={18} />, roles: ['ROLE_ADMIN', 'ROLE_UNDERWRITER'] },
     { to: '/admin/excel', label: 'Bảng giá Excel', icon: <TableProperties size={18} />, roles: ['ROLE_ADMIN', 'ROLE_UNDERWRITER'] },
-    { to: '/admin/doi-soat', label: 'Đối soát', icon: <HandCoins size={18} />, roles: ['ROLE_FINANCE', 'ROLE_ADMIN'] },
-    { to: '/admin/users', label: 'Quản lý người dùng', icon: <Users size={18} />, roles: ['ROLE_ADMIN'] },
-    { to: '/admin/reports', label: 'Báo cáo', icon: <BarChart3 size={18} />, roles: ['ROLE_ADMIN', 'ROLE_FINANCE'] },
+        { to: '/admin/users', label: 'Quản lý người dùng', icon: <Users size={18} />, roles: ['ROLE_ADMIN'] },
+    { to: '/admin/reports', label: 'Báo cáo', icon: <BarChart3 size={18} />, roles: ['ROLE_ADMIN', 'ROLE_UNDERWRITER'] },
     { to: '/admin/thuong-luong', label: 'Thương lượng', icon: <MessagesSquare size={18} />, roles: ['ROLE_UNDERWRITER', 'ROLE_ADMIN'] },
     { to: '/admin/audit-logs', label: 'Nhật ký quản trị', icon: <ScrollText size={18} />, roles: ['ROLE_ADMIN'] },
     { to: '/admin/phan-quyen', label: 'Ma trận phân quyền', icon: <ShieldCheck size={18} />, roles: ['ROLE_ADMIN'] },

@@ -23,7 +23,6 @@ import { BenchmarkPage } from './pages/BenchmarkPage';
 import { IndexAuditPage } from './pages/IndexAuditPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { AdminUserPage } from './pages/AdminUserPage';
-import { FinanceQueuePage } from './pages/FinanceQueuePage';
 import { AgentCustomerPage } from './pages/AgentCustomerPage';
 import { AgentCommissionPage } from './pages/AgentCommissionPage';
 import { PaymentPage } from './pages/PaymentPage';
@@ -109,15 +108,14 @@ function AnimatedRoutes() {
         {page('/doi-mat-khau', <ChangePasswordPage />)}
         {page('/thong-bao', <NotificationsPage />)}
         {page('/admin', <AdminDashboardPage />, ['ROLE_ADMIN'])}
-        {page('/admin/hop-dong', <AdminPolicyListPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER', 'ROLE_FINANCE'])}
+        {page('/admin/hop-dong', <AdminPolicyListPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER'])}
         {page('/admin/excel', <ExcelToolsPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER'])}
-        {page('/admin/doi-soat', <FinanceQueuePage />, ['ROLE_FINANCE', 'ROLE_ADMIN'])}
-        {page('/admin/users', <AdminUserPage />, ['ROLE_ADMIN'])}
+                {page('/admin/users', <AdminUserPage />, ['ROLE_ADMIN'])}
         {BENCHMARK_ENABLED
           ? page('/admin/benchmark', <BenchmarkPage />, ['ROLE_ADMIN'])
           : <Route path="/admin/benchmark" element={<Navigate to="/admin" replace />} />}
         {page('/admin/index-audit', <IndexAuditPage />, ['ROLE_ADMIN'])}
-        {page('/admin/reports', <ReportsPage />, ['ROLE_ADMIN', 'ROLE_FINANCE'])}
+        {page('/admin/reports', <ReportsPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER'])}
         {page('/admin/thuong-luong', <UnderwriterQueuePage />, ['ROLE_UNDERWRITER', 'ROLE_ADMIN'])}
         {page('/admin/audit-logs', <AdminAuditLogPage />, ['ROLE_ADMIN'])}
         {page('/agent/khach-hang', <AgentCustomerPage />, ['ROLE_AGENT', 'ROLE_ADMIN'])}

@@ -234,7 +234,7 @@ class W3cNotesRefundRateImportTest {
         when(policyRepository.findByStatus(PolicyStatus.ACTIVE)).thenReturn(List.of(
                 policy("HD-A1", PolicyStatus.ACTIVE, "d@x.vn", 4000.0, null, inRangeConfirm)));
 
-        authenticateAs("fin@x.vn", "ROLE_FINANCE");
+        authenticateAs("admin@x.vn", "ROLE_ADMIN");
         String csv = financeService.exportReconciliationCsv(LocalDate.parse("2026-10-01"), LocalDate.parse("2026-10-31"));
         assertTrue(csv.contains("policyNumber,insuredEmail,totalPremium,trangThaiDoiSoat,ngayKhaiBaoHoacXacNhan"));
         assertTrue(csv.contains("HD-B1") && csv.contains("CHO_DOI_SOAT") && csv.contains("2026-10-15"));
@@ -252,7 +252,7 @@ class W3cNotesRefundRateImportTest {
         assertNotNull(financeService.exportReconciliationCsv(null, null));
 
         for (String[] creds : new String[][]{
-                {"cus@x.vn", "ROLE_CUSTOMER"}, {"uw@x.vn", "ROLE_UNDERWRITER"}, {"ag@x.vn", "ROLE_AGENT"}}) {
+                {"cus@x.vn", "ROLE_CUSTOMER"}, {"uw@x.vn", "ROLE_UNDERWRITER"}, {"ag@x.vn", "ROLE_AGENT"}, {"fin@x.vn", "ROLE_FINANCE"}}) {
             authenticateAs(creds[0], creds[1]);
             assertThrows(ForbiddenException.class, () -> financeService.listRefunds());
             assertThrows(ForbiddenException.class, () -> financeService.exportReconciliationCsv(null, null));
