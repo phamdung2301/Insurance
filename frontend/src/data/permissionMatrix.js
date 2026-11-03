@@ -15,8 +15,9 @@
  *   Mọi tham chiếu /finance/** và /admin/doi-soat trong bản cũ đều đã sai:
  *   matcher /finance/** đã bị xóa khỏi SecurityConfig, trang /admin/doi-soat
  *   không tồn tại (App.jsx chỉ còn một entry TITLES chết, không có Route).
- * - SecurityConfig (thứ tự match đầu thắng): /excel/** ADMIN+UW;
- *   /underwriter/** UW+ADMIN; /agent/** AGENT+ADMIN; /admin/** ADMIN;
+ * - SecurityConfig (thứ tự match đầu thắng): /underwriter/** UW+ADMIN;
+ *   /agent/** AGENT+ADMIN; /admin/** ADMIN; (matcher /excel/** đã gỡ cùng
+ *   lúc xóa Excel khỏi BE, xem ghi chú ở nhóm "Báo cáo & công cụ");
  *   /benchmark/** ADMIN; GET /reports/** ADMIN+UW, còn lại /reports/** ADMIN;
  *   /claims/**, /policies/**, /pending-endorsements/** authenticated (scope
  *   và gate do service enforce); /user/** authenticated.
@@ -254,20 +255,8 @@ export const PERMISSION_MATRIX = [
   },
 
   // ---- Nhóm 3: báo cáo, đối soát, công cụ ----
-  {
-    id: 'excel-pricing',
-    group: 'Báo cáo & công cụ',
-    name: 'Công cụ giá Excel',
-    description:
-      'Template, import rates, calculate, download — matcher /excel/** chỉ ADMIN + UNDERWRITER.',
-    source: 'SecurityConfig /excel/**',
-    roles: {
-      CUSTOMER: 'denied',
-      AGENT: 'denied',
-      UNDERWRITER: 'allowed',
-      ADMIN: 'allowed',
-    },
-  },
+  // (Hàng excel-pricing đã gỡ: Excel bị xóa khỏi BE ở fix 6 nên matcher
+  // /excel/** không còn tồn tại; giữ hàng đó lại sẽ thành khẳng định sai.)
   {
     id: 'reports',
     group: 'Báo cáo & công cụ',
