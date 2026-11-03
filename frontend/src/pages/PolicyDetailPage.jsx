@@ -103,12 +103,12 @@ export function PolicyDetailPage() {
   const confirmPayment = async () => {
     // PLAN §1.6: "Tôi đã chuyển khoản" chỉ ghi nhận đã báo trả (marker
     // paymentClaimedAt / paymentStatus=CLAIMED), policy GIỮ BOUND và hiển thị
-    // "Đang chờ đối soát". Kích hoạt ACTIVE là bước riêng của FINANCE ở trang
-    // đối soát (ADMIN giữ nút override "Kích hoạt trực tiếp" bên dưới).
+    // "Đang chờ đối soát". Kích hoạt ACTIVE là bước riêng của ADMIN ở trang
+    // chi tiết hợp đồng (ADMIN giữ nút "Kích hoạt trực tiếp" bên dưới).
     setBusy(true);
     try {
       await policyService.claimPayment(policyNumber);
-      toast.success('Đã ghi nhận khai báo chuyển khoản. Hợp đồng đang chờ kế toán đối soát trước khi kích hoạt.');
+      toast.success('Đã ghi nhận khai báo chuyển khoản. Hợp đồng đang chờ quản trị viên xác nhận đã nhận tiền trước khi kích hoạt.');
       setPayOpen(false);
       await load();
     } catch (err) {
@@ -246,7 +246,7 @@ export function PolicyDetailPage() {
   const isPaymentClaimed = policy.paymentStatus === 'CLAIMED' || policy.paymentClaimedAt != null;
   // Ma trận PLAN §1.3 (FE chỉ ẩn/hiện cho UX, BE mới là chốt chặn):
   // chuyển trạng thái / thanh toán / endorsement thuộc CUSTOMER (chủ), AGENT
-  // (được giao) và ADMIN; UNDERWRITER/FINANCE xem chi tiết ở chế độ đọc.
+  // (được giao) và ADMIN; UNDERWRITER xem chi tiết ở chế độ đọc.
   const canManage = hasAnyRole(['ROLE_CUSTOMER', 'ROLE_AGENT', 'ROLE_ADMIN']);
   const isInsured = !policy.insured?.email || (user?.email && policy.insured.email.toLowerCase() === user.email.toLowerCase());
   const canClaim = (hasRole('ROLE_CUSTOMER') || hasRole('ROLE_USER')) && isInsured;
@@ -277,7 +277,7 @@ export function PolicyDetailPage() {
         <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '0.8rem 1rem', marginBottom: '1.5rem', fontSize: '0.9rem', color: '#92400e' }}>
           <strong>Đang chờ đối soát:</strong> bạn đã khai báo chuyển khoản
           {policy.paymentClaimedAt ? ` lúc ${formatDateTime(policy.paymentClaimedAt)}` : ''}. Hợp đồng sẽ
-          được kích hoạt sau khi kế toán xác nhận đã nhận tiền.
+          được kích hoạt sau khi quản trị viên xác nhận đã nhận tiền.
         </div>
       )}
 
@@ -415,8 +415,8 @@ export function PolicyDetailPage() {
 
 // ---------------------------------------------------------------- Action bar
 // Nút bấm filter theo role VÀ status (PLAN §1.4/§1.3): FE chỉ ẩn/hiện cho UX,
-// BE vẫn check lại mọi transition. Nút xác nhận thu tiền của FINANCE KHÔNG ở
-// đây mà ở trang đối soát /admin/doi-soat.
+// BE vẫn check lại mọi transition. Nút "Kích hoạt trực tiếp" BOUND→ACTIVE của
+// ADMIN nằm trong ActionBar bên dưới, không phải ở trang đối soát riêng.
 function ActionBar({ status, isAdmin, canManage, isPaymentClaimed, canClaim, onClaim, busy, onRequestQuote, onAcceptQuote, onPayNow, onAdminActivate, onEndorse, onDelete }) {
   const btn = (props, children) => (
     <button type="button" className="btn" disabled={busy} {...props}>{children}</button>

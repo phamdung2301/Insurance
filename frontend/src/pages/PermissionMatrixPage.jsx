@@ -45,9 +45,10 @@ export function PermissionMatrixPage() {
           </span>
         </p>
         <p className="form-hint" style={{ margin: '0.75rem 0 0 1.75rem' }}>
-          Bảng dưới mirror bảng §1.6 trong báo cáo Phân tích Use Case + Filter Chain RBAC,
-          đã đối chiếu lại với code hiện tại sau đợt 1–3. Những điểm bảng cũ không còn đúng
-          được sửa theo code và liệt kê đầy đủ ở mục “Khác biệt so với bảng §1.6 cũ” cuối trang.
+          Bảng dưới mirror thủ công từ SecurityConfig + PermissionService trên
+          nhánh hiện tại (vai trò FINANCE đã bị xóa khỏi hệ thống nên không còn
+          trong bảng). Những điểm ma trận cũ không còn đúng được sửa theo code
+          và liệt kê đầy đủ ở mục “Khác biệt so với ma trận cũ” cuối trang.
         </p>
       </div>
 
@@ -88,10 +89,10 @@ export function PermissionMatrixPage() {
         Chú thích: ✅ = được phép, ❌ = không được phép. Ô ghi chú là trường hợp đặc biệt
         (có phạm vi hoặc bị cấm có chủ đích) — ký hiệu ✅/❌ ở đầu ghi chú cho biết phe đó.
         “Trong phạm vi” với CUSTOMER nghĩa là hợp đồng của chính mình, với AGENT nghĩa là
-        hợp đồng được giao cho mình; UNDERWRITER / FINANCE / ADMIN đọc mọi hợp đồng.
+        hợp đồng được giao cho mình; UNDERWRITER / ADMIN đọc mọi hợp đồng.
       </p>
 
-      <h3 style={{ marginTop: '2rem', marginBottom: '1rem' }}>Khác biệt so với bảng §1.6 cũ (mirror theo code hiện tại)</h3>
+      <h3 style={{ marginTop: '2rem', marginBottom: '1rem' }}>Khác biệt so với ma trận cũ (bản còn vai trò FINANCE)</h3>
       <div className="glass-card" style={{ padding: '1.25rem' }}>
         {MATRIX_DIFFERENCES.map((d) => (
           <div key={d.id} style={{ marginBottom: '1.25rem' }}>
@@ -100,10 +101,11 @@ export function PermissionMatrixPage() {
           </div>
         ))}
         <p className="form-hint" style={{ margin: 0 }}>
-          Ngoài 5 điểm trên, nhóm “Bổ sung sau §1.6” trong bảng chính là các quyền mới có
-          từ đợt 2–3 (hàng đợi thương lượng, hoa hồng agent, đối soát FINANCE, ghi chú nội bộ)
-          và 2 quyền §1.1–§1.2 mà §1.6 không liệt kê thành hàng riêng (endorsement, hồ sơ của
-          chính mình) — mỗi hàng đều ghi rõ căn cứ code, không hàng nào tự bịa.
+          Ngoài các điểm trên, nhóm “Báo cáo & công cụ” và “Bồi thường” trong
+          bảng chính là các quyền mới hoặc đã chuyển chủ sở hữu (hàng đợi thương
+          lượng, hoa hồng agent, đối soát của ADMIN, ghi chú nội bộ, bồi thường,
+          duyệt endorsement chờ) — mỗi hàng đều ghi rõ căn cứ code, không hàng
+          nào tự bịa.
         </p>
       </div>
     </>

@@ -1,63 +1,80 @@
 /**
- * Ma trận phân quyền READ-ONLY (đợt 4C).
+ * Ma trận phân quyền READ-ONLY.
  *
- * Nguồn chính: bảng §1.6 trong báo cáo
- * `your_files/PhanTich_UseCase_FilterChain_RBAC.md`, ĐÃ ĐỐI CHIẾU LẠI với
- * code hiện tại trên nhánh feat/rbac-negotiation (sau đợt 1–3) và sửa theo
- * code ở những điểm bảng cũ không còn đúng. Xem `matrixDifferences` ở cuối
- * file — mọi điểm khác biệt đều ghi rõ lý do theo code, không mirror mù.
+ * CẢNH BÁO — MIRROR THỦ CÔNG: file này mirror thủ công từ SecurityConfig +
+ * PermissionService (+ từng service) trên nhánh hiện tại. Nó CHỈ ĐỂ HIỂN THỊ:
+ * sửa file này KHÔNG đổi quyền thật. Muốn đổi quyền thật cần sửa code backend
+ * + deploy. Và ngược lại: ĐỔI CODE PHÂN QUYỀN (matcher trong SecurityConfig,
+ * check trong PermissionService, gate trong service) THÌ PHẢI ĐỔI CẢ FILE NÀY,
+ * nếu không bảng sẽ lại sai sự thật như bản cũ từng sai về FINANCE.
  *
- * Quy ước giá trị mỗi ô (đúng yêu cầu đợt 4C, chỉ 3 dạng):
- * - 'allowed' : được phép (trang render thành ✅)
- * - 'denied'  : không được phép (trang render thành ❌)
- * - chuỗi ghi chú ngắn : trường hợp đặc biệt / có phạm vi (ví dụ "chỉ hợp
- *   đồng được giao", "chỉ xem, không được ghi"). Ghi chú luôn mang ký hiệu
- *   ✅/❌ ở đầu để nhìn là biết phe cho phép hay cấm.
- *
- * CẢNH BÁO: file này CHỈ ĐỂ HIỂN THỊ. Quyền thực thi nằm trong code backend
- * (SecurityConfig + PermissionService + từng service). Sửa file này KHÔNG
- * đổi quyền thật. Muốn đổi quyền thật cần sửa code backend + deploy.
- * Editor phân quyền là việc tương lai, cần policy engine riêng.
- *
- * Căn cứ code đã đối chiếu (không bịa thêm quyền nào):
- * - SecurityConfig: matcher /excel (ADMIN+UW), /underwriter (UW+ADMIN),
- *   /finance (FINANCE+ADMIN), /agent (AGENT+ADMIN), /admin (ADMIN),
- *   /benchmark (ADMIN), GET /reports (ADMIN+FINANCE), còn lại /reports
- *   (ADMIN), /policies/** + /endorsements + /history + /versions (authenticated).
- * - PermissionService: canReadPolicy (ADMIN/UW đọc mọi policy),
- *   checkPolicyWrite (ADMIN hoặc phe cầu trong phạm vi), checkNegotiationRead
- *   (ADMIN/UW/phe cầu; FINANCE bị chặn), checkNegotiationWriteNotAdmin
- *   (ADMIN ghi thương lượng luôn 403), checkTransition (bảng chuyển trạng
- *   thái), applySearchScope (CUSTOMER/AGENT bị ép phạm vi).
- * - PolicyServiceImpl.createPolicy (đợt 1): UW tạo hợp đồng bị 403.
- * - NegotiationServiceImpl: chỉ phe cầu mở thương lượng; offer/accept/reject
- *   theo lượt phe (lastWasSupply).
+ * Căn cứ code đã đối chiếu trên nhánh feat/rbac-negotiation-v2 (head
+ * 57744f98) — không bịa thêm quyền nào:
+ * - Role enum (model/Role.java): CHỈ CÒN CUSTOMER / AGENT / UNDERWRITER /
+ *   ADMIN (+ ROLE_USER cũ, tương đương CUSTOMER). KHÔNG CÒN ROLE_FINANCE.
+ *   Mọi tham chiếu /finance/** và /admin/doi-soat trong bản cũ đều đã sai:
+ *   matcher /finance/** đã bị xóa khỏi SecurityConfig, trang /admin/doi-soat
+ *   không tồn tại (App.jsx chỉ còn một entry TITLES chết, không có Route).
+ * - SecurityConfig (thứ tự match đầu thắng): /excel/** ADMIN+UW;
+ *   /underwriter/** UW+ADMIN; /agent/** AGENT+ADMIN; /admin/** ADMIN;
+ *   /benchmark/** ADMIN; GET /reports/** ADMIN+UW, còn lại /reports/** ADMIN;
+ *   /claims/**, /policies/**, /pending-endorsements/** authenticated (scope
+ *   và gate do service enforce); /user/** authenticated.
+ * - PermissionService: canReadPolicy (ADMIN/UW đọc mọi policy, còn lại chỉ
+ *   phe cầu theo quan hệ với policy); checkPolicyWrite (ADMIN hoặc phe cầu
+ *   trong phạm vi; UW không ghi); checkNegotiationRead (ADMIN/UW/phe cầu);
+ *   checkNegotiationWriteNotAdmin (ADMIN ghi thương lượng luôn 403);
+ *   checkTransition (phe cầu: DRAFT→QUOTED, QUOTED→BOUND/DRAFT,
+ *   BOUND→CANCELLED, ACTIVE→CANCELLED; BOUND→ACTIVE, BOUND→DRAFT và
+ *   ACTIVE→EXPIRED chỉ ADMIN).
+ * - NegotiationServiceImpl (quyền quyết định 2 bước, email match chứ không
+ *   phải check role suông): mở thương lượng chỉ phe cầu khi QUOTED; trả giá
+ *   theo lượt (phe cầu ↔ UW luân phiên); ACCEPT: giá do UW đưa → chỉ
+ *   CUSTOMER (đúng email insured) được chấp nhận, AGENT gọi → 403; giá do
+ *   phe cầu đưa → chỉ UNDERWRITER được chấp nhận; CONFIRM: giá do UW đưa →
+ *   chỉ đúng UW đã đề xuất được xác nhận; giá do phe cầu đưa → chỉ CUSTOMER
+ *   được xác nhận, kể cả khi AGENT là người đề xuất (AGENT gọi → 403).
+ * - FinanceController nay gắn ở /admin/finance (matcher /admin/** = ADMIN)
+ *   và FinanceReconciliationServiceImpl tự enforce chỉ ADMIN:
+ *   GET /admin/finance/refunds, GET /admin/finance/reconciliation/export.
+ *   KHÔNG CÓ UI đối soát nào — refunds API chỉ dùng qua API, và BOUND→ACTIVE
+ *   do ADMIN duyệt trực tiếp trên hợp đồng.
+ * - ClaimServiceImpl: tạo claim chỉ CUSTOMER cho policy ACTIVE của chính
+ *   mình; đọc claim: ADMIN/UW mọi claim, CUSTOMER claim của mình, AGENT
+ *   claim của hợp đồng được giao; review/approve/reject/pay claim chỉ ADMIN
+ *   (checkAdmin).
+ * - PolicyServiceImpl.createPolicy: UW tạo hợp đồng bị 403 (gate trước
+ *   duplicate-check); CUSTOMER bị ép insured về chính mình; AGENT tạo hộ
+ *   khách nhưng assignedAgentEmail luôn là mình.
  * - PolicyNoteServiceImpl: ghi chú nội bộ chỉ UW/ADMIN.
  * - UnderwriterQueueServiceImpl: hàng đợi chỉ UW/ADMIN.
  * - CommissionServiceImpl.resolveScope: AGENT chỉ của mình, ADMIN toàn bộ.
+ * - PendingEndorsementServiceImpl: danh sách chờ duyệt UW/ADMIN xem theo
+ *   phạm vi; duyệt/từ chối chỉ UNDERWRITER (ADMIN chỉ xem).
+ *
+ * Quy ước giá trị mỗi ô (chỉ 3 dạng):
+ * - 'allowed' : được phép (trang render thành ✅)
+ * - 'denied'  : không được phép (trang render thành ❌)
+ * - chuỗi ghi chú ngắn : trường hợp đặc biệt / có phạm vi. Ghi chú luôn mang
+ *   ký hiệu ✅/❌ ở đầu để nhìn là biết phe cho phép hay cấm.
  */
 
 export const MATRIX_ROLES = [
   { key: 'CUSTOMER', label: 'CUSTOMER' },
   { key: 'AGENT', label: 'AGENT' },
   { key: 'UNDERWRITER', label: 'UNDERWRITER' },
-  { key: 'FINANCE', label: 'FINANCE' },
   { key: 'ADMIN', label: 'ADMIN' },
 ];
 
-// Nhóm 1: 14 hàng của bảng §1.6 (đã sửa 2 ô theo code hiện tại, xem
-// matrixDifferences). Nhóm 2: các quyền có sau §1.6 (đợt 1–3) hoặc nằm ở
-// §1.1–§1.2 nhưng §1.6 không liệt kê thành hàng riêng — mỗi hàng đều có
-// `source` chỉ rõ căn cứ code, không hàng nào tự bịa.
 export const PERMISSION_MATRIX = [
-  // ---- Nhóm 1: bảng §1.6 ----
+  // ---- Nhóm 1: quyền hợp đồng ----
   {
     id: 'read-policy',
-    group: 'Bảng §1.6',
+    group: 'Hợp đồng',
     name: 'Đọc hợp đồng trong phạm vi',
     description:
       'Xem danh sách và chi tiết hợp đồng, lịch sử/version/so sánh, chứng nhận và tóm tắt PDF (đều qua checkPolicyRead).',
-    source: '§1.6 + PermissionService.canReadPolicy',
+    source: 'PermissionService.canReadPolicy',
     roles: {
       CUSTOMER: '✅ Chỉ hợp đồng của mình',
       AGENT: '✅ Chỉ hợp đồng được giao',
@@ -67,11 +84,11 @@ export const PERMISSION_MATRIX = [
   },
   {
     id: 'write-policy',
-    group: 'Bảng §1.6',
+    group: 'Hợp đồng',
     name: 'Sửa / xóa hợp đồng trong phạm vi',
     description:
       'Sửa, xóa hợp đồng, sửa địa điểm / quyền lợi, xin endorsement (đều qua checkPolicyWrite; xóa chỉ khi DRAFT, sửa siết theo trạng thái).',
-    source: '§1.6 + PermissionService.checkPolicyWrite',
+    source: 'PermissionService.checkPolicyWrite',
     roles: {
       CUSTOMER: '✅ Chỉ hợp đồng của mình',
       AGENT: '✅ Chỉ hợp đồng được giao',
@@ -81,11 +98,11 @@ export const PERMISSION_MATRIX = [
   },
   {
     id: 'create-policy',
-    group: 'Bảng §1.6',
+    group: 'Hợp đồng',
     name: 'Tạo hợp đồng',
     description:
-      'POST /policies. CUSTOMER bị ép insured về chính mình; AGENT tạo hộ khách nhưng assignedAgentEmail luôn là mình.',
-    source: '§1.6, SỬA THEO CODE — xem matrixDifferences #1',
+      'POST /policies. CUSTOMER bị ép insured về chính mình; AGENT tạo hộ khách nhưng assignedAgentEmail luôn là mình; UNDERWRITER bị 403.',
+    source: 'PolicyServiceImpl.createPolicy',
     roles: {
       CUSTOMER: '✅ Chỉ cho chính mình',
       AGENT: '✅ Hộ khách, gắn mình làm agent',
@@ -95,11 +112,11 @@ export const PERMISSION_MATRIX = [
   },
   {
     id: 'transition-demand',
-    group: 'Bảng §1.6',
+    group: 'Hợp đồng',
     name: 'Chuyển DRAFT→QUOTED, QUOTED→BOUND/DRAFT, hủy hợp đồng',
     description:
       'Các transition phe cầu được phép: DRAFT→QUOTED, QUOTED→BOUND, QUOTED→DRAFT, BOUND→CANCELLED, ACTIVE→CANCELLED.',
-    source: '§1.6 + PermissionService.checkTransition',
+    source: 'PermissionService.checkTransition',
     roles: {
       CUSTOMER: '✅ Chỉ hợp đồng của mình',
       AGENT: '✅ Chỉ hợp đồng được giao',
@@ -109,11 +126,11 @@ export const PERMISSION_MATRIX = [
   },
   {
     id: 'transition-bound-active',
-    group: 'Bảng §1.6',
+    group: 'Hợp đồng',
     name: 'BOUND→ACTIVE (duyệt tiền)',
     description:
-      'Chỉ sau khi FINANCE xác nhận thanh toán (hoặc ADMIN override) thì BOUND mới thành ACTIVE.',
-    source: '§1.6 + PermissionService.checkTransition',
+      'Chỉ ADMIN duyệt BOUND→ACTIVE, sau khi đối soát khoản đã khai báo chuyển khoản. Không còn vai trò FINANCE nào thực hiện bước này.',
+    source: 'PermissionService.checkTransition',
     roles: {
       CUSTOMER: 'denied',
       AGENT: 'denied',
@@ -123,11 +140,11 @@ export const PERMISSION_MATRIX = [
   },
   {
     id: 'transition-admin-only',
-    group: 'Bảng §1.6',
+    group: 'Hợp đồng',
     name: 'BOUND→DRAFT (rollback), ACTIVE→EXPIRED',
     description:
       'Rollback BOUND→DRAFT kèm reset cờ thanh toán và ACTIVE→EXPIRED chỉ ADMIN được phép.',
-    source: '§1.6 + PermissionService.checkTransition',
+    source: 'PermissionService.checkTransition',
     roles: {
       CUSTOMER: 'denied',
       AGENT: 'denied',
@@ -137,11 +154,11 @@ export const PERMISSION_MATRIX = [
   },
   {
     id: 'payment-claim',
-    group: 'Bảng §1.6',
+    group: 'Hợp đồng',
     name: 'Khai báo đã chuyển khoản',
     description:
-      'POST payment-claim: chỉ set cờ paymentClaimedAt, hợp đồng GIỮ BOUND chờ FINANCE duyệt (qua checkPolicyWrite).',
-    source: '§1.6 + PolicyServiceImpl.claimPayment',
+      'POST payment-claim: chỉ set cờ paymentClaimedAt, hợp đồng GIỮ BOUND chờ ADMIN duyệt BOUND→ACTIVE (qua checkPolicyWrite).',
+    source: 'PolicyServiceImpl.claimPayment + PermissionService.checkPolicyWrite',
     roles: {
       CUSTOMER: '✅ Chỉ hợp đồng của mình',
       AGENT: '✅ Chỉ hợp đồng được giao',
@@ -150,12 +167,42 @@ export const PERMISSION_MATRIX = [
     },
   },
   {
+    id: 'endorsement',
+    group: 'Hợp đồng',
+    name: 'Xin endorsement',
+    description:
+      'POST /policies/{n}/endorsements: chỉ policy ACTIVE, qua checkPolicyWrite (phe cầu trong phạm vi hoặc ADMIN).',
+    source: 'PermissionService.checkPolicyWrite',
+    roles: {
+      CUSTOMER: '✅ Chỉ hợp đồng ACTIVE của mình',
+      AGENT: '✅ Chỉ hợp đồng ACTIVE được giao',
+      UNDERWRITER: 'denied',
+      ADMIN: 'allowed',
+    },
+  },
+  {
+    id: 'pending-endorsement-approval',
+    group: 'Hợp đồng',
+    name: 'Duyệt / từ chối endorsement chờ duyệt',
+    description:
+      'Maker-checker: phe cầu xin endorsement, UNDERWRITER duyệt/từ chối; ADMIN chỉ xem danh sách chờ duyệt, không duyệt.',
+    source: 'PendingEndorsementServiceImpl (duyệt/từ chối chỉ UNDERWRITER)',
+    roles: {
+      CUSTOMER: '✅ Chỉ xem của chính mình',
+      AGENT: '✅ Chỉ xem của hợp đồng được giao',
+      UNDERWRITER: 'allowed',
+      ADMIN: '✅ Chỉ xem, không được duyệt',
+    },
+  },
+
+  // ---- Nhóm 2: thương lượng ----
+  {
     id: 'negotiation-open',
-    group: 'Bảng §1.6',
+    group: 'Thương lượng',
     name: 'Mở thương lượng',
     description:
       'Chỉ phe cầu được MỞ thương lượng mới và chỉ khi hợp đồng ở trạng thái QUOTED. UNDERWRITER không được mở.',
-    source: '§1.6 + NegotiationServiceImpl (chỉ phe cầu mở)',
+    source: 'NegotiationServiceImpl.createNegotiation (chỉ phe cầu mở)',
     roles: {
       CUSTOMER: '✅ Chỉ hợp đồng của mình, khi QUOTED',
       AGENT: '✅ Chỉ hợp đồng được giao, khi QUOTED',
@@ -165,25 +212,25 @@ export const PERMISSION_MATRIX = [
   },
   {
     id: 'negotiation-write',
-    group: 'Bảng §1.6',
-    name: 'Trả giá / chốt / từ chối thương lượng (theo lượt)',
+    group: 'Thương lượng',
+    name: 'Trả giá / chốt / từ chối thương lượng (theo lượt + quyền quyết định)',
     description:
-      'Offer/accept/reject chỉ khi tới lượt phe mình (phe cầu và phe cung luân phiên). ADMIN ghi thương lượng luôn 403.',
-    source: '§1.6 + PermissionService.checkNegotiationWriteNotAdmin + checkTurn',
+      'Trả giá theo lượt phe cầu ↔ UW. Quyền quyết định 2 bước (accept rồi confirm) KHÔNG theo lượt suông: giá do UW đưa thì chỉ CUSTOMER accept và chỉ đúng UW đó confirm; giá do phe cầu đưa thì chỉ UW accept và chỉ CUSTOMER confirm (kể cả khi AGENT là người đề xuất, AGENT gọi accept/confirm đều 403). ADMIN ghi thương lượng luôn 403.',
+    source: 'NegotiationServiceImpl.accept/confirm + PermissionService.checkNegotiationWriteNotAdmin',
     roles: {
-      CUSTOMER: '✅ Theo lượt phe cầu',
-      AGENT: '✅ Theo lượt phe cầu',
-      UNDERWRITER: '✅ Theo lượt phe cung',
+      CUSTOMER: '✅ Trả giá theo lượt; accept giá UW + confirm giá phe cầu',
+      AGENT: '✅ Trả giá theo lượt; ❌ không được accept/confirm chốt giá',
+      UNDERWRITER: '✅ Trả giá theo lượt; accept giá phe cầu + confirm giá mình đưa',
       ADMIN: '❌ 403 — chỉ được xem (có chủ đích)',
     },
   },
   {
     id: 'negotiation-read',
-    group: 'Bảng §1.6',
+    group: 'Thương lượng',
     name: 'Xem thương lượng',
     description:
       'ADMIN xem được nhưng không được ghi — tách bạch "người quản trị không được vừa đá bóng vừa thổi còi giá".',
-    source: '§1.6 + PermissionService.checkNegotiationRead',
+    source: 'PermissionService.checkNegotiationRead',
     roles: {
       CUSTOMER: '✅ Chỉ hợp đồng của mình',
       AGENT: '✅ Chỉ hợp đồng được giao',
@@ -192,12 +239,28 @@ export const PERMISSION_MATRIX = [
     },
   },
   {
+    id: 'underwriter-queue',
+    group: 'Thương lượng',
+    name: 'Hàng đợi thương lượng cho UNDERWRITER',
+    description:
+      'GET /underwriter/negotiations: các thương lượng OPEN đang tới lượt UNDERWRITER, cũ nhất trước.',
+    source: 'SecurityConfig /underwriter/** + UnderwriterQueueServiceImpl',
+    roles: {
+      CUSTOMER: 'denied',
+      AGENT: 'denied',
+      UNDERWRITER: 'allowed',
+      ADMIN: '✅ Chỉ xem',
+    },
+  },
+
+  // ---- Nhóm 3: báo cáo, đối soát, công cụ ----
+  {
     id: 'excel-pricing',
-    group: 'Bảng §1.6',
+    group: 'Báo cáo & công cụ',
     name: 'Công cụ giá Excel',
     description:
       'Template, import rates, calculate, download — matcher /excel/** chỉ ADMIN + UNDERWRITER.',
-    source: '§1.6 + SecurityConfig /excel/**',
+    source: 'SecurityConfig /excel/**',
     roles: {
       CUSTOMER: 'denied',
       AGENT: 'denied',
@@ -207,69 +270,39 @@ export const PERMISSION_MATRIX = [
   },
   {
     id: 'reports',
-    group: 'Bảng §1.6',
+    group: 'Báo cáo & công cụ',
     name: 'Báo cáo tổng hợp',
     description:
-      '4 báo cáo: số hợp đồng theo trạng thái, tổng phí theo trạng thái, top hợp đồng, phí theo tháng hiệu lực.',
-    source: '§1.6, SỬA THEO CODE — xem matrixDifferences #2',
+      '4 báo cáo: số hợp đồng theo trạng thái, tổng phí theo trạng thái, top hợp đồng, phí theo tháng hiệu lực. GET mở cho ADMIN + UNDERWRITER (route FE /admin/reports cũng mở cho 2 role này); mọi thao tác không phải GET trên /reports/** chỉ ADMIN.',
+    source: 'SecurityConfig GET /reports/** (ADMIN+UW), /reports/** (ADMIN)',
     roles: {
       CUSTOMER: 'denied',
       AGENT: 'denied',
-      UNDERWRITER: 'denied',
+      UNDERWRITER: '✅ Chỉ đọc (GET)',
       ADMIN: 'allowed',
     },
   },
   {
-    id: 'user-admin-audit',
-    group: 'Bảng §1.6',
-    name: 'Quản lý user / audit log',
+    id: 'admin-reconciliation',
+    group: 'Báo cáo & công cụ',
+    name: 'Đối soát (hoàn phí, export CSV) — chỉ ADMIN, không có UI',
     description:
-      'Tạo user, đổi role, khóa/mở tài khoản, xem audit log (/admin/users, /admin/audit-logs). ADMIN không tự tước role/khóa chính mình và không được xóa admin cuối (guard đợt 1).',
-    source: '§1.6 + SecurityConfig /admin/** + AdminUserServiceImpl guards',
+      'GET /admin/finance/refunds và GET /admin/finance/reconciliation/export (matcher /admin/** + service tự enforce chỉ ADMIN). KHÔNG CÓ trang đối soát trên FE: route /admin/doi-soat không tồn tại, API chỉ dùng trực tiếp; BOUND→ACTIVE do ADMIN duyệt trên hợp đồng.',
+    source: 'SecurityConfig /admin/** + FinanceController (/admin/finance) + FinanceReconciliationServiceImpl',
     roles: {
       CUSTOMER: 'denied',
       AGENT: 'denied',
       UNDERWRITER: 'denied',
-      ADMIN: 'allowed',
-    },
-  },
-  {
-    id: 'benchmark-index',
-    group: 'Bảng §1.6',
-    name: 'Benchmark / index audit',
-    description:
-      'Benchmark (generate-50k, run, report, stats) và kiểm tra index DB. Benchmark còn bị gate thêm bằng cờ app.benchmark.enabled (mặc định tắt).',
-    source: '§1.6 + SecurityConfig /benchmark/**, /admin/indexes + BenchmarkController gate',
-    roles: {
-      CUSTOMER: 'denied',
-      AGENT: 'denied',
-      UNDERWRITER: 'denied',
-      ADMIN: '✅ Khi cờ benchmark bật',
-    },
-  },
-
-  // ---- Nhóm 2: quyền có sau §1.6 (đợt 1–3) hoặc ở §1.1–§1.2 ----
-  {
-    id: 'underwriter-queue',
-    group: 'Bổ sung sau §1.6 (đợt 2)',
-    name: 'Hàng đợi thương lượng cho UNDERWRITER',
-    description:
-      'GET /underwriter/negotiations: các thương lượng OPEN đang tới lượt UNDERWRITER, cũ nhất trước.',
-    source: 'Đợt 2 + SecurityConfig /underwriter/** + UnderwriterQueueServiceImpl',
-    roles: {
-      CUSTOMER: 'denied',
-      AGENT: 'denied',
-      UNDERWRITER: 'allowed',
-      ADMIN: '✅ Chỉ xem',
+      ADMIN: '✅ Chỉ ADMIN, qua API (không có UI)',
     },
   },
   {
     id: 'agent-commissions',
-    group: 'Bổ sung sau §1.6 (đợt 3)',
+    group: 'Báo cáo & công cụ',
     name: 'Hoa hồng + phễu bán hàng của agent',
     description:
       'GET /agent/commissions và /agent/commissions/funnel. AGENT chỉ thấy của chính mình; ADMIN thấy toàn bộ.',
-    source: 'Đợt 3 + SecurityConfig /agent/** + CommissionServiceImpl.resolveScope',
+    source: 'SecurityConfig /agent/** + CommissionServiceImpl.resolveScope',
     roles: {
       CUSTOMER: 'denied',
       AGENT: '✅ Chỉ của chính mình',
@@ -278,26 +311,12 @@ export const PERMISSION_MATRIX = [
     },
   },
   {
-    id: 'finance-reconciliation',
-    group: 'Bổ sung sau §1.6 (đợt 3)',
-    name: 'Đối soát FINANCE (hoàn phí, export CSV)',
-    description:
-      'GET /finance/refunds và /finance/reconciliation/export. FINANCE xem hàng đợi đối soát (BOUND + đã khai báo chuyển khoản) tại /admin/doi-soat.',
-    source: 'Đợt 3 + SecurityConfig /finance/** + FinanceController',
-    roles: {
-      CUSTOMER: 'denied',
-      AGENT: 'denied',
-      UNDERWRITER: 'denied',
-      ADMIN: '✅ Chỉ xem',
-    },
-  },
-  {
     id: 'policy-notes',
-    group: 'Bổ sung sau §1.6 (đợt 3)',
+    group: 'Báo cáo & công cụ',
     name: 'Ghi chú nội bộ hợp đồng',
     description:
-      'GET/POST /policies/{n}/notes: ghi chú chỉ UW/ADMIN thấy, không hiện cho customer. CUSTOMER/AGENT/FINANCE đều 403.',
-    source: 'Đợt 3 + PolicyNoteServiceImpl.checkUnderwriterOrAdmin',
+      'GET/POST /policies/{n}/notes: ghi chú chỉ UW/ADMIN thấy, không hiện cho customer. CUSTOMER/AGENT đều 403.',
+    source: 'PolicyNoteServiceImpl.checkUnderwriterOrAdmin',
     roles: {
       CUSTOMER: 'denied',
       AGENT: 'denied',
@@ -306,26 +325,56 @@ export const PERMISSION_MATRIX = [
     },
   },
   {
-    id: 'endorsement',
-    group: 'Bổ sung từ §1.1–§1.2',
-    name: 'Xin endorsement',
+    id: 'benchmark-index',
+    group: 'Báo cáo & công cụ',
+    name: 'Benchmark / index audit',
     description:
-      'POST /policies/{n}/endorsements: chỉ policy ACTIVE, qua checkPolicyWrite (phe cầu trong phạm vi hoặc ADMIN).',
-    source: '§1.1–§1.2 + PermissionService.checkPolicyWrite',
+      'Benchmark (generate-50k, run, report, stats) và kiểm tra index DB. Benchmark còn bị gate thêm bằng cờ app.benchmark.enabled (mặc định tắt).',
+    source: 'SecurityConfig /benchmark/**, /admin/indexes + BenchmarkController gate',
     roles: {
-      CUSTOMER: '✅ Chỉ hợp đồng ACTIVE của mình',
-      AGENT: '✅ Chỉ hợp đồng ACTIVE được giao',
+      CUSTOMER: 'denied',
+      AGENT: 'denied',
+      UNDERWRITER: 'denied',
+      ADMIN: '✅ Khi cờ benchmark bật',
+    },
+  },
+
+  // ---- Nhóm 4: bồi thường + quản trị ----
+  {
+    id: 'claim',
+    group: 'Bồi thường',
+    name: 'Yêu cầu / xem / xử lý bồi thường (claim)',
+    description:
+      'Tạo claim: chỉ CUSTOMER cho policy ACTIVE của chính mình (kèm tối đa 10 ảnh). Đọc claim: ADMIN/UW mọi claim, CUSTOMER claim của mình, AGENT claim của hợp đồng được giao. Review/approve/reject/pay claim: chỉ ADMIN.',
+    source: 'ClaimServiceImpl (tạo: chính mình + ACTIVE; xử lý: checkAdmin)',
+    roles: {
+      CUSTOMER: '✅ Tạo cho policy ACTIVE của mình; đọc claim của mình',
+      AGENT: '✅ Chỉ đọc claim của hợp đồng được giao',
+      UNDERWRITER: '✅ Chỉ đọc mọi claim, không xử lý',
+      ADMIN: 'allowed',
+    },
+  },
+  {
+    id: 'user-admin-audit',
+    group: 'Quản trị',
+    name: 'Quản lý user / audit log',
+    description:
+      'Tạo user, đổi role, khóa/mở tài khoản, xem audit log (/admin/users, /admin/audit-logs). ADMIN không tự tước role/khóa chính mình và không được xóa admin cuối (guard).',
+    source: 'SecurityConfig /admin/** + AdminUserServiceImpl guards',
+    roles: {
+      CUSTOMER: 'denied',
+      AGENT: 'denied',
       UNDERWRITER: 'denied',
       ADMIN: 'allowed',
     },
   },
   {
     id: 'own-profile',
-    group: 'Bổ sung từ §1.1',
+    group: 'Quản trị',
     name: 'Hồ sơ / đổi mật khẩu / thông báo của chính mình',
     description:
       '/user/** (profile, change-password, activity) và /user/notifications: mọi role đăng nhập đều dùng được, nhưng chỉ dữ liệu của chính mình (lấy email từ Principal, không có fallback ?email=).',
-    source: '§1.1 + SecurityConfig /user/** + UserController/NotificationService',
+    source: 'SecurityConfig /user/** + UserController/NotificationService',
     roles: {
       CUSTOMER: '✅ Chỉ của chính mình',
       AGENT: '✅ Chỉ của chính mình',
@@ -335,37 +384,44 @@ export const PERMISSION_MATRIX = [
   },
 ];
 
-// Điểm khác biệt giữa bảng §1.6 cũ và code hiện tại (mirror theo CODE).
-// Trang render nguyên danh sách này để người đọc không tưởng bảng cũ còn đúng.
+// Những điểm bản ma trận cũ (còn vai trò FINANCE) đã sai so với code hiện tại
+// và được sửa trong lần viết lại này. Trang render nguyên danh sách này để
+// người đọc không tưởng bản cũ còn đúng.
 export const MATRIX_DIFFERENCES = [
   {
-    id: 'diff-create-policy',
-    title: 'Tạo hợp đồng: UNDERWRITER và FINANCE từ ✅ thành ❌',
+    id: 'diff-finance-removed',
+    title: 'Vai trò FINANCE đã bị xóa: khỏi bảng, khỏi matcher, khỏi mọi hàng',
     detail:
-      'Bảng §1.6 ghi UW tạo "cho bất kỳ ai" vì createPolicy cũ chỉ ép insured với CUSTOMER/AGENT, kèm ghi chú "nên siết". Đợt 1 đã siết thật: PolicyServiceImpl.createPolicy chặn UW bằng 403 trước cả duplicate-check (ADMIN được miễn kể cả khi mang đồng thời nhiều role). Ma trận này mirror theo code hiện tại.',
+      'Role enum hiện tại không còn ROLE_FINANCE (chỉ CUSTOMER/AGENT/UNDERWRITER/ADMIN + ROLE_USER cũ tương đương CUSTOMER). SecurityConfig không còn matcher /finance/**, route FE /admin/reports không còn mở cho FINANCE, và trang /admin/doi-soat không tồn tại (App.jsx chỉ còn entry TITLES chết, không có Route). Mọi hàng, cột và ghi chú FINANCE trong bản cũ đều đã sai và đã bị xóa; người dùng cũ mang role FINANCE (nếu còn trong DB) sẽ rơi vào mọi matcher 403 vì không còn matcher nào nhận role đó.',
   },
   {
-    id: 'diff-reports-finance',
-    title: 'Báo cáo tổng hợp: FINANCE từ ❌ thành ✅ chỉ đọc (GET)',
+    id: 'diff-reports-uw-read',
+    title: 'Báo cáo tổng hợp: UNDERWRITER được đọc (GET), không phải FINANCE',
     detail:
-      'Bảng §1.6 ghi FINANCE ❌ (đề xuất P0 #3 "mở GET reports cho FINANCE" lúc đó chưa làm). Đợt 1 đã làm: SecurityConfig có matcher GET /reports/** cho ADMIN + FINANCE đứng trước matcher chung /reports/** chỉ ADMIN, nên FINANCE đọc được 4 báo cáo nhưng mọi thao tác ghi trên /reports/** vẫn chỉ ADMIN. Route FE /admin/reports cũng đã mở cho FINANCE.',
+      'Bản cũ ghi GET /reports cho ADMIN+FINANCE. Code hiện tại: matcher GET /reports/** cho ADMIN + UNDERWRITER đứng trước matcher chung /reports/** chỉ ADMIN, và route FE /admin/reports mở cho ROLE_ADMIN + ROLE_UNDERWRITER. Hàng Báo cáo đã sửa UNDERWRITER thành "chỉ đọc (GET)".',
   },
   {
-    id: 'diff-new-matchers',
-    title: 'Thêm matcher mới sau §1.6: /underwriter/**, /finance/**, /agent/**',
+    id: 'diff-reconciliation-admin-only-no-ui',
+    title: 'Đối soát: chuyển từ FINANCE tại /admin/doi-soat thành ADMIN tại /admin/finance, không có UI',
     detail:
-      'Bảng matcher §2.1 cũ chưa có 3 prefix này (chúng rơi vào anyRequest().authenticated()). Đợt 2–3 thêm matcher có role: /underwriter/** → UW + ADMIN, /finance/** → FINANCE + ADMIN, /agent/** → AGENT + ADMIN. Các hàng "Hàng đợi thương lượng", "Đối soát FINANCE", "Hoa hồng agent" trong nhóm bổ sung phản ánh đúng 3 matcher này.',
+      'Bản cũ ghi GET /finance/refunds + export cho FINANCE xem tại /admin/doi-soat. Code hiện tại: FinanceController gắn ở /admin/finance (matcher /admin/** = ADMIN) và service tự enforce chỉ ADMIN; không có component/route FE nào cho đối soát. Hàng cũ "Đối soát FINANCE" đổi thành "Đối soát — chỉ ADMIN, không có UI", và BOUND→ACTIVE do ADMIN duyệt trực tiếp (PermissionService.checkTransition).',
   },
   {
-    id: 'diff-benchmark-gate',
-    title: 'Benchmark: ADMIN ✅ nhưng bị gate thêm bằng cờ',
+    id: 'diff-negotiation-decisive',
+    title: 'Thương lượng: quyền quyết định accept/confirm siết theo email, AGENT không được chốt giá',
     detail:
-      'Bảng §1.6 chỉ ghi ADMIN ✅ cho benchmark. Đợt 1 gate thêm: BenchmarkController.requireBenchmarkEnabled() chặn mọi endpoint khi app.benchmark.enabled=false (mặc định tắt, chỉ bật ở dev). Vì vậy ô ADMIN của hàng Benchmark ghi "Khi cờ benchmark bật" thay vì ✅ trơn.',
+      'Bản cũ chỉ ghi "trả giá theo lượt" chung chung. Code hiện tại (NegotiationServiceImpl, luật 2 bước): giá do UW đưa → chỉ CUSTOMER (đúng email insured) accept, chỉ đúng UW đó confirm; giá do phe cầu đưa → chỉ UW accept, chỉ CUSTOMER confirm — kể cả khi AGENT là người đề xuất thì AGENT gọi accept/confirm vẫn 403. Hàng thương lượng đã ghi rõ luật này; ADMIN vẫn 403 mọi thao tác ghi.',
   },
   {
-    id: 'diff-admin-guards',
-    title: 'Quản lý user: ADMIN ✅ nhưng không tự tước role / tự khóa / xóa admin cuối',
+    id: 'diff-claim-admin',
+    title: 'Bồi thường: thêm hàng claim — tạo/xem theo phạm vi, xử lý chỉ ADMIN',
     detail:
-      'Bảng §1.6 không nhắc giới hạn này; đợt 1 thêm guard ở AdminUserServiceImpl (lỗ hổng L3): admin không được tự đổi role chính mình, không được tự khóa chính mình, thao tác khiến số admin hoạt động về 0 bị chặn và ghi audit BLOCKED_LAST_ADMIN_REMOVAL. Ma trận ghi chú điều này ở hàng "Quản lý user / audit log".',
+      'Bản cũ không có hàng claim. Code hiện tại (ClaimServiceImpl, head có tính năng claim hợp đồng + tối đa 10 ảnh): tạo chỉ CUSTOMER cho policy ACTIVE của mình; đọc: ADMIN/UW mọi claim, CUSTOMER của mình, AGENT của hợp đồng được giao; review/approve/reject/pay chỉ ADMIN (checkAdmin).',
+  },
+  {
+    id: 'diff-pending-endorsement',
+    title: 'Endorsement chờ duyệt: thêm hàng maker-checker — duyệt chỉ UNDERWRITER',
+    detail:
+      'Bản cũ chỉ có hàng "xin endorsement". Code hiện tại (PendingEndorsementServiceImpl): duyệt/từ chối endorsement chờ duyệt chỉ UNDERWRITER; ADMIN chỉ xem danh sách, CUSTOMER/AGENT chỉ xem của mình/theo hợp đồng được giao.',
   },
 ];
