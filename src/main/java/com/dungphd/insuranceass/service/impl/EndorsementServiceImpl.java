@@ -130,12 +130,15 @@ public class EndorsementServiceImpl implements EndorsementService {
 
         // 2. Apply modifications from EndorsementRequest (cùng helper mà bước
         // tính phí dự kiến dùng trên bản clone, nên phí dự kiến = phí thật).
+        // FIX 9: chụp tổng phí coverage TRƯỚC khi sửa để giữ mức giảm giá
+        // của deal (xem recalculateTotalPremiumPreservingDeal).
+        double oldCoverageSum = sumCoveragePremiums(policy);
         applyRequestToPolicy(policy, request);
 
         // 3. Increment version and recalculate total premium
         int newVersion = currentVersion + 1;
         policy.setVersion(newVersion);
-        policy.recalculateTotalPremium();
+        recalculateTotalPremiumPreservingDeal(policy, oldCoverageSum);
         policy.setUpdatedAt(Instant.now());
 
         Policy savedPolicy = policyRepository.save(policy);
@@ -270,9 +273,78 @@ public class EndorsementServiceImpl implements EndorsementService {
     /** Policy SAU endorsement nhưng CHƯA save — chỉ để tính phí dự kiến. */
     private Policy buildProjectedPolicy(Policy policy, EndorsementRequest request) {
         Policy projected = clonePolicy(policy);
+        // FIX 9: phí dự kiến phải dùng đúng công thức giữ deal như luồng
+        // apply thật, nếu không ngưỡng maker-checker và phí thật sẽ lệch nhau.
+        double oldCoverageSum = sumCoveragePremiums(projected);
         applyRequestToPolicy(projected, request);
-        projected.recalculateTotalPremium();
+        recalculateTotalPremiumPreservingDeal(projected, oldCoverageSum);
         return projected;
+    }
+
+    /**
+     * FIX 9 — QUYẾT ĐỊNH SẢN PHẨM (đã duyệt): giữ nguyên mức giảm giá tuyệt
+     * đối của deal khi endorsement đổi phí coverage.
+     *
+     * Bối cảnh: khi negotiation được confirm, Policy.totalPremium và
+     * Policy.negotiatedPremium đều = giá chốt (finalPrice), trong khi tổng
+     * phí coverage (oldSum) vẫn là giá gốc chưa giảm. Endorsement cũ gọi
+     * Policy.recalculateTotalPremium() — chỉ cộng phí coverage — nên ghi đè
+     * totalPremium = newSum, xóa sạch mức giảm đã deal ngay ở endorsement
+     * đầu tiên sau ACTIVE.
+     *
+     * Công thức đã duyệt: gọi oldSum = tổng phí coverage TRƯỚC endorsement
+     * (phải chụp trước khi applyRequestToPolicy sửa locations, vì sau đó
+     * oldSum không còn khôi phục được), newSum = tổng phí coverage SAU
+     * endorsement, thì:
+     *   total mới = negotiatedPremium + (newSum - oldSum)
+     * tức là newSum trừ đi đúng mức giảm tuyệt đối cũ (oldSum - negotiated).
+     * Đồng thời cập nhật CẢ totalPremium VÀ negotiatedPremium thành total
+     * mới, để lần endorsement sau vẫn giữ đúng mức giảm đó.
+     *
+     * - negotiatedPremium null (policy chưa từng deal): giữ hành vi cũ,
+     *   total = newSum.
+     * - Chỉ áp dụng khi policy từng có deal (negotiatedPremium != null).
+     * - Endorsement vẫn chỉ chạy trên policy ACTIVE (check ở đầu
+     *   applyEndorsementInternal, không đổi); KHÔNG mở lại thương lượng đã
+     *   ACCEPTED — đây chỉ là cách tính phí của endorsement, không chạm
+     *   tới trạng thái negotiation.
+     * - total mới được chặn dưới ở 0 để không sinh phí âm khi endorsement
+     *   gỡ gần hết coverage (vd. oldSum 1000, deal 900, newSum 0).
+     *
+     * Vì sao không sửa trong Policy.recalculateTotalPremium(): method đó
+     * được gọi SAU khi locations đã bị sửa (không còn oldSum) và được nhiều
+     * luồng khác dùng (coverage/location service, seed) — nó không thể biết
+     * oldSum, nên giữ deal phải làm ở điểm apply endorsement, nơi oldSum
+     * còn chụp được. Policy.recalculateTotalPremium() vì vậy giữ nguyên.
+     */
+    private void recalculateTotalPremiumPreservingDeal(Policy policy, double oldCoverageSum) {
+        double newCoverageSum = sumCoveragePremiums(policy);
+        Double negotiated = policy.getNegotiatedPremium();
+        if (negotiated != null) {
+            double newTotal = Math.max(0.0, negotiated + (newCoverageSum - oldCoverageSum));
+            policy.setTotalPremium(newTotal);
+            policy.setNegotiatedPremium(newTotal);
+        } else {
+            policy.setTotalPremium(newCoverageSum);
+        }
+    }
+
+    /** Tổng phí coverage hiện tại, không làm đổi policy (đọc thuần túy). */
+    private static double sumCoveragePremiums(Policy policy) {
+        if (policy == null || policy.getLocations() == null) {
+            return 0.0;
+        }
+        double sum = 0.0;
+        for (Location loc : policy.getLocations()) {
+            if (loc.getCoverages() != null) {
+                for (Coverage cov : loc.getCoverages()) {
+                    if (cov.getPremium() != null) {
+                        sum += cov.getPremium();
+                    }
+                }
+            }
+        }
+        return sum;
     }
 
     /**
