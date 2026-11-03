@@ -98,7 +98,10 @@ class ClaimServiceImplTest {
                 .damageDescription("Tai nạn làm vỡ kính chiếu hậu")
                 .build();
 
-        MockMultipartFile photo = new MockMultipartFile("photos", "glass.jpg", "image/jpeg", "image-content".getBytes());
+        // FIX 10: fixture phải là JPEG thật (magic FF D8 FF) vì validate giờ
+        // kiểm tra magic bytes, không còn chấp nhận nội dung tùy ý.
+        byte[] jpegBytes = new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 'i', 'm', 'a', 'g', 'e'};
+        MockMultipartFile photo = new MockMultipartFile("photos", "glass.jpg", "image/jpeg", jpegBytes);
 
         ClaimResponse resp = claimService.createClaim(req, List.of(photo));
 
@@ -180,17 +183,22 @@ class ClaimServiceImplTest {
     }
 
     // 6. Tổng kích thước ảnh vượt quá 50MB -> 400 Bad Request
+    // FIX 10: fixture phải là JPEG hợp lệ thật (ext + content-type + magic
+    // khớp) để bài test chạm tới đúng điểm kiểm tra tổng dung lượng, thay vì
+    // trượt sớm ở bước validate định dạng mới (AND thay cho OR).
     @Test
     void createClaim_totalSizeExceeds50MB_throws400() {
         when(permissionService.currentPrincipal()).thenReturn("customer@example.com");
         when(policyRepository.findByPolicyNumber("POL-1001")).thenReturn(Optional.of(activePolicy));
 
+        byte[] nineMbJpeg = new byte[9 * 1024 * 1024];
+        nineMbJpeg[0] = (byte) 0xFF;
+        nineMbJpeg[1] = (byte) 0xD8;
+        nineMbJpeg[2] = (byte) 0xFF;
         List<MultipartFile> files = new ArrayList<>();
         for (int i = 0; i < 6; i++) {
-            MultipartFile f = mock(MultipartFile.class);
-            when(f.getSize()).thenReturn(9L * 1024 * 1024); // 6 * 9MB = 54MB > 50MB
-            when(f.getOriginalFilename()).thenReturn("photo" + i + ".jpg");
-            files.add(f);
+            // 6 * 9MB = 54MB > 50MB; mỗi file riêng lẻ đều < 10MB và hợp lệ.
+            files.add(new MockMultipartFile("photos", "photo" + i + ".jpg", "image/jpeg", nineMbJpeg));
         }
 
         CreateClaimRequest req = CreateClaimRequest.builder()
@@ -202,7 +210,7 @@ class ClaimServiceImplTest {
         assertThrows(BadRequestException.class, () -> claimService.createClaim(req, files));
     }
 
-    // 7. Định dạng file không hợp lệ (không phải jpg, jpeg, png, webp) -> 400 Bad Request
+    // 7. Định dạng file không hợp lệ (không phải jpg, jpeg, png, gif, webp) -> 400 Bad Request
     @Test
     void createClaim_invalidExtension_throws400() {
         when(permissionService.currentPrincipal()).thenReturn("customer@example.com");
@@ -235,6 +243,84 @@ class ClaimServiceImplTest {
         );
 
         assertThrows(BadRequestException.class, () -> claimService.addPhotos("claim-1", newFiles));
+    }
+
+    // FIX 10(a). Nội dung PNG nhưng khai .jpg + image/jpeg -> magic trượt -> 400
+    @Test
+    void createClaim_magicBytesMismatch_throws400() {
+        when(permissionService.currentPrincipal()).thenReturn("customer@example.com");
+        when(policyRepository.findByPolicyNumber("POL-1001")).thenReturn(Optional.of(activePolicy));
+
+        byte[] pngBytes = new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 'x'};
+        MockMultipartFile file = new MockMultipartFile("photos", "fake.jpg", "image/jpeg", pngBytes);
+
+        CreateClaimRequest req = CreateClaimRequest.builder()
+                .policyNumber("POL-1001")
+                .claimedAmount(1000000.0)
+                .damageDescription("Mô tả")
+                .build();
+
+        assertThrows(BadRequestException.class, () -> claimService.createClaim(req, List.of(file)));
+    }
+
+    // FIX 10(a). Nội dung PNG thật nhưng content-type image/jpeg (không khớp
+    // .png) -> 400, dù từng thành phần riêng lẻ đều nằm trong allowlist cũ.
+    @Test
+    void createClaim_contentTypeMismatch_throws400() {
+        when(permissionService.currentPrincipal()).thenReturn("customer@example.com");
+        when(policyRepository.findByPolicyNumber("POL-1001")).thenReturn(Optional.of(activePolicy));
+
+        byte[] pngBytes = new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 'x'};
+        MockMultipartFile file = new MockMultipartFile("photos", "photo.png", "image/jpeg", pngBytes);
+
+        CreateClaimRequest req = CreateClaimRequest.builder()
+                .policyNumber("POL-1001")
+                .claimedAmount(1000000.0)
+                .damageDescription("Mô tả")
+                .build();
+
+        assertThrows(BadRequestException.class, () -> claimService.createClaim(req, List.of(file)));
+    }
+
+    // FIX 10(a). GIF hợp lệ (ext + content-type + magic "GIF8" khớp nhau) -> pass.
+    @Test
+    void createClaim_validGif_success() {
+        when(permissionService.currentPrincipal()).thenReturn("customer@example.com");
+        when(policyRepository.findByPolicyNumber("POL-1001")).thenReturn(Optional.of(activePolicy));
+        when(claimRepository.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MockMultipartFile file = new MockMultipartFile("photos", "anim.gif", "image/gif", "GIF89aXXXX".getBytes());
+
+        CreateClaimRequest req = CreateClaimRequest.builder()
+                .policyNumber("POL-1001")
+                .claimedAmount(1000000.0)
+                .damageDescription("Mô tả")
+                .build();
+
+        ClaimResponse resp = claimService.createClaim(req, List.of(file));
+        assertNotNull(resp);
+        assertEquals(1, resp.getPhotos().size());
+        assertEquals("anim.gif", resp.getPhotos().get(0).getFileName());
+    }
+
+    // FIX 10(b). Ảnh đã có 45MB + gửi thêm 6MB (mỗi file đều < 10MB, batch
+    // mới chỉ 6MB) -> tổng cộng dồn 51MB > 50MB -> reject CẢ batch, không save.
+    @Test
+    void addPhotos_cumulativeSizeExceeds50MB_throws400AndSavesNothing() {
+        when(claimRepository.findById("claim-1")).thenReturn(Optional.of(sampleClaim));
+        when(permissionService.currentPrincipal()).thenReturn("customer@example.com");
+
+        sampleClaim.getPhotos().add(ClaimPhoto.builder()
+                .id("old-1").fileName("old.jpg").fileSize(45L * 1024 * 1024).build());
+
+        byte[] sixMbJpeg = new byte[6 * 1024 * 1024];
+        sixMbJpeg[0] = (byte) 0xFF;
+        sixMbJpeg[1] = (byte) 0xD8;
+        sixMbJpeg[2] = (byte) 0xFF;
+        MockMultipartFile file = new MockMultipartFile("photos", "new.jpg", "image/jpeg", sixMbJpeg);
+
+        assertThrows(BadRequestException.class, () -> claimService.addPhotos("claim-1", List.of(file)));
+        verify(claimRepository, never()).save(any(Claim.class));
     }
 
     // 9. CUSTOMER xem claim của mình -> thành công

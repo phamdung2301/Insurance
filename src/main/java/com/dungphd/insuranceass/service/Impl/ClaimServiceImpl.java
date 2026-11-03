@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,9 +48,16 @@ public class ClaimServiceImpl implements ClaimService {
     private static final long MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
     private static final long MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50MB
     private static final int MAX_PHOTOS_PER_CLAIM = 10;
-    private static final Set<String> ALLOWED_IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp");
-    private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of(
-            "image/jpeg", "image/png", "image/webp", "image/pjpeg"
+    // FIX 10(a): extension -> content-type chuẩn của đúng loại đó. Một file
+    // chỉ hợp lệ khi extension, content-type VÀ magic bytes đều khớp cùng
+    // một loại (không còn chấp nhận OR như trước). "image/pjpeg" cũ bị loại
+    // vì không nằm trong allowlist đã duyệt (jpg/jpeg dùng image/jpeg).
+    private static final Map<String, String> EXTENSION_TO_CONTENT_TYPE = Map.of(
+            "jpg", "image/jpeg",
+            "jpeg", "image/jpeg",
+            "png", "image/png",
+            "gif", "image/gif",
+            "webp", "image/webp"
     );
 
     private Path getUploadDirectory() {
@@ -68,6 +76,13 @@ public class ClaimServiceImpl implements ClaimService {
         return uploadPath;
     }
 
+    /**
+     * FIX 10(a): định dạng ảnh phải thỏa CẢ BA, không còn OR như trước —
+     * (1) extension trong allowlist, (2) content-type khớp đúng loại của
+     * extension đó, (3) magic bytes khớp đúng loại đó. Trượt 1 trong 3 là
+     * reject cả file với message nêu rõ điểm trượt. Các rule khác giữ
+     * nguyên: tối đa 10 ảnh/claim, tối đa 10MB/ảnh.
+     */
     private void validateImageFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("File ảnh rỗng hoặc không tồn tại.");
@@ -82,16 +97,74 @@ public class ClaimServiceImpl implements ClaimService {
             ext = filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
         }
 
-        String contentType = file.getContentType();
-        boolean validExt = ALLOWED_IMAGE_EXTENSIONS.contains(ext);
-        boolean validContentType = contentType != null && ALLOWED_CONTENT_TYPES.contains(contentType.toLowerCase());
+        String expectedContentType = EXTENSION_TO_CONTENT_TYPE.get(ext);
+        if (expectedContentType == null) {
+            throw new BadRequestException("File '" + filename + "' không phải định dạng ảnh hợp lệ (chỉ hỗ trợ jpg, jpeg, png, gif, webp).");
+        }
 
-        if (!validExt && !validContentType) {
-            throw new BadRequestException("File '" + filename + "' không phải định dạng ảnh hợp lệ (chỉ hỗ trợ jpg, jpeg, png, webp).");
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.equalsIgnoreCase(expectedContentType)) {
+            throw new BadRequestException("File '" + filename + "' có content-type '" + contentType
+                    + "' không khớp với định dạng ." + ext + " (cần " + expectedContentType + ").");
+        }
+
+        if (!hasMatchingMagicBytes(file, ext)) {
+            throw new BadRequestException("File '" + filename + "' có nội dung không khớp với định dạng ."
+                    + ext + " (magic bytes không đúng loại ảnh đã khai báo).");
         }
     }
 
-    private void validatePhotosList(List<MultipartFile> photos, int currentCount) {
+    /**
+     * Đọc tối đa 12 byte đầu file và đối chiếu magic bytes của đúng loại
+     * theo extension: JPEG FF D8 FF; PNG 89 50 4E 47 0D 0A 1A 0A; GIF "GIF8";
+     * WEBP byte 0-3 "RIFF" và byte 8-11 "WEBP". Không đọc được header
+     * (stream null, lỗi IO, file ngắn hơn header tối thiểu) cũng là trượt.
+     * Mỗi lần gọi getInputStream() là một stream mới nên lần đọc này không
+     * làm cạn stream mà savePhotoToDisk dùng sau đó.
+     */
+    private boolean hasMatchingMagicBytes(MultipartFile file, String ext) {
+        byte[] header = new byte[12];
+        int read;
+        try (InputStream in = file.getInputStream()) {
+            if (in == null) {
+                return false;
+            }
+            read = 0;
+            int n;
+            while (read < header.length && (n = in.read(header, read, header.length - read)) != -1) {
+                read += n;
+            }
+        } catch (IOException e) {
+            return false;
+        }
+        switch (ext) {
+            case "jpg":
+            case "jpeg":
+                return read >= 3
+                        && (header[0] & 0xFF) == 0xFF && (header[1] & 0xFF) == 0xD8 && (header[2] & 0xFF) == 0xFF;
+            case "png":
+                return read >= 8
+                        && (header[0] & 0xFF) == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47
+                        && header[4] == 0x0D && header[5] == 0x0A && header[6] == 0x1A && header[7] == 0x0A;
+            case "gif":
+                return read >= 4 && header[0] == 'G' && header[1] == 'I' && header[2] == 'F' && header[3] == '8';
+            case "webp":
+                return read >= 12
+                        && header[0] == 'R' && header[1] == 'I' && header[2] == 'F' && header[3] == 'F'
+                        && header[8] == 'W' && header[9] == 'E' && header[10] == 'B' && header[11] == 'P';
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * FIX 10(b): giới hạn 50MB tính CỘNG DỒN — tổng dung lượng ảnh đã có của
+     * claim (currentTotalSize, cộng từ ClaimPhoto.fileSize, null tính là 0)
+     * + tổng dung lượng file mới. Vượt là reject CẢ batch, không nhận một
+     * phần. Vẫn validate từng file trước (định dạng, 10MB/ảnh) rồi mới
+     * chốt tổng, và vẫn giữ giới hạn 10 ảnh/claim (đã có + mới).
+     */
+    private void validatePhotosList(List<MultipartFile> photos, int currentCount, long currentTotalSize) {
         if (photos == null || photos.isEmpty()) {
             return;
         }
@@ -99,14 +172,36 @@ public class ClaimServiceImpl implements ClaimService {
             throw new BadRequestException("Tối đa " + MAX_PHOTOS_PER_CLAIM + " ảnh cho một yêu cầu bồi thường (hiện có "
                     + currentCount + " ảnh, gửi thêm " + photos.size() + " ảnh).");
         }
-        long totalSize = 0;
+        long newTotalSize = 0;
         for (MultipartFile photo : photos) {
             validateImageFile(photo);
-            totalSize += photo.getSize();
+            newTotalSize += photo.getSize();
         }
-        if (totalSize > MAX_TOTAL_SIZE) {
-            throw new BadRequestException("Tổng dung lượng các ảnh gửi lên vượt quá giới hạn 50MB.");
+        long existingSize = Math.max(0L, currentTotalSize);
+        if (existingSize + newTotalSize > MAX_TOTAL_SIZE) {
+            throw new BadRequestException("Tổng dung lượng ảnh của yêu cầu bồi thường vượt quá giới hạn 50MB (đã có "
+                    + formatMb(existingSize) + "MB, gửi thêm " + formatMb(newTotalSize)
+                    + "MB, tổng " + formatMb(existingSize + newTotalSize)
+                    + "MB) — toàn bộ batch bị từ chối, không nhận một phần.");
         }
+    }
+
+    /** Tổng fileSize ảnh đã lưu của claim; fileSize null tính là 0. */
+    private static long sumExistingPhotoSizes(List<ClaimPhoto> photos) {
+        if (photos == null) {
+            return 0L;
+        }
+        long sum = 0L;
+        for (ClaimPhoto photo : photos) {
+            if (photo != null && photo.getFileSize() != null) {
+                sum += photo.getFileSize();
+            }
+        }
+        return sum;
+    }
+
+    private static String formatMb(long bytes) {
+        return String.format("%.1f", bytes / (1024.0 * 1024.0));
     }
 
     private ClaimPhoto savePhotoToDisk(String claimId, MultipartFile file) {
@@ -192,7 +287,7 @@ public class ClaimServiceImpl implements ClaimService {
             throw new BadRequestException("Mô tả chi tiết thiệt hại tối đa 5000 ký tự.");
         }
 
-        validatePhotosList(photos, 0);
+        validatePhotosList(photos, 0, 0L);
 
         String claimId = UUID.randomUUID().toString();
         List<ClaimPhoto> savedPhotos = new ArrayList<>();
@@ -251,7 +346,9 @@ public class ClaimServiceImpl implements ClaimService {
         }
 
         int currentCount = claim.getPhotos() != null ? claim.getPhotos().size() : 0;
-        validatePhotosList(photos, currentCount);
+        // FIX 10(b): cộng dồn dung lượng ảnh đã có (ClaimPhoto.fileSize) vào
+        // giới hạn 50MB, không chỉ tính riêng batch mới gửi lên.
+        validatePhotosList(photos, currentCount, sumExistingPhotoSizes(claim.getPhotos()));
 
         if (claim.getPhotos() == null) {
             claim.setPhotos(new ArrayList<>());
