@@ -70,7 +70,7 @@ public class ClaimController {
         ClaimPhoto metadata = claimService.getPhotoMetadata(id, photoId);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(metadata.getContentType() != null ? metadata.getContentType() : "image/jpeg"))
-                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + metadata.getOriginalFilename() + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + metadata.getFileName() + "\"")
                 .body(resource);
     }
 
