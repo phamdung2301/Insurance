@@ -9,6 +9,7 @@ import com.dungphd.insuranceass.exception.BadRequestException;
 import com.dungphd.insuranceass.exception.PendingEndorsementException;
 import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.*;
+import com.dungphd.insuranceass.repository.AgentRepository;
 import com.dungphd.insuranceass.repository.PendingEndorsementRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyVersionRepository;
@@ -16,9 +17,11 @@ import com.dungphd.insuranceass.service.EndorsementService;
 import com.dungphd.insuranceass.service.NotificationService;
 import com.dungphd.insuranceass.service.PremiumCalculationService;
 import com.dungphd.insuranceass.service.TransactionLedgerService;
+import com.dungphd.insuranceass.service.TransactionSideEffects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.*;
@@ -51,12 +54,37 @@ public class EndorsementServiceImpl implements EndorsementService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private PendingEndorsementRepository pendingEndorsementRepository;
 
+    // SaaS Phase 1 (optional như các repo phụ khác): chỉ resolve agentName hiển
+    // thị cho PolicyResponse; null trong test unit cũ → agentName null, không fail.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AgentRepository agentRepository;
+
+    /**
+     * Track 2 — transaction thật THAY THẾ bù trừ xóa-snapshot cũ (xem trong
+     * {@code applyEndorsementInternal}): snapshot-save + policy-save cùng
+     * commit hoặc cùng rollback. Annotation đặt ở HAI method public này —
+     * KHÔNG đặt lên {@code applyEndorsementInternal} (private): gọi method
+     * private từ trong cùng bean không qua Spring proxy nên annotation ở
+     * đó sẽ không bao giờ có tác dụng (self-invocation). Cả hai method đều
+     * chỉ được gọi từ controller hoặc từ PendingEndorsementApproval (bean
+     * khác, qua proxy) nên transaction luôn có hiệu lực.
+     *
+     * <p>{@code noRollbackFor = PendingEndorsementException.class} là BẮT
+     * BUỘC, không phải tùy chọn: nhánh pending (> 20%) lưu pending rồi ném
+     * exception này để báo HTTP 202. Không có noRollbackFor, transaction sẽ
+     * rollback cả pending-save vừa lưu → yêu cầu chờ duyệt biến mất trong
+     * khi caller nhận 202 "đã tạo yêu cầu". Với noRollbackFor, proxy COMMIT
+     * khi exception này lan ra, pending được giữ, và mail "tạo yêu cầu" đã
+     * đăng ký afterCommit vẫn gửi sau commit.
+     */
     @Override
+    @Transactional(noRollbackFor = PendingEndorsementException.class)
     public PolicyResponse applyEndorsement(String policyNumber, EndorsementRequest request, String actor) {
         return applyEndorsementInternal(policyNumber, request, actor, false);
     }
 
     @Override
+    @Transactional(noRollbackFor = PendingEndorsementException.class)
     public PolicyResponse applyEndorsementBypassingThreshold(String policyNumber, EndorsementRequest request, String actor) {
         return applyEndorsementInternal(policyNumber, request, actor, true);
     }
@@ -109,13 +137,19 @@ public class EndorsementServiceImpl implements EndorsementService {
                     pending = pendingEndorsementRepository.save(pending);
                 }
                 // Đợt payment — mail "tạo yêu cầu" nhánh pending (> 20%):
-                // PHẢI gửi TRƯỚC khi ném PendingEndorsementException (→ HTTP 202),
-                // nếu không nhánh này không bao giờ có mail. NotificationService
-                // failure-isolated nên không cần try/catch thêm ở đây.
-                // Chỉ khi !bypassThreshold (nhánh checker-approve không gửi lại).
+                // đăng ký afterCommit (không gửi trực tiếp): nhờ noRollbackFor
+                // ở method public, proxy sẽ COMMIT pending-save khi
+                // PendingEndorsementException lan ra, rồi callback mới gửi
+                // mail — mail chỉ đi khi pending thật sự đã lưu. Trong unit
+                // test mock (không có transaction), afterCommit chạy ngay
+                // nên hành vi test cũ không đổi. Chỉ khi !bypassThreshold
+                // (nhánh checker-approve không gửi lại).
                 if (notificationService != null) {
-                    notificationService.notifyEndorsementRequested(policy, request, actor,
-                            pending.getId(), premiumChangePct, oldPremium, projectedPremium, false);
+                    // Chụp id ra biến final riêng: lambda không bắt được biến
+                    // pending (đã gán lại ở save phía trên).
+                    String pendingIdForMail = pending.getId();
+                    TransactionSideEffects.afterCommit(() -> notificationService.notifyEndorsementRequested(policy, request, actor,
+                            pendingIdForMail, premiumChangePct, oldPremium, projectedPremium, false));
                 }
                 log.info("Endorsement on policy {} exceeds threshold (pct={}, old={}, projected={}) -> pending {}",
                         policy.getPolicyNumber(), premiumChangePct, oldPremium, projectedPremium, pending.getId());
@@ -150,51 +184,42 @@ public class EndorsementServiceImpl implements EndorsementService {
         recalculateTotalPremiumPreservingDeal(policy, oldCoverageSum);
         policy.setUpdatedAt(Instant.now());
 
-        // Đợt transaction/ACID — bù trừ cho cặp ghi snapshot+policy: không có
-        // multi-document transaction trên standalone (xem RESEARCH-TRANSACTION-ACID.md
-        // §2) nên nếu policy-save fail sau khi snapshot đã lưu, snapshot đó sẽ
-        // mồ côi (version cũ tồn tại dù policy chưa hề lên version mới). Xóa
-        // snapshot bù trừ rồi throw lại lỗi gốc; notification + ledger không
-        // chạy vì chưa có gì commit. Xóa bù mà fail thì chỉ log warn (snapshot
-        // mồ côi là rác đọc, không sai tiền) và vẫn throw lỗi gốc.
-        Policy savedPolicy;
-        try {
-            savedPolicy = policyRepository.save(policy);
-        } catch (RuntimeException policySaveFailure) {
-            try {
-                policyVersionRepository.delete(versionDoc);
-                log.warn("Endorsement compensated: deleted orphan snapshot for policy {} version {} after policy save failed",
-                        policy.getPolicyNumber(), currentVersion);
-            } catch (RuntimeException deleteFailure) {
-                log.warn("Endorsement compensation FAILED: orphan snapshot for policy {} version {} could not be deleted: {}",
-                        policy.getPolicyNumber(), currentVersion, deleteFailure.getMessage());
-            }
-            throw policySaveFailure;
-        }
+        // Track 2 — TRANSACTION THAY THẾ BÙ TRỪ xóa-snapshot cũ (đã XÓA):
+        // snapshot-save + policy-save cùng một transaction. Policy-save fail
+        // → exception lan ra → proxy rollback cả snapshot-save, không còn
+        // snapshot mồ côi, không cần delete bù (delete bù trong transaction
+        // sắp rollback cũng sẽ bị rollback theo nên giữ lại là vô nghĩa).
+        Policy savedPolicy = policyRepository.save(policy);
 
-        // Hook đợt 2B: SAU khi endorsement đã save thành công.
-        // NotificationService failure-isolated nên không cần try/catch thêm ở đây.
+        // Hook đợt 2B: mail + ledger CHỈ chạy SAU KHI commit
+        // (TransactionSideEffects) — mail trong transaction rồi rollback sẽ
+        // thành mail "đã apply" cho endorsement chưa hề commit. Ledger trước
+        // đây throw thẳng (500 dù policy đã commit — xem RESEARCH §6.4 họ
+        // ledger-sau-save); nay ledger là best-effort sau commit, thống nhất
+        // với PolicyServiceImpl: ledger fail không biến endorsement đã xong
+        // thành lỗi. Trong unit test mock, afterCommit chạy ngay nên test cũ
+        // verify ledger/mail vẫn pass.
         if (notificationService != null) {
-            notificationService.notifyEndorsementApplied(savedPolicy);
+            TransactionSideEffects.afterCommit(() -> notificationService.notifyEndorsementApplied(savedPolicy));
             // Đợt payment — mail "tạo yêu cầu" nhánh apply trực tiếp (≤ 20%).
             // Nhánh checker-approve (bypassThreshold == true) KHÔNG gửi lại
             // mail "tạo yêu cầu" — yêu cầu đó đã có mail từ lúc khách tạo.
             if (!bypassThreshold) {
-                notificationService.notifyEndorsementRequested(savedPolicy, request, actor,
-                        null, null, null, null, true);
+                TransactionSideEffects.afterCommit(() -> notificationService.notifyEndorsementRequested(savedPolicy, request, actor,
+                        null, null, null, null, true));
             }
         }
 
-        // 4. Record transaction in Ledger
+        // 4. Record transaction in Ledger (sau commit, best-effort — xem trên).
         String desc = "Endorsement (v" + newVersion + "): " + request.getReason()
                 + (request.getDescription() != null && !request.getDescription().isBlank() ? " - " + request.getDescription() : "");
-        transactionLedgerService.recordTransaction(
+        TransactionSideEffects.afterCommit(() -> transactionLedgerService.recordTransaction(
                 savedPolicy.getPolicyNumber(),
                 newVersion,
                 TransactionType.ENDORSEMENT,
                 actor,
                 desc
-        );
+        ));
 
         log.info("Successfully endorsed policy {} to version {}", savedPolicy.getPolicyNumber(), newVersion);
         return mapToPolicyResponse(savedPolicy);
@@ -445,6 +470,10 @@ public class EndorsementServiceImpl implements EndorsementService {
                 .insured(clonedInsured)
                 .locations(clonedLocations)
                 .totalPremium(origin.getTotalPremium())
+                // SaaS Phase 1: clone policy cho snapshot phải giữ nguyên agentId
+                // như giữ assignedAgentEmail — nếu không, endorsement sẽ lặng lẽ
+                // làm mất tenant của policy.
+                .agentId(origin.getAgentId())
                 .assignedAgentEmail(origin.getAssignedAgentEmail())
                 .negotiatedPremium(origin.getNegotiatedPremium())
                 .paymentClaimedAt(origin.getPaymentClaimedAt())
@@ -490,6 +519,24 @@ public class EndorsementServiceImpl implements EndorsementService {
                 .build();
     }
 
+    /**
+     * Như PolicyServiceImpl.resolveAgentName: agentName chỉ để hiển thị,
+     * null-safe, không được làm fail đường đọc policy.
+     */
+    private String resolveAgentName(String agentId) {
+        if (agentId == null || agentId.isBlank() || agentRepository == null) {
+            return null;
+        }
+        try {
+            return agentRepository.findById(agentId)
+                    .map(Agent::getDisplayName)
+                    .orElse(null);
+        } catch (Exception e) {
+            log.warn("Không resolve được agentName cho agentId {}: {}", agentId, e.getMessage());
+            return null;
+        }
+    }
+
     private PolicyResponse mapToPolicyResponse(Policy policy) {
         return PolicyResponse.builder()
                 .id(policy.getId())
@@ -508,6 +555,8 @@ public class EndorsementServiceImpl implements EndorsementService {
                         .collect(Collectors.toList()) : new ArrayList<>())
                 .totalPremium(policy.getTotalPremium())
                 .assignedAgentEmail(policy.getAssignedAgentEmail())
+                .agentId(policy.getAgentId())
+                .agentName(resolveAgentName(policy.getAgentId()))
                 .negotiatedPremium(policy.getNegotiatedPremium())
                 .paymentClaimedAt(policy.getPaymentClaimedAt())
                 .paymentStatus(policy.getPaymentStatus())

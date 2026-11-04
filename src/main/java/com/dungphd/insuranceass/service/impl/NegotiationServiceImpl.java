@@ -16,6 +16,7 @@ import com.dungphd.insuranceass.service.TransactionLedgerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -249,7 +250,18 @@ public class NegotiationServiceImpl implements NegotiationService {
         return mapToResponse(saved, principal, policy);
     }
 
+    /**
+     * Track 2 — transaction thật THAY THẾ bù trừ cũ (xem trong thân method):
+     * negotiation-save (ACCEPTED) + policy-save (giá chốt) cùng commit hoặc
+     * cùng rollback; exception lan ra để proxy rollback, không nuốt thành
+     * success. Chỉ gọi từ NegotiationController qua proxy nên annotation có
+     * tác dụng. Ledger/audit ở đây vốn đã try/catch (failure-isolated) nên
+     * giữ nguyên trong transaction: chúng commit cùng luồng khi thành công,
+     * fail cũng không rollback luồng chính. Luồng này không gửi mail nên
+     * không cần afterCommit.
+     */
     @Override
+    @Transactional
     public NegotiationResponse confirmNegotiation(String policyNumber, String negotiationId, String actor) {
         permissionService.checkNegotiationWriteNotAdmin();
         Policy policy = resolvePolicy(policyNumber);
@@ -285,18 +297,13 @@ public class NegotiationServiceImpl implements NegotiationService {
         }
 
         double finalPrice = negotiation.getAcceptedPremium() != null ? negotiation.getAcceptedPremium() : acceptedOffer.getProposedPremium();
-        // Bước 2/2: Xác nhận chốt giá -> ACCEPTED và cập nhật Policy
-        // Đợt transaction/ACID — bù trừ cho cặp ghi negotiation+policy: không
-        // có multi-document transaction trên standalone (xem
-        // RESEARCH-TRANSACTION-ACID.md §2). Nếu policy-save fail sau khi
-        // negotiation đã ACCEPTED, lần confirm sau sẽ bị chặn (negotiation
-        // không còn PENDING_CONFIRMATION) trong khi giá policy chưa đổi — kẹt
-        // cứng, phải sửa tay DB. Vì vậy chụp trạng thái gốc và hoàn negotiation
-        // về PENDING_CONFIRMATION rồi throw lại lỗi gốc để caller confirm lại
-        // được. Ledger/audit ở đây vốn đã try/catch nên không cần chạm.
-        NegotiationStatus originalStatus = negotiation.getStatus();
-        String originalClosedBy = negotiation.getClosedBy();
-        Instant originalClosedAt = negotiation.getClosedAt();
+        // Bước 2/2: Xác nhận chốt giá -> ACCEPTED và cập nhật Policy.
+        // Track 2 — TRANSACTION THAY THẾ BÙ TRỪ cũ (đã XÓA): hoàn
+        // negotiation về PENDING_CONFIRMATION trong một transaction sắp
+        // rollback cũng sẽ bị rollback theo nên giữ lại là vô nghĩa.
+        // Policy-save fail → exception lan ra → proxy rollback cả
+        // negotiation-save: negotiation ở lại PENDING_CONFIRMATION, caller
+        // confirm lại được (không còn kẹt ACCEPTED-giá-cũ như trước).
         negotiation.setStatus(NegotiationStatus.ACCEPTED);
         negotiation.setAcceptedPremium(finalPrice);
         negotiation.setClosedBy(principal);
@@ -306,24 +313,7 @@ public class NegotiationServiceImpl implements NegotiationService {
         policy.setTotalPremium(finalPrice);
         policy.setNegotiatedPremium(finalPrice);
         policy.setUpdatedAt(Instant.now());
-        try {
-            policyRepository.save(policy);
-        } catch (RuntimeException policySaveFailure) {
-            try {
-                negotiation.setStatus(originalStatus);
-                negotiation.setClosedBy(originalClosedBy);
-                negotiation.setClosedAt(originalClosedAt);
-                negotiationRepository.save(negotiation);
-                log.warn("Negotiation confirm compensated: negotiation {} restored to {} after policy save failed for policy {}",
-                        negotiation.getId(), originalStatus, policy.getPolicyNumber());
-            } catch (RuntimeException revertFailure) {
-                // Hoàn tác cũng fail: negotiation ACCEPTED + giá chưa đổi còn
-                // lại, phải đối soát tay — không giấu, throw lỗi gốc.
-                log.error("Negotiation confirm compensation FAILED for negotiation {} (policy {} left with ACCEPTED negotiation but unchanged price, manual reconciliation required): {}",
-                        negotiation.getId(), policy.getPolicyNumber(), revertFailure.getMessage());
-            }
-            throw policySaveFailure;
-        }
+        policyRepository.save(policy);
 
         recordLedger(policy, TransactionType.PRICE_CONFIRM, principal,
                 "Xác nhận chốt giá thành công: " + finalPrice + " VND (2/2)");

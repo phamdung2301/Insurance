@@ -35,7 +35,13 @@ import java.util.List;
         @CompoundIndex(name = "locations_locId_elem_idx", def = "{'locations.locationId': 1}"),
         @CompoundIndex(name = "locations_covCode_elem_idx", def = "{'locations.coverages.coverageCode': 1}"),
         @CompoundIndex(name = "locations_covType_elem_idx", def = "{'locations.coverages.coverageType': 1}"),
-        @CompoundIndex(name = "locations_address_idx", def = "{'locations.address': 1}")
+        @CompoundIndex(name = "locations_address_idx", def = "{'locations.address': 1}"),
+        // SaaS Phase 1 (PLAN §2.3): mọi list policy của agent đều lọc agentId
+        // trước; hai compound gương theo index status_* hiện có nhưng đặt
+        // agentId lên đầu để phục vụ lọc theo tenant + sort createdAt/updatedAt.
+        @CompoundIndex(name = "agentId_status_createdAt_idx", def = "{'agentId': 1, 'status': 1, 'createdAt': -1}"),
+        @CompoundIndex(name = "agentId_status_updatedAt_idx", def = "{'agentId': 1, 'status': 1, 'updatedAt': -1}"),
+        @CompoundIndex(name = "agentId_insuredEmail_idx", def = "{'agentId': 1, 'insured.email': 1}")
 })
 public class Policy {
 
@@ -57,6 +63,15 @@ public class Policy {
     private Double totalPremium;
 
     private String assignedAgentEmail;
+
+    /**
+     * Tenant sở hữu policy (Agent.id) — SaaS Phase 1, phương án C.
+     * Nullable trong giai đoạn chuyển đổi; là nguồn sự thật tenant của policy
+     * từ Phase 2. Phase 1 chỉ dual-write (ghi cùng assignedAgentEmail), mọi
+     * logic scope vẫn dùng assignedAgentEmail như cũ.
+     */
+    @Indexed
+    private String agentId;
 
     /** Giá chốt thương lượng (set khi negotiation ACCEPTED), null nếu chưa thương lượng. */
     private Double negotiatedPremium;

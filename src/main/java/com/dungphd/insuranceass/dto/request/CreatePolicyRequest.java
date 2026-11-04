@@ -22,6 +22,15 @@ public class CreatePolicyRequest {
     @NotBlank(message = "Policy number is required")
     private String policyNumber;
 
+    /**
+     * Tenant sở hữu policy (Agent.id) — CHỈ ADMIN được chọn khi tạo hộ.
+     * AGENT tạo hộ: server bỏ qua field này và ép theo tenant của caller
+     * (TenantContext); CUSTOMER tự tạo: luôn null (khách tự mua, chưa qua
+     * đại lý). ADMIN không chọn → null (policy unassigned, vào hàng đợi
+     * migration Phase 2). Phase 1 chỉ nhận giá trị, chưa ép scope.
+     */
+    private String agentId;
+
     @Valid
     private InsuredDto insured;
 

@@ -53,16 +53,20 @@ public class CommissionServiceImpl implements CommissionService {
                 return;
             }
             double amount = calculateAmount(policy.getTotalPremium());
+            // SaaS Phase 1 dual-write: copy Policy.agentId sang Commission.agentId
+            // (có thể null với policy tạo trước Phase 1 — migration backfill sau).
+            // Logic skip khi không có agentEmail giữ nguyên như cũ.
             commissionRepository.save(Commission.builder()
                     .policyNumber(policy.getPolicyNumber())
                     .agentEmail(agentEmail.trim())
+                    .agentId(policy.getAgentId())
                     .amount(amount)
                     .status(CommissionStatus.PENDING)
                     .createdAt(Instant.now())
                     .earnedAt(null)
                     .build());
-            log.info("Commission created for policy {} (agent {}, amount {})",
-                    policy.getPolicyNumber(), agentEmail, amount);
+            log.info("Commission created for policy {} (agent {}, agentId {}, amount {})",
+                    policy.getPolicyNumber(), agentEmail, policy.getAgentId(), amount);
         } catch (Exception e) {
             // Failure-isolated: hoa hồng là ghi nhận phụ, không được làm fail
             // chuyển trạng thái chính (BOUND) của caller.

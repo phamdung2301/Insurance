@@ -1,5 +1,7 @@
 package com.dungphd.insuranceass.config;
 
+import com.dungphd.insuranceass.context.TenantContext;
+import com.dungphd.insuranceass.model.Role;
 import com.dungphd.insuranceass.model.User;
 import com.dungphd.insuranceass.repository.UserRepository;
 import jakarta.servlet.FilterChain;
@@ -32,6 +34,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected void doFilterInternal(
+            @NonNull HttpServletRequest request,
+            @NonNull HttpServletResponse response,
+            @NonNull FilterChain filterChain
+    ) throws ServletException, IOException {
+        // SaaS Phase 1: tenant resolve trong filter này, nhưng ThreadLocal BẮT
+        // BUỘC clear trong finally — thread servlet tái sử dụng, rò tenant sang
+        // request khác là rò rỉ dữ liệu chéo tenant ở Phase 2. Mọi đường return
+        // sớm bên trong (kể cả filterChain ném exception) đều đi qua finally này.
+        try {
+            doFilterWithTenant(request, response, filterChain);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private void doFilterWithTenant(
             @NonNull HttpServletRequest request,
             @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain
@@ -78,6 +96,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 );
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
+                // SaaS Phase 1 — resolve tenant MỘT LẦN/request, từ User vừa load
+                // từ DB (không query thêm, không nhét vào JWT claim để ADMIN
+                // reassign agent cho user có hiệu lực ngay request tiếp theo).
+                // Phase 1 chỉ resolve + lưu context; KHÔNG đổi logic scope nào.
+                TenantContext.setTenantId(resolveTenantId(user));
+
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             }
         } catch (Exception ex) {
@@ -85,6 +109,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * Resolve tenant của caller từ User đã load (SaaS Phase 1).
+     * ADMIN và UNDERWRITER đứng ngoài mọi tenant → null (bypass marker), kể cả
+     * khi document user của họ lỡ có agentId (scope vẫn bypass theo role, PLAN §3.2).
+     * Các role còn lại (AGENT, CUSTOMER, ...) → user.agentId (có thể null: user
+     * chưa được gán tenant; Phase 1 KHÔNG fail-closed trường hợp này — đó là
+     * hành vi Phase 2, cấm làm đợt này).
+     */
+    static String resolveTenantId(User user) {
+        if (user == null) {
+            return null;
+        }
+        List<String> roles = user.getRoles();
+        if (roles != null
+                && (roles.contains(Role.ROLE_ADMIN.name())
+                || roles.contains(Role.ROLE_UNDERWRITER.name()))) {
+            return null;
+        }
+        String agentId = user.getAgentId();
+        return agentId == null || agentId.isBlank() ? null : agentId;
     }
 
     private String parseJwt(HttpServletRequest request) {

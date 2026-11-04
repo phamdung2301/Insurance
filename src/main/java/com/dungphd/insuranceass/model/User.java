@@ -29,6 +29,15 @@ public class User {
 
     private String password;
 
+    /**
+     * Tenant mà user này làm việc / được gán (Agent.id) — SaaS Phase 1, phương án C.
+     * Nullable. Với ROLE_AGENT: tenant làm việc. Với ROLE_CUSTOMER: tenant được
+     * gán (chỉ là gợi ý, nguồn sự thật của dữ liệu policy vẫn là Policy.agentId).
+     * Với ADMIN/UNDERWRITER: để null và bỏ qua (không thuộc tenant nào).
+     */
+    @Indexed
+    private String agentId;
+
     private String fullName;
 
     private String phone;

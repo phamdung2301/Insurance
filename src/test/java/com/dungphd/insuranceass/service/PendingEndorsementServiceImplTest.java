@@ -6,6 +6,7 @@ import com.dungphd.insuranceass.exception.ForbiddenException;
 import com.dungphd.insuranceass.model.*;
 import com.dungphd.insuranceass.repository.PendingEndorsementRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
+import com.dungphd.insuranceass.service.impl.PendingEndorsementApproval;
 import com.dungphd.insuranceass.service.impl.PendingEndorsementServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,11 @@ class PendingEndorsementServiceImplTest {
 
     @Mock
     private PermissionService permissionService;
+
+    // Track 2: bean CAS + transaction nội bộ (mock hoàn toàn ở test này;
+    // hành vi thật của nó được test ở PendingEndorsementApprovalTest).
+    @Mock
+    private PendingEndorsementApproval approval;
 
     @InjectMocks
     private PendingEndorsementServiceImpl pendingService;
@@ -84,24 +90,55 @@ class PendingEndorsementServiceImplTest {
     @Test
     void approve_ByUnderwriter_AppliesViaBypassAndMarksApproved() {
         asUnderwriter();
+        // Track 2: approve đi qua CAS claim + transaction apply (bean
+        // approval mock). applyEndorsement thật không còn gọi trực tiếp từ
+        // service này mà nằm trong approval.applyAndMarkApproved.
+        PendingEndorsement claimed = PendingEndorsement.builder()
+                .id("pend-1").policyNumber("POL-MC-01").request(pending.getRequest())
+                .status(PendingEndorsementStatus.APPROVING).build();
+        PendingEndorsement approved = PendingEndorsement.builder()
+                .id("pend-1").policyNumber("POL-MC-01").request(pending.getRequest())
+                .status(PendingEndorsementStatus.APPROVED)
+                .approvedBy("uw@x.com").approvedAt(Instant.now()).build();
+        when(approval.claimForApproval("pend-1")).thenReturn(claimed);
+        when(approval.applyAndMarkApproved(claimed, "uw@x.com")).thenReturn(approved);
 
         PendingEndorsement result = pendingService.approve("pend-1", "uw@x.com");
 
-        verify(endorsementService).applyEndorsementBypassingThreshold(
-                eq("POL-MC-01"), eq(pending.getRequest()), eq("uw@x.com"));
+        verify(approval).claimForApproval("pend-1");
+        verify(approval).applyAndMarkApproved(claimed, "uw@x.com");
+        verify(approval, never()).releaseClaim(any());
         assertEquals(PendingEndorsementStatus.APPROVED, result.getStatus());
         assertEquals("uw@x.com", result.getApprovedBy());
         assertNotNull(result.getApprovedAt());
-        verify(pendingRepository).save(result);
     }
 
     @Test
     void approve_SecondTime_Blocked() {
         asUnderwriter();
-        pending.setStatus(PendingEndorsementStatus.APPROVED);
+        // Track 2: checker thứ hai thua CAS claim → BadRequest, apply không
+        // bao giờ chạy (kể cả khi bản ghi trong bộ nhớ đã APPROVED).
+        when(approval.claimForApproval("pend-1"))
+                .thenThrow(new BadRequestException("Pending endorsement này đã được xử lý"));
 
         assertThrows(BadRequestException.class, () -> pendingService.approve("pend-1", "uw@x.com"));
+        verify(approval, never()).applyAndMarkApproved(any(), any());
         verify(endorsementService, never()).applyEndorsementBypassingThreshold(any(), any(), any());
+    }
+
+    @Test
+    void approve_ApplyFails_ReleasesClaimAndRethrows() {
+        asUnderwriter();
+        PendingEndorsement claimed = PendingEndorsement.builder()
+                .id("pend-1").policyNumber("POL-MC-01").request(pending.getRequest())
+                .status(PendingEndorsementStatus.APPROVING).build();
+        when(approval.claimForApproval("pend-1")).thenReturn(claimed);
+        when(approval.applyAndMarkApproved(claimed, "uw@x.com"))
+                .thenThrow(new RuntimeException("simulated DB failure on apply"));
+
+        assertThrows(RuntimeException.class, () -> pendingService.approve("pend-1", "uw@x.com"));
+        // Claim được trả về PENDING để checker duyệt lại được.
+        verify(approval).releaseClaim("pend-1");
     }
 
     @Test
@@ -128,9 +165,16 @@ class PendingEndorsementServiceImplTest {
     @Test
     void reject_ByUnderwriter_LeavesPolicyUntouchedAndMarksRejected() {
         asUnderwriter();
+        // Track 2: reject đi qua CAS findAndModify (bean approval mock).
+        PendingEndorsement rejected = PendingEndorsement.builder()
+                .id("pend-1").policyNumber("POL-MC-01").request(pending.getRequest())
+                .status(PendingEndorsementStatus.REJECTED)
+                .rejectedBy("uw@x.com").rejectedAt(Instant.now()).build();
+        when(approval.rejectIfStillPending("pend-1", "uw@x.com")).thenReturn(rejected);
 
         PendingEndorsement result = pendingService.reject("pend-1", "uw@x.com");
 
+        verify(approval).rejectIfStillPending("pend-1", "uw@x.com");
         verify(endorsementService, never()).applyEndorsementBypassingThreshold(any(), any(), any());
         assertEquals(PendingEndorsementStatus.REJECTED, result.getStatus());
         assertEquals("uw@x.com", result.getRejectedBy());
@@ -140,7 +184,9 @@ class PendingEndorsementServiceImplTest {
     @Test
     void reject_SecondTime_Blocked() {
         asUnderwriter();
-        pending.setStatus(PendingEndorsementStatus.REJECTED);
+        // Track 2: đã có người xử lý trước → CAS trả null → BadRequest.
+        when(approval.rejectIfStillPending("pend-1", "uw@x.com"))
+                .thenThrow(new BadRequestException("Pending endorsement này đã được xử lý"));
 
         assertThrows(BadRequestException.class, () -> pendingService.reject("pend-1", "uw@x.com"));
     }

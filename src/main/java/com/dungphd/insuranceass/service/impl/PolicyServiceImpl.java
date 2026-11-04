@@ -15,6 +15,7 @@ import com.dungphd.insuranceass.exception.ForbiddenException;
 import com.dungphd.insuranceass.exception.InvalidRequestException;
 import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.*;
+import com.dungphd.insuranceass.repository.AgentRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyTransactionRepository;
 import com.dungphd.insuranceass.repository.PriceNegotiationRepository;
@@ -25,6 +26,7 @@ import com.dungphd.insuranceass.service.PermissionService;
 import com.dungphd.insuranceass.service.PolicyService;
 import com.dungphd.insuranceass.service.PremiumCalculationService;
 import com.dungphd.insuranceass.service.TransactionLedgerService;
+import com.dungphd.insuranceass.service.TransactionSideEffects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -36,6 +38,7 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -73,6 +76,12 @@ public class PolicyServiceImpl implements PolicyService {
     // này failure-isolated nên không cần try/catch thêm ở đây.
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private CommissionService commissionService;
+
+    // SaaS Phase 1 (optional như các service phụ khác): chỉ dùng để (a) kiểm
+    // tra agentId ADMIN chọn khi tạo hộ có tồn tại không, (b) resolve agentName
+    // cho PolicyResponse. Null trong test unit cũ → bỏ qua cả hai, không fail.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AgentRepository agentRepository;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private RefundService refundService;
@@ -138,9 +147,30 @@ public class PolicyServiceImpl implements PolicyService {
                 }
             }
         }
+        // SaaS Phase 1 dual-write: ghi cả agentId (mới) và assignedAgentEmail
+        // (cũ) — scope vẫn dùng email cũ như trước, agentId chưa ép scope.
+        // ADMIN tạo hộ: theo agentId được chọn trong body (không chọn → null).
+        // AGENT tạo hộ: theo tenant của caller qua TenantContext (permissionService
+        // đọc context do filter resolve); agent chưa gán tenant → null, KHÔNG
+        // fail-closed ở Phase 1. Body agentId của non-ADMIN luôn bị bỏ qua.
+        // CUSTOMER tự tạo: null (khách tự mua). Thứ tự ưu tiên CUSTOMER trước
+        // AGENT giữ nguyên như nhánh assignedAgentEmail/insured ở trên.
+        String agentId = null;
+        if (permissionService != null) {
+            if (permissionService.isAdmin()) {
+                agentId = request.getAgentId() != null && !request.getAgentId().isBlank()
+                        ? request.getAgentId().trim() : null;
+                if (agentId != null && agentRepository != null && !agentRepository.existsById(agentId)) {
+                    throw new BadRequestException("Đại lý không tồn tại với id: " + agentId);
+                }
+            } else if (!permissionService.hasCustomerRole() && permissionService.hasAgentRole()) {
+                agentId = permissionService.currentTenantId();
+            }
+        }
         Policy policy = Policy.builder()
                 .policyNumber(request.getPolicyNumber())
                 .status(PolicyStatus.DRAFT)
+                .agentId(agentId)
                 .assignedAgentEmail(assignedAgentEmail)
                 .insured(insured)
                 .locations(request.getLocations() != null ?
@@ -238,6 +268,12 @@ public class PolicyServiceImpl implements PolicyService {
 
         if (criteria.getAssignedAgentEmail() != null && !criteria.getAssignedAgentEmail().isBlank()) {
             criteriaList.add(Criteria.where("assignedAgentEmail").is(criteria.getAssignedAgentEmail().trim().toLowerCase()));
+        }
+
+        // SaaS Phase 1: filter agentId thêm (ADMIN/UW xem theo từng agent).
+        // Chưa ép scope: applySearchScope vẫn ép assignedAgentEmail như cũ.
+        if (criteria.getAgentId() != null && !criteria.getAgentId().isBlank()) {
+            criteriaList.add(Criteria.where("agentId").is(criteria.getAgentId().trim()));
         }
 
         if (Boolean.TRUE.equals(criteria.getPaymentClaimedOnly())) {
@@ -477,7 +513,36 @@ public class PolicyServiceImpl implements PolicyService {
         return mapToPolicyResponse(saved);
     }
 
+    /**
+     * Track 2 — transaction thật cho cả nhóm ghi: policy-save + vòng lặp
+     * đóng/supersede negotiation + ledger (best-effort, xem dưới). Trước
+     * đây vòng lặp negotiation là lỗ đa ghi chưa có transaction (§6.5):
+     * lỗi ở negotiation thứ k để lại một phần đóng, một phần còn mở, trong
+     * khi policy đã đổi status. Nay lỗi runtime ở bất kỳ save nào trong
+     * method cũng rollback toàn bộ về status cũ. Chỉ gọi từ PolicyController
+     * qua proxy nên annotation có tác dụng; không có self-invocation.
+     *
+     * <p>Về các hook chạy trong transaction này (không gắn
+     * {@code @Transactional} riêng cho chúng — xem báo cáo Track 2):
+     * <ul>
+     *   <li>Commission ({@code createForBound}/{@code markEarned}) và Refund
+     *       ({@code createForCancellation}): failure-isolated + idempotent
+     *       từ trước. Khi gọi trong transaction này, save thành công của
+     *       chúng commit CÙNG policy (nguyên tử); khi chúng nuốt lỗi nội bộ
+     *       thì policy vẫn commit mà không có commission/refund — đúng hành
+     *       vi "hook có thể rớt" cũ, chưa có outbox chạy bù (còn nợ).</li>
+     *   <li>Mail kích hoạt ({@code notifyPolicyActivated}): đăng ký
+     *       afterCommit — trước đây mail gửi ngay sau policy-save, TRƯỚC
+     *       vòng lặp negotiation; nếu vòng lặp fail thì mail "đã kích hoạt"
+     *       đã bay trong khi transaction rollback. Nay mail chỉ gửi sau
+     *       commit thật.</li>
+     *   <li>Ledger: giữ try/catch best-effort trong transaction như đợt
+     *       §6.4 (fail không làm fail request); khi thành công nó commit
+     *       cùng policy.</li>
+     * </ul>
+     */
     @Override
+    @Transactional
     public PolicyResponse transitionStatus(String policyNumber, StatusTransitionRequest request, String actor) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
@@ -537,11 +602,13 @@ public class PolicyServiceImpl implements PolicyService {
         policy.setUpdatedAt(Instant.now());
         Policy savedPolicy = policyRepository.save(policy);
 
-        // Hook đợt 2B: chỉ BOUND → ACTIVE, SAU khi policy đã save thành công.
-        // NotificationService failure-isolated nên không cần try/catch thêm ở đây.
+        // Hook đợt 2B: chỉ BOUND → ACTIVE. Track 2: đăng ký afterCommit thay
+        // vì gửi ngay sau policy-save (xem javadoc method): mail phải đợi
+        // toàn bộ transaction commit, nếu không vòng lặp negotiation phía
+        // dưới fail → rollback nhưng mail đã gửi là sai sự thật.
         if (currentStatus == PolicyStatus.BOUND && targetStatus == PolicyStatus.ACTIVE
                 && notificationService != null) {
-            notificationService.notifyPolicyActivated(savedPolicy);
+            TransactionSideEffects.afterCommit(() -> notificationService.notifyPolicyActivated(savedPolicy));
         }
 
         // Hook đợt 3 (nối ở merge): hoa hồng + hoàn phí, SAU khi policy đã save.
@@ -602,10 +669,9 @@ public class PolicyServiceImpl implements PolicyService {
 
         String desc = "Status transitioned from " + currentStatus + " to " + targetStatus
                 + (request.getReason() != null && !request.getReason().isBlank() ? ": " + request.getReason() : "");
-        // Đợt transaction/ACID: như createPolicy — ledger sau commit không
-        // được fail request (xem ghi chú ở createPolicy). Riêng vòng lặp đóng
-        // negotiation phía trên vẫn là lỗ đa ghi chưa có transaction thật
-        // (xem RESEARCH-TRANSACTION-ACID.md §6.5) — không bọc ẩu ở đây.
+        // Track 2: vòng lặp đóng negotiation phía trên nay đã nằm trong cùng
+        // transaction với policy-save (xem javadoc method). Ledger giữ
+        // try/catch best-effort như đợt §6.4: fail không làm fail request.
         try {
             transactionLedgerService.recordTransaction(
                     savedPolicy.getPolicyNumber(),
@@ -642,6 +708,8 @@ public class PolicyServiceImpl implements PolicyService {
                         policy.getLocations().stream().map(this::mapToLocationDto).collect(Collectors.toList()) : new ArrayList<>())
                 .totalPremium(policy.getTotalPremium())
                 .assignedAgentEmail(policy.getAssignedAgentEmail())
+                .agentId(policy.getAgentId())
+                .agentName(resolveAgentName(policy.getAgentId()))
                 .negotiatedPremium(policy.getNegotiatedPremium())
                 .paymentClaimedAt(policy.getPaymentClaimedAt())
                 .paymentStatus(policy.getPaymentStatus())
@@ -653,6 +721,25 @@ public class PolicyServiceImpl implements PolicyService {
                 .createdAt(policy.getCreatedAt())
                 .updatedAt(policy.getUpdatedAt())
                 .build();
+    }
+
+    /**
+     * Tên hiển thị của đại lý sở hữu policy — null-safe: policy chưa có agent,
+     * repo chưa inject (test unit cũ), Agent đã xóa, hoặc lookup lỗi đều trả
+     * null thay vì làm fail đường đọc policy (agentName chỉ để hiển thị).
+     */
+    private String resolveAgentName(String agentId) {
+        if (agentId == null || agentId.isBlank() || agentRepository == null) {
+            return null;
+        }
+        try {
+            return agentRepository.findById(agentId)
+                    .map(Agent::getDisplayName)
+                    .orElse(null);
+        } catch (Exception e) {
+            log.warn("Không resolve được agentName cho agentId {}: {}", agentId, e.getMessage());
+            return null;
+        }
     }
 
     private Insured mapToInsured(InsuredDto dto) {
