@@ -2,12 +2,10 @@ package com.dungphd.insuranceass.service;
 
 import com.dungphd.insuranceass.model.Agent;
 import com.dungphd.insuranceass.model.AgentStatus;
-import com.dungphd.insuranceass.model.Commission;
 import com.dungphd.insuranceass.model.Policy;
 import com.dungphd.insuranceass.model.Role;
 import com.dungphd.insuranceass.model.User;
 import com.dungphd.insuranceass.repository.AgentRepository;
-import com.dungphd.insuranceass.repository.CommissionRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,7 +25,7 @@ import java.util.TreeSet;
 /**
  * Migration dữ liệu cũ sang tenant — SaaS Phase 1, PLAN-SAAS §5.
  *
- * <p>Thứ tự bắt buộc: Agent → User → Policy → Commission. Mọi bước đều
+ * <p>Thứ tự bắt buộc: Agent → User → Policy. Mọi bước đều
  * idempotent: chạy lại lần hai cho 0 thay đổi (record đã có agentId không bao
  * giờ bị ghi đè — bảo vệ việc ADMIN gán tay sau lần chạy đầu).</p>
  *
@@ -58,7 +56,6 @@ public class TenantMigrationService {
     private final AgentRepository agentRepository;
     private final UserRepository userRepository;
     private final PolicyRepository policyRepository;
-    private final CommissionRepository commissionRepository;
     private final AgentCodeGenerator codeGenerator;
 
     /** Chỉ báo cáo sẽ đổi gì, không ghi gì, không sinh mã. */
@@ -77,7 +74,6 @@ public class TenantMigrationService {
     private TenantMigrationReport execute(boolean dryRun) {
         List<Policy> policies = policyRepository.findAll();
         List<User> users = userRepository.findAll();
-        List<Commission> commissions = commissionRepository.findAll();
         List<Agent> existingAgents = agentRepository.findAll();
 
         TenantMigrationReport.TenantMigrationReportBuilder report = TenantMigrationReport.builder()
@@ -243,43 +239,15 @@ public class TenantMigrationService {
         report.policiesSkippedAlreadyAssigned(policiesSkipped);
         report.unassignedPolicyNumbers(unassigned);
 
-        // ---- Bước 3b: backfill Commission.agentId từ Policy ----
-        Map<String, Policy> policyByNumber = new HashMap<>();
-        for (Policy policy : policies) {
-            if (policy.getPolicyNumber() != null) {
-                policyByNumber.put(policy.getPolicyNumber(), policy);
-            }
-        }
-        int commissionsToUpdate = 0;
-        int commissionsSkipped = 0;
-        List<String> orphans = new ArrayList<>();
-        for (Commission commission : commissions) {
-            if (commission.getAgentId() != null) {
-                commissionsSkipped++;
-                continue;
-            }
-            Policy policy = policyByNumber.get(commission.getPolicyNumber());
-            String resolved = policy == null ? null : resolvedPolicyAgentId(policy, agentIdByEmail);
-            if (resolved == null) {
-                orphans.add(commission.getPolicyNumber());
-                continue;
-            }
-            commissionsToUpdate++;
-            if (!dryRun) {
-                commission.setAgentId(resolved);
-                commissionRepository.save(commission);
-            }
-        }
-        report.commissionsToUpdate(commissionsToUpdate);
-        report.commissionsSkippedAlreadyAssigned(commissionsSkipped);
-        report.orphanCommissionPolicyNumbers(orphans);
+        // SaaS Phase 2 Track A: bước backfill hoa hồng đã bỏ hẳn cùng tính
+        // năng — collection cũ đóng băng, migration không đụng tới nó nữa.
 
         TenantMigrationReport result = report.build();
         log.info("Tenant migration (dryRun={}): agentsToCreate={}, usersToUpdate={}, "
-                        + "policiesToUpdate={}, commissionsToUpdate={}, unassignedPolicies={}, "
-                        + "orphanCommissions={}, multiTenantCustomers={}",
+                        + "policiesToUpdate={}, unassignedPolicies={}, "
+                        + "multiTenantCustomers={}",
                 dryRun, agentsToCreate.size(), usersToUpdate, policiesToUpdate,
-                commissionsToUpdate, unassigned.size(), orphans.size(), multiTenantCustomers.size());
+                unassigned.size(), multiTenantCustomers.size());
         return result;
     }
 

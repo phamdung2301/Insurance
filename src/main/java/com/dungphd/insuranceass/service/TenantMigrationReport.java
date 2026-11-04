@@ -40,25 +40,15 @@ public class TenantMigrationReport {
     /** Số policy sẽ gán / đã gán agentId. */
     private int policiesToUpdate;
 
-    /** Số commission sẽ gán / đã gán agentId. */
-    private int commissionsToUpdate;
-
     /** User đã có agentId nên migration không ghi đè (bảo vệ gán tay của ADMIN). */
     private int usersSkippedAlreadyAssigned;
 
     /** Policy đã có agentId nên migration không đụng tới. */
     private int policiesSkippedAlreadyAssigned;
 
-    /** Commission đã có agentId nên migration không đụng tới. */
-    private int commissionsSkippedAlreadyAssigned;
-
     /** Policy không có assignedAgentEmail và chưa có agentId → để null, ADMIN gán tay (§5.6: cấm gán bừa về ADMIN hay tenant mặc định). */
     @Builder.Default
     private List<String> unassignedPolicyNumbers = new ArrayList<>();
-
-    /** Commission không tìm thấy policy, hoặc policy của nó cũng chưa có tenant → để null, không đoán agent từ agentEmail. */
-    @Builder.Default
-    private List<String> orphanCommissionPolicyNumbers = new ArrayList<>();
 
     /** Customer có policy ở ≥ 2 tenant → để null, ADMIN quyết (§5.3: cấm đoán tenant "chính"). */
     @Builder.Default

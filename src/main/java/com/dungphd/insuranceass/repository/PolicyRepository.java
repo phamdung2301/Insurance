@@ -37,15 +37,17 @@ public interface PolicyRepository extends MongoRepository<Policy, String>, Polic
     List<Policy> findByCoverageCodeAndMinLimit(String coverageCode, Double minLimit);
 
     // ==========================================
-    // Đợt 3A (APPEND ONLY): đếm phễu agent — CommissionServiceImpl.funnelForPrincipal.
+    // SaaS Phase 2 Track A: đếm thống kê policy theo tenant —
+    // AgentPolicyStatsServiceImpl. Method đếm theo assignedAgentEmail cũ đã
+    // bỏ cùng tính năng hoa hồng (scope mới đếm theo agentId = tenantId).
     // Không sửa method cũ nào ở trên. Coordinator gộp: nếu worker khác cũng
     // append ở cuối file này thì giữ cả hai nhóm method, không xóa nhóm nào.
     // ==========================================
 
-    /** Đếm policy của một agent theo status (đếm theo assignedAgentEmail). */
-    long countByAssignedAgentEmailAndStatus(String assignedAgentEmail, PolicyStatus status);
+    /** Đếm policy của một tenant theo status (đếm theo agentId). */
+    long countByAgentIdAndStatus(String agentId, PolicyStatus status);
 
-    /** Đếm toàn bộ policy theo status (ADMIN xem phễu tổng). */
+    /** Đếm toàn bộ policy theo status (ADMIN xem thống kê tổng). */
     long countByStatus(PolicyStatus status);
 
     // ==========================================

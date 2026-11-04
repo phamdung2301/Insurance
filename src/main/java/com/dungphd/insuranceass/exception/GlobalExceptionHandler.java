@@ -96,7 +96,7 @@ public class GlobalExceptionHandler {
 
     /**
      * ResponseStatusException thrown by controllers (e.g. UNAUTHORIZED "Yêu cầu
-     * đăng nhập" from User/Policy/AgentCommission/LoginHistory/Notification
+     * đăng nhập" from User/Policy/LoginHistory/Notification
      * controllers) must keep its original status. Without this handler Spring
      * resolves the most specific match in this advice, which was the generic
      * {@code Exception} handler below, turning every such error into 500.

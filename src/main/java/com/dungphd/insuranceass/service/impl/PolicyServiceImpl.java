@@ -19,7 +19,6 @@ import com.dungphd.insuranceass.repository.AgentRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyTransactionRepository;
 import com.dungphd.insuranceass.repository.PriceNegotiationRepository;
-import com.dungphd.insuranceass.service.CommissionService;
 import com.dungphd.insuranceass.service.NotificationService;
 import com.dungphd.insuranceass.service.RefundService;
 import com.dungphd.insuranceass.service.PermissionService;
@@ -71,11 +70,6 @@ public class PolicyServiceImpl implements PolicyService {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private NotificationService notificationService;
-
-    // Hook đợt 3 (nối ở merge, theo pattern notificationService): 2 service
-    // này failure-isolated nên không cần try/catch thêm ở đây.
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private CommissionService commissionService;
 
     // SaaS Phase 1 (optional như các service phụ khác): chỉ dùng để (a) kiểm
     // tra agentId ADMIN chọn khi tạo hộ có tồn tại không, (b) resolve agentName
@@ -525,12 +519,12 @@ public class PolicyServiceImpl implements PolicyService {
      * <p>Về các hook chạy trong transaction này (không gắn
      * {@code @Transactional} riêng cho chúng — xem báo cáo Track 2):
      * <ul>
-     *   <li>Commission ({@code createForBound}/{@code markEarned}) và Refund
-     *       ({@code createForCancellation}): failure-isolated + idempotent
-     *       từ trước. Khi gọi trong transaction này, save thành công của
-     *       chúng commit CÙNG policy (nguyên tử); khi chúng nuốt lỗi nội bộ
-     *       thì policy vẫn commit mà không có commission/refund — đúng hành
-     *       vi "hook có thể rớt" cũ, chưa có outbox chạy bù (còn nợ).</li>
+     *   <li>Refund ({@code createForCancellation}): failure-isolated +
+     *       idempotent từ trước. Khi gọi trong transaction này, save thành
+     *       công của nó commit CÙNG policy (nguyên tử); khi nó nuốt lỗi nội
+     *       bộ thì policy vẫn commit mà không có refund — đúng hành vi
+     *       "hook có thể rớt" cũ, chưa có outbox chạy bù (còn nợ). Hook
+     *       hoa hồng đã bỏ hẳn ở SaaS Phase 2, không còn hook nào khác.</li>
      *   <li>Mail kích hoạt ({@code notifyPolicyActivated}): đăng ký
      *       afterCommit — trước đây mail gửi ngay sau policy-save, TRƯỚC
      *       vòng lặp negotiation; nếu vòng lặp fail thì mail "đã kích hoạt"
@@ -611,15 +605,8 @@ public class PolicyServiceImpl implements PolicyService {
             TransactionSideEffects.afterCommit(() -> notificationService.notifyPolicyActivated(savedPolicy));
         }
 
-        // Hook đợt 3 (nối ở merge): hoa hồng + hoàn phí, SAU khi policy đã save.
-        // Cả 2 service đều failure-isolated + idempotent, không làm fail transition.
-        if (targetStatus == PolicyStatus.BOUND && commissionService != null) {
-            commissionService.createForBound(savedPolicy);
-        }
-        if (currentStatus == PolicyStatus.BOUND && targetStatus == PolicyStatus.ACTIVE
-                && commissionService != null) {
-            commissionService.markEarned(savedPolicy);
-        }
+        // Hook hoàn phí, SAU khi policy đã save. Service này failure-isolated
+        // + idempotent, không làm fail transition.
         if (currentStatus == PolicyStatus.ACTIVE && targetStatus == PolicyStatus.CANCELLED
                 && refundService != null) {
             refundService.createForCancellation(savedPolicy);
