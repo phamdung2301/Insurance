@@ -15,6 +15,8 @@ import java.time.Instant;
 public class AgentResponse {
     private String id;
     private String code;
+    /** Slug public trong link /a/<slug> (Track C); null = agent chưa có link. */
+    private String slug;
     private String displayName;
     private String contactName;
     private String contactEmail;

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authService, userService, extractAuth } from '../services/api';
+import { clearAgentRef } from '../utils/agentRef';
 
 const AuthContext = createContext(null);
 
@@ -73,6 +74,11 @@ export const AuthProvider = ({ children }) => {
 
   const logout = useCallback(() => {
     persist('', null);
+    // Track C: đăng xuất XÓA agentRef (người dùng kế tiếp trên cùng thiết
+    // bị không bị gán nhầm đại lý của người trước). Ngược lại, ĐĂNG NHẬP
+    // KHÔNG xóa agentRef — persist() chỉ chạm 'itoken'/'iuser' nên dấu đại
+    // lý từ link /a/<slug> sống qua bước đăng nhập (xem utils/agentRef.js).
+    clearAgentRef();
     navigate('/login', { replace: true });
   }, [navigate]);
 

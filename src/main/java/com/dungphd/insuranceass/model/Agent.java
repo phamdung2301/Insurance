@@ -41,6 +41,17 @@ public class Agent {
     @Indexed(unique = true)
     private String code;
 
+    /**
+     * Slug public trong link {@code /a/<slug>} (SaaS Phase 2 Track C, ADMIN
+     * đặt, chữ thường, chỉ {@code [a-z0-9-]} — xem {@code AgentSlug}).
+     * Sparse unique: agent cũ chưa có slug (null/không có field) KHÔNG va
+     * chạm unique index với nhau; chỉ các slug đã đặt mới phải duy nhất.
+     * Agent chưa có slug thì resolve link coi như không tồn tại (404), không
+     * được suy ra slug từ {@code code} hay {@code displayName}.
+     */
+    @Indexed(unique = true, sparse = true)
+    private String slug;
+
     /** Tên đại lý hiển thị trên UI (bắt buộc). */
     private String displayName;
 

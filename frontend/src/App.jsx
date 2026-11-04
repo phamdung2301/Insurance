@@ -35,6 +35,7 @@ import { LoginHistoryPage } from './pages/LoginHistoryPage';
 import { ClaimsPage } from './pages/ClaimsPage';
 import { CreateClaimPage } from './pages/CreateClaimPage';
 import { ClaimDetailPage } from './pages/ClaimDetailPage';
+import { AgentStorefrontPage } from './pages/AgentStorefrontPage';
 
 const TITLES = {
   '/': 'Hợp đồng của tôi',
@@ -104,6 +105,10 @@ function AnimatedRoutes() {
     <AnimatePresence mode="wait" initial={false}>
       <Routes location={location} key={location.pathname}>
         <Route path="/login" element={withErrorBoundary(<LoginPage />, 'Đăng nhập')} />
+        {/* SaaS Phase 2 Track C: storefront đại lý là route PUBLIC (không qua
+            ProtectedRoute — khách chưa đăng nhập vẫn xem được, nút mua mới
+            dẫn vào luồng cần đăng nhập; agentRef đã lưu thì sống qua login). */}
+        <Route path="/a/:slug" element={withErrorBoundary(<AgentStorefrontPage />, 'Trang đại lý')} />
         {page('/', <CustomerPortalPage />)}
         {page('/mua-bao-hiem', <BuyWizardPage />)}
         {page('/hop-dong/:policyNumber', <PolicyDetailPage />)}

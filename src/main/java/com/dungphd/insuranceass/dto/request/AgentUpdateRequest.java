@@ -34,5 +34,13 @@ public class AgentUpdateRequest {
     @Size(max = 500, message = "Địa chỉ không vượt quá 500 ký tự")
     private String address;
 
+    /**
+     * Slug public mới (SaaS Phase 2 Track C): null = giữ nguyên slug cũ;
+     * chuỗi rỗng → 400 (không cho xóa lặng slug đang có link trỏ tới —
+     * muốn đổi link thì đặt slug mới, link cũ tự thành 404).
+     */
+    @Size(max = 64, message = "Slug không vượt quá 64 ký tự")
+    private String slug;
+
     private AgentStatus status;
 }

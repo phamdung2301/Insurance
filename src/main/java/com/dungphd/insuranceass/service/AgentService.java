@@ -3,6 +3,7 @@ package com.dungphd.insuranceass.service;
 import com.dungphd.insuranceass.dto.request.AgentCreateRequest;
 import com.dungphd.insuranceass.dto.request.AgentUpdateRequest;
 import com.dungphd.insuranceass.dto.response.AgentResponse;
+import com.dungphd.insuranceass.dto.response.PublicAgentResponse;
 import com.dungphd.insuranceass.model.AgentStatus;
 
 import java.util.List;
@@ -17,6 +18,14 @@ public interface AgentService {
 
     AgentResponse getAgent(String id);
 
-    /** Update displayName/liên hệ/status; field null = giữ nguyên. */
+    /** Update displayName/liên hệ/slug/status; field null = giữ nguyên. */
     AgentResponse updateAgent(String id, AgentUpdateRequest request);
+
+    /**
+     * Resolve slug public cho storefront (SaaS Phase 2 Track C, endpoint
+     * public, không cần JWT). Phân biệt rõ: slug không tồn tại (kể cả agent
+     * chưa có slug) → ResourceNotFoundException (404); agent SUSPENDED/CLOSED
+     * → AgentLinkInactiveException (410 Gone); chỉ ACTIVE mới trả 200.
+     */
+    PublicAgentResponse resolvePublicBySlug(String slug);
 }

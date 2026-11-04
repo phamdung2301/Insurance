@@ -14,14 +14,14 @@ const PAGE_ROUTES = [
   '/agent/khach-hang',
   '/dev/api-tester',
 ];
-const PAGE_PREFIXES = ['/hop-dong/', '/admin/'];
+const PAGE_PREFIXES = ['/hop-dong/', '/admin/', '/a/'];
 
 function isPageRoute(urlPath) {
   if (PAGE_ROUTES.includes(urlPath)) return true;
   return PAGE_PREFIXES.some((p) => urlPath.startsWith(p));
 }
 
-const API_PREFIXES = ['/auth', '/user', '/policies', '/underwriter', '/excel', '/reports', '/benchmark', '/api', '/oauth2', '/login/oauth2', '/endorsements', '/history', '/versions', '/admin'];
+const API_PREFIXES = ['/auth', '/user', '/policies', '/underwriter', '/excel', '/reports', '/benchmark', '/api', '/oauth2', '/login/oauth2', '/endorsements', '/history', '/versions', '/admin', '/agents'];
 
 function spaBypassMiddleware() {
   return {
@@ -65,6 +65,11 @@ export default defineConfig({
       '/history': { target: 'http://localhost:8080', changeOrigin: true },
       '/versions': { target: 'http://localhost:8080', changeOrigin: true },
       '/admin': { target: 'http://localhost:8080', changeOrigin: true },
+      // Track C: endpoint public resolve slug (GET /agents/public/slug/:slug).
+      // Không có entry này thì request dev rơi về SPA fallback (trả index.html
+      // 200) và storefront không bao giờ resolve được — cùng họ lỗi từng gặp
+      // ở /underwriter (thiếu proxy → list rỗng lặng).
+      '/agents': { target: 'http://localhost:8080', changeOrigin: true },
       '/api': { target: 'http://localhost:8080', changeOrigin: true },
     },
   },

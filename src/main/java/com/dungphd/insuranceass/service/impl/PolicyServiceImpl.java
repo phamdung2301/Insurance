@@ -10,6 +10,7 @@ import com.dungphd.insuranceass.dto.request.UpdatePolicyRequest;
 import com.dungphd.insuranceass.dto.response.PageResponse;
 import com.dungphd.insuranceass.dto.response.PolicyResponse;
 import com.dungphd.insuranceass.exception.BadRequestException;
+import com.dungphd.insuranceass.exception.AgentLinkInactiveException;
 import com.dungphd.insuranceass.exception.DuplicateResourceException;
 import com.dungphd.insuranceass.exception.ForbiddenException;
 import com.dungphd.insuranceass.exception.InvalidRequestException;
@@ -20,6 +21,7 @@ import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyTransactionRepository;
 import com.dungphd.insuranceass.repository.PriceNegotiationRepository;
 import com.dungphd.insuranceass.service.NotificationService;
+import com.dungphd.insuranceass.service.AgentSlug;
 import com.dungphd.insuranceass.service.RefundService;
 import com.dungphd.insuranceass.service.PermissionService;
 import com.dungphd.insuranceass.service.PolicyService;
@@ -141,26 +143,46 @@ public class PolicyServiceImpl implements PolicyService {
                 }
             }
         }
-        // SaaS Phase 2 Track B: dual-write vẫn ghi cả agentId (mới, nguồn
-        // sự thật tenant) và assignedAgentEmail (cũ, chỉ để đối soát).
-        // ADMIN tạo hộ: theo agentId được chọn trong body (không chọn → null).
-        // AGENT tạo hộ (thuần, không mang CUSTOMER): FAIL-CLOSED — chưa gán
-        // tenant thì 403 (không tạo policy agentId null lặng), tenant
-        // SUSPENDED/CLOSED thì 403 theo guard trạng thái. Body agentId của
-        // non-ADMIN luôn bị bỏ qua. CUSTOMER tự tạo (kể cả phía CUSTOMER
-        // của dual-role): null (khách tự mua) và KHÔNG bị guard trạng thái
-        // tenant chặn — đó là hành động của khách, không phải ghi của nhân
-        // viên. Thứ tự ưu tiên CUSTOMER trước AGENT giữ nguyên như nhánh
-        // assignedAgentEmail/insured ở trên.
+        // SaaS Phase 2 Track C: quy tắc mua mới BẮT BUỘC có đại lý (Q3, thay
+        // đổi hành vi cũ có chủ đích — khách vãng lai không còn mua được):
+        // - CUSTOMER tự mua (kể cả phía CUSTOMER của dual-role): BẮT BUỘC có
+        //   agentSlug hợp lệ từ link; server tra Agent theo slug, chỉ chấp
+        //   nhận ACTIVE (không tồn tại → 404, SUSPENDED/CLOSED → 410 Gone),
+        //   rồi gắn agentId từ Agent đó. Mọi agentId client gửi đều bị bỏ qua.
+        //   Lưu ý: KHÔNG set assignedAgentEmail từ contactEmail của Agent ở
+        //   đây — sau cutover Track B, agentId là nguồn sự thật duy nhất của
+        //   tenant; assignedAgentEmail chỉ còn là dấu vết dual-write của luồng
+        //   AGENT tạo hộ (principal = chính agent đó).
+        // - AGENT tạo hộ (thuần, không mang CUSTOMER): như Track B — tenant
+        //   từ context thắng, agentSlug gửi kèm (nếu có) bị bỏ qua; agent
+        //   chưa gán tenant → fail-closed 403, tenant SUSPENDED/CLOSED → 403
+        //   theo guard trạng thái (checkTenantWriteForStaff).
+        // - ADMIN tạo hộ: BẮT BUỘC ghi agentId hợp lệ từ request (tồn tại,
+        //   nếu không → 400); thiếu agentId → 400. Đây là thay đổi so với
+        //   Phase 1/Track B (trước đây ADMIN được để trống → null, policy
+        //   unassigned lặng). agentSlug của ADMIN (nếu gửi) bị bỏ qua.
+        // - Role khác (không ADMIN/CUSTOMER/AGENT, vd FINANCE): giữ hành vi cũ
+        //   (agentId null) — không phải luồng mua, không thuộc ma trận Track C.
+        // Khi permissionService == null (gọi nội bộ/test unit cũ không set
+        // context) thì toàn bộ khối này bị bỏ qua như quy ước null-guard sẵn
+        // có của method; khi agentRepository == null (test unit cũ không
+        // inject repo) thì nhánh CUSTOMER cũng bỏ qua resolve slug — production
+        // luôn inject bean thật nên không đi đường này.
         String agentId = null;
         if (permissionService != null) {
             if (permissionService.isAdmin()) {
                 agentId = request.getAgentId() != null && !request.getAgentId().isBlank()
                         ? request.getAgentId().trim() : null;
-                if (agentId != null && agentRepository != null && !agentRepository.existsById(agentId)) {
+                if (agentId == null) {
+                    throw new BadRequestException(
+                            "ADMIN tạo hợp đồng phải chọn đại lý (agentId là bắt buộc, không được để trống).");
+                }
+                if (agentRepository != null && !agentRepository.existsById(agentId)) {
                     throw new BadRequestException("Đại lý không tồn tại với id: " + agentId);
                 }
-            } else if (!permissionService.hasCustomerRole() && permissionService.hasAgentRole()) {
+            } else if (permissionService.hasCustomerRole()) {
+                agentId = resolveCustomerAgentId(request.getAgentSlug());
+            } else if (permissionService.hasAgentRole()) {
                 permissionService.checkTenantWriteForStaff();
                 agentId = permissionService.currentTenantId();
             }
@@ -725,6 +747,36 @@ public class PolicyServiceImpl implements PolicyService {
                     || negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), NegotiationStatus.PENDING_CONFIRMATION))) {
             throw new InvalidRequestException("Giá hợp đồng đã chốt hoặc đang chờ xác nhận qua thương lượng, không được sửa đổi phí khi còn ở trạng thái QUOTED.");
         }
+    }
+
+    /**
+     * Resolve tenant cho CUSTOMER tự mua qua link đại lý (Track C).
+     * Thiếu agentSlug → 400 với message rõ ràng (FE hiện toast, không lặng);
+     * slug không tồn tại → 404; slug SUSPENDED/CLOSED → 410 Gone
+     * (AgentLinkInactiveException, phân biệt với 404 như storefront resolve).
+     * Chỉ Agent ACTIVE mới được gắn. Mọi agentId client gửi kèm đều bị bỏ qua
+     * (caller không truyền nó vào đây — xem khối agentId ở createPolicy).
+     * agentRepository == null (test unit cũ) → trả null theo quy ước null-guard
+     * của file này; production luôn có repo thật.
+     */
+    private String resolveCustomerAgentId(String rawSlug) {
+        String slug = AgentSlug.normalize(rawSlug);
+        if (slug == null || slug.isBlank()) {
+            throw new BadRequestException(
+                    "Bạn cần mua qua link của đại lý. Vui lòng mở link đại lý đã gửi cho bạn rồi mua lại "
+                            + "(không thể tự mua khi chưa có link đại lý).");
+        }
+        if (agentRepository == null) {
+            return null;
+        }
+        Agent agent = agentRepository.findBySlug(slug).orElse(null);
+        if (agent == null) {
+            throw new ResourceNotFoundException("Không tìm thấy đại lý với link: " + slug);
+        }
+        if (agent.getStatus() == AgentStatus.SUSPENDED || agent.getStatus() == AgentStatus.CLOSED) {
+            throw new AgentLinkInactiveException(slug, agent.getStatus());
+        }
+        return agent.getId();
     }
 
     private PolicyResponse mapToPolicyResponse(Policy policy) {

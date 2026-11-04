@@ -104,7 +104,10 @@ class DataInitializerSeedAgentTest {
     @Test
     void seed_existingSeedAgent_notDuplicated() throws Exception {
         stubCountsNonEmpty();
-        Agent existing = Agent.builder().id("seed-agent-id").code("AGT-SEED").build();
+        // Track C: fixture này là agent ĐÃ có slug (DB đã migrate) → seed chạy
+        // lại không save gì thêm. Trường hợp agent cũ chưa có slug được khóa
+        // riêng ở test backfill bên dưới (save 1 lần để gán slug, không tạo mới).
+        Agent existing = Agent.builder().id("seed-agent-id").code("AGT-SEED").slug("dai-ly-mau").build();
         when(agentRepository.findByCode("AGT-SEED")).thenReturn(Optional.of(existing));
         User demoAgent = User.builder().email("agent@example.com")
                 .roles(List.of("ROLE_AGENT")).agentId(null).build();
@@ -117,6 +120,28 @@ class DataInitializerSeedAgentTest {
         verify(userRepository, atLeastOnce()).save(userCaptor.capture());
         assertTrue(userCaptor.getAllValues().stream()
                 .anyMatch(u -> "seed-agent-id".equals(u.getAgentId())));
+    }
+
+    @Test
+    void seed_existingSeedAgentWithoutSlug_backfillsSampleSlugOnce() throws Exception {
+        // Track C: DB seed từ trước khi có slug → seed chạy lại gán slug mẫu
+        // "dai-ly-mau" đúng 1 lần (update, không tạo agent mới, không đổi id/code).
+        stubCountsNonEmpty();
+        Agent existing = Agent.builder().id("seed-agent-id").code("AGT-SEED").build();
+        when(agentRepository.findByCode("AGT-SEED")).thenReturn(Optional.of(existing));
+        when(agentRepository.existsBySlug("dai-ly-mau")).thenReturn(false);
+        when(agentRepository.save(any(Agent.class))).thenAnswer(i -> i.getArgument(0));
+        User demoAgent = User.builder().email("agent@example.com")
+                .roles(List.of("ROLE_AGENT")).agentId(null).build();
+        when(userRepository.findByEmail("agent@example.com")).thenReturn(Optional.of(demoAgent));
+
+        initializer().initData().run();
+
+        ArgumentCaptor<Agent> agentCaptor = ArgumentCaptor.forClass(Agent.class);
+        verify(agentRepository, times(1)).save(agentCaptor.capture());
+        assertEquals("seed-agent-id", agentCaptor.getValue().getId());
+        assertEquals("AGT-SEED", agentCaptor.getValue().getCode());
+        assertEquals("dai-ly-mau", agentCaptor.getValue().getSlug());
     }
 
     @Test

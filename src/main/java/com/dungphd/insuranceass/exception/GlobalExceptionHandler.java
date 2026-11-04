@@ -68,6 +68,18 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(ex.getMessage()));
     }
 
+    /**
+     * SaaS Phase 2 Track C — link đại lý đã chết (Agent SUSPENDED/CLOSED):
+     * HTTP 410 Gone, PHÂN BIỆT với 404 (slug không tồn tại). FE dựa vào
+     * status này để hiện trang exception link chết thay vì trang 404, ở cả
+     * storefront resolve lẫn POST /policies kèm agentSlug.
+     */
+    @ExceptionHandler(AgentLinkInactiveException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAgentLinkInactive(AgentLinkInactiveException ex) {
+        return ResponseEntity.status(HttpStatus.GONE)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+
     @ExceptionHandler(org.springframework.dao.OptimisticLockingFailureException.class)
     public ResponseEntity<ApiResponse<Void>> handleOptimisticLocking(org.springframework.dao.OptimisticLockingFailureException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)

@@ -3,6 +3,8 @@ package com.dungphd.insuranceass.service.impl;
 import com.dungphd.insuranceass.dto.request.AgentCreateRequest;
 import com.dungphd.insuranceass.dto.request.AgentUpdateRequest;
 import com.dungphd.insuranceass.dto.response.AgentResponse;
+import com.dungphd.insuranceass.exception.AgentLinkInactiveException;
+import com.dungphd.insuranceass.dto.response.PublicAgentResponse;
 import com.dungphd.insuranceass.exception.BadRequestException;
 import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.Agent;
@@ -10,6 +12,7 @@ import com.dungphd.insuranceass.model.AgentStatus;
 import com.dungphd.insuranceass.repository.AgentRepository;
 import com.dungphd.insuranceass.service.AgentCodeGenerator;
 import com.dungphd.insuranceass.service.AgentService;
+import com.dungphd.insuranceass.service.AgentSlug;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -40,6 +43,11 @@ public class AgentServiceImpl implements AgentService {
             throw new BadRequestException("Tên đại lý là bắt buộc.");
         }
         String displayName = request.getDisplayName().trim();
+        // Track C: slug do ADMIN đặt, tùy chọn lúc tạo. Nếu gửi thì chuẩn hóa
+        // về chữ thường + validate pattern + kiểm tra trùng TRƯỚC khi save
+        // (message 400 rõ ràng); DuplicateKeyException lúc save là backstop
+        // cho race hai ADMIN đặt cùng slug một lúc.
+        String slug = validateSlugForWrite(request.getSlug(), null);
         // Counter nguyên tử đã chống trùng số; retry chỉ là backstop cho trường
         // hợp mã đã tồn tại thủ công (vd seed AGT-SEED va chạm dải số, hoặc DB
         // restore từ nơi khác). Hết lượt retry thì lỗi rõ ràng, không sinh mã bừa.
@@ -47,6 +55,7 @@ public class AgentServiceImpl implements AgentService {
             String code = codeGenerator.nextCode();
             Agent agent = Agent.builder()
                     .code(code)
+                    .slug(slug)
                     .displayName(displayName)
                     .contactName(trimOrNull(request.getContactName()))
                     .contactEmail(trimOrNull(request.getContactEmail()))
@@ -60,6 +69,12 @@ public class AgentServiceImpl implements AgentService {
             try {
                 return toResponse(agentRepository.save(agent));
             } catch (DuplicateKeyException e) {
+                // Race slug: hai ADMIN đặt cùng slug một lúc, pre-check đều
+                // qua rồi mới va nhau lúc save → 400 rõ ràng, không retry
+                // sinh mã mới (mã không phải thứ bị trùng).
+                if (slug != null && agentRepository.existsBySlug(slug)) {
+                    throw new BadRequestException("Slug '" + slug + "' đã được sử dụng bởi đại lý khác.");
+                }
                 log.warn("Trùng mã đại lý {} (lần {}), sinh mã mới.", code, attempt);
                 if (attempt == MAX_CODE_ATTEMPTS) {
                     throw new BadRequestException(
@@ -107,11 +122,83 @@ public class AgentServiceImpl implements AgentService {
         if (request.getAddress() != null) {
             agent.setAddress(trimOrNull(request.getAddress()));
         }
+        if (request.getSlug() != null) {
+            // Chuỗi rỗng = 400 (không xóa lặng slug đang có link trỏ tới);
+            // slug hợp lệ thì chuẩn hóa + kiểm tra trùng (trừ chính agent này).
+            agent.setSlug(validateSlugForWrite(request.getSlug(), agent.getId()));
+        }
         if (request.getStatus() != null) {
             agent.setStatus(request.getStatus());
         }
         agent.setUpdatedAt(Instant.now());
-        return toResponse(agentRepository.save(agent));
+        try {
+            return toResponse(agentRepository.save(agent));
+        } catch (DuplicateKeyException e) {
+            if (request.getSlug() != null) {
+                String normalized = AgentSlug.normalize(request.getSlug());
+                if (normalized != null && agentRepository.existsBySlug(normalized)) {
+                    throw new BadRequestException("Slug '" + normalized + "' đã được sử dụng bởi đại lý khác.");
+                }
+            }
+            // Save ở update chỉ đổi được field unique là slug nên va chạm
+            // unique ở đây vẫn là slug (trường hợp race đã giải quyết xong
+            // giữa chừng) — trả 400 thay vì để DuplicateKeyException thành 500.
+            throw new BadRequestException("Slug đã được sử dụng bởi đại lý khác.");
+        }
+    }
+
+    @Override
+    public PublicAgentResponse resolvePublicBySlug(String slug) {
+        // Endpoint public: slug không hợp lệ pattern cũng chỉ là "không tìm
+        // thấy" (404) — không lộ quy tắc validate nội bộ ra ngoài, và không
+        // phân biệt được slug sai format với slug chưa từng tồn tại.
+        String normalized = AgentSlug.normalize(slug);
+        Agent agent = normalized == null ? null
+                : agentRepository.findBySlug(normalized).orElse(null);
+        if (agent == null) {
+            // Bao gồm cả agent cũ chưa có slug: findBySlug không bao giờ khớp
+            // null, nên link tới agent chưa đặt slug cũng về 404, đúng spec.
+            throw new ResourceNotFoundException("Không tìm thấy đại lý với link: " + slug);
+        }
+        if (agent.getStatus() == AgentStatus.SUSPENDED || agent.getStatus() == AgentStatus.CLOSED) {
+            // Link chết (Q4): 410 Gone, phân biệt với 404 — FE hiện trang
+            // exception riêng, không cho mua tiếp dưới dạng vãng lai.
+            throw new AgentLinkInactiveException(normalized, agent.getStatus());
+        }
+        // Chỉ trả field an toàn để hiển thị — KHÔNG id, code, createdBy.
+        return PublicAgentResponse.builder()
+                .displayName(agent.getDisplayName())
+                .contactName(agent.getContactName())
+                .contactEmail(agent.getContactEmail())
+                .phone(agent.getPhone())
+                .address(agent.getAddress())
+                .status(agent.getStatus())
+                .build();
+    }
+
+    /**
+     * Validate slug cho ghi (tạo/cập nhật). Trả về slug đã chuẩn hóa, hoặc
+     * null khi caller không gửi slug (giữ nguyên/không đặt). Trùng slug →
+     * 400; chuỗi rỗng ở update → 400 (xem ghi chú ở DTO).
+     *
+     * @param rawSlug slug thô từ request (null = không gửi)
+     * @param selfId id của agent đang cập nhật (null khi tạo) — trùng với
+     *               chính mình thì cho qua (đặt lại cùng slug cũ)
+     */
+    private String validateSlugForWrite(String rawSlug, String selfId) {
+        if (rawSlug == null) {
+            return null;
+        }
+        String normalized = AgentSlug.normalize(rawSlug);
+        if (!AgentSlug.isValid(normalized)) {
+            throw new BadRequestException("Slug không hợp lệ: '" + rawSlug + "'. " + AgentSlug.ruleDescription());
+        }
+        agentRepository.findBySlug(normalized).ifPresent(existing -> {
+            if (selfId == null || !selfId.equals(existing.getId())) {
+                throw new BadRequestException("Slug '" + normalized + "' đã được sử dụng bởi đại lý khác.");
+            }
+        });
+        return normalized;
     }
 
     private Agent findOrThrow(String id) {
@@ -127,6 +214,7 @@ public class AgentServiceImpl implements AgentService {
         return AgentResponse.builder()
                 .id(agent.getId())
                 .code(agent.getCode())
+                .slug(agent.getSlug())
                 .displayName(agent.getDisplayName())
                 .contactName(agent.getContactName())
                 .contactEmail(agent.getContactEmail())

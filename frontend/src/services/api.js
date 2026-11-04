@@ -72,6 +72,15 @@ export const userService = {
 };
 
 // ---------------------------------------------------------------- Policy (SRS §6)
+// ---------------------------------------------------------------- Agent link (SaaS Phase 2 Track C)
+// Storefront public: GET /agents/public/slug/:slug (BE: PublicAgentController,
+// permitAll — khách chưa đăng nhập vẫn xem được). Trả PublicAgentResponse:
+// displayName + liên hệ + status, KHÔNG id/code nội bộ. Mã lỗi phân biệt:
+// 404 = slug không tồn tại, 410 = đại lý SUSPENDED/CLOSED (link chết).
+export const publicAgentService = {
+  resolveSlug: (slug) => api.get(`/agents/public/slug/${encodeURIComponent(slug)}`),
+};
+
 export const policyService = {
   searchPolicies: (params = {}) => api.get('/policies', { params }),
   /** Hợp đồng của chính user đang đăng nhập (backend filter theo JWT, không lộ data người khác) */
