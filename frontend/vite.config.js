@@ -21,7 +21,7 @@ function isPageRoute(urlPath) {
   return PAGE_PREFIXES.some((p) => urlPath.startsWith(p));
 }
 
-const API_PREFIXES = ['/auth', '/user', '/policies', '/excel', '/reports', '/benchmark', '/api', '/oauth2', '/login/oauth2', '/endorsements', '/history', '/versions', '/admin'];
+const API_PREFIXES = ['/auth', '/user', '/policies', '/underwriter', '/excel', '/reports', '/benchmark', '/api', '/oauth2', '/login/oauth2', '/endorsements', '/history', '/versions', '/admin'];
 
 function spaBypassMiddleware() {
   return {
@@ -52,6 +52,10 @@ export default defineConfig({
       '/auth': { target: 'http://localhost:8080', changeOrigin: true },
       '/user': { target: 'http://localhost:8080', changeOrigin: true },
       '/policies': { target: 'http://localhost:8080', changeOrigin: true },
+      // Hàng đợi thương lượng UW (GET /underwriter/negotiations): từng thiếu
+      // ở đây nên ở dev request rơi về SPA fallback (trả index.html 200) và
+      // tab /admin/thuong-luong hiện rỗng dù DB đã có bản ghi.
+      '/underwriter': { target: 'http://localhost:8080', changeOrigin: true },
       '/excel': { target: 'http://localhost:8080', changeOrigin: true },
       '/reports': { target: 'http://localhost:8080', changeOrigin: true },
       '/benchmark': { target: 'http://localhost:8080', changeOrigin: true },

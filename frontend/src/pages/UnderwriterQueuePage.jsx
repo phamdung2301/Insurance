@@ -16,8 +16,10 @@ const ROLE_LABEL = {
  * Hàng đợi thương lượng cho UNDERWRITER (đợt 2A).
  * GET /underwriter/negotiations — BE chỉ trả negotiation OPEN đang tới lượt UW
  * (offer cuối không phải của UW, hoặc chưa có offer), sắp xếp cũ nhất trước.
- * Trang này CHƯA được nối route/menu (coordinator nối sau) — không sửa
- * App.jsx / Sidebar.jsx trong đợt này.
+ * Route /admin/thuong-luong đã nối trong App.jsx + Sidebar (ROLE_UNDERWRITER,
+ * ROLE_ADMIN). Lưu ý dev: endpoint này phải có trong Vite proxy
+ * (frontend/vite.config.js) nếu không request ở dev rơi về SPA fallback và
+ * trang hiện rỗng dù DB đã có bản ghi.
  */
 export function UnderwriterQueuePage() {
   const toast = useToast();

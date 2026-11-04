@@ -671,9 +671,16 @@ function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
   const [floorInput, setFloorInput] = useState('');
   const [chatInput, setChatInput] = useState('');
   const [busy, setBusy] = useState(false);
+  // Chat: ref cuộn + cờ "đang ở cuối khung" + pill báo cập nhật mới.
+  const chatScrollRef = useRef(null);
+  const nearBottomRef = useRef(true);
+  const prevChatCountRef = useRef(0);
+  const lastChatFetchRef = useRef(0);
+  const [hasNewChat, setHasNewChat] = useState(false);
 
-  const loadNeg = useCallback(async () => {
-    setLoading(true);
+  const loadNeg = useCallback(async (opts) => {
+    const silent = opts?.silent === true;
+    if (!silent) setLoading(true);
     try {
       const res = await negotiationService.list(policy.policyNumber);
       const d = res?.data;
@@ -684,11 +691,34 @@ function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
       if (isBackendMissing(err)) setUnavailable(true);
       else toast.error(err.message || 'Không tải được lịch sử thương lượng.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [policy.policyNumber, toast]);
 
   useEffect(() => { loadNeg(); }, [loadNeg]);
+
+  // Tự cập nhật thương lượng/chat từ phía bên kia mà không cần reload tay:
+  // poll lặng (không hiện skeleton) mỗi 20s khi hợp đồng còn QUOTED + tab
+  // đang hiển thị, và refresh khi cửa sổ được focus lại (cách lần fetch
+  // trước > 10s). loadNeg chỉ set danh sách negotiations nên không xóa nội
+  // dung đang gõ trong các ô input.
+  useEffect(() => {
+    if (policy.status !== 'QUOTED') return undefined;
+    const tick = () => {
+      if (document.hidden) return;
+      lastChatFetchRef.current = Date.now();
+      loadNeg({ silent: true });
+    };
+    const id = setInterval(tick, 20000);
+    const onFocus = () => {
+      if (Date.now() - lastChatFetchRef.current > 10000) {
+        lastChatFetchRef.current = Date.now();
+        loadNeg({ silent: true });
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    return () => { clearInterval(id); window.removeEventListener('focus', onFocus); };
+  }, [policy.status, loadNeg]);
 
   const me = String(user?.email || '').toLowerCase();
   const isCustomer = me && me === String(policy.insured?.email || '').toLowerCase();
@@ -709,13 +739,81 @@ function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
   const listPremium = shown?.listPremium ?? policy.totalPremium;
   const floorPremium = shown?.floorPremium ?? null;
 
+  // Luồng chat hợp nhất: tin nhắn trao đổi + entry hệ thống suy ra từ các
+  // vòng đề xuất (không ghi thêm gì xuống DB nên không phá tính append-only
+  // của chat; entry hệ thống chỉ là cách hiển thị, không sửa/xóa được).
+  // Nhờ đó yêu cầu/trả giá mới của bên kia hiện ngay trong khung chat phải
+  // thay vì chỉ nằm ở cột lịch sử bên trái.
+  const toTime = (v) => {
+    const t = v ? Date.parse(v) : NaN;
+    return Number.isFinite(t) ? t : 0;
+  };
+  const chatEntries = (() => {
+    const entries = safeList(shown?.messages).map((m) => ({
+      ...m, entryType: 'chat', sortKey: toTime(m.createdAt),
+    }));
+    sortedOffers.forEach((o) => {
+      const who = ROLE_LABEL[o.proposedByRole] || o.proposedByRole;
+      const verb = (o.round ?? 1) <= 1 ? 'đã gửi đề xuất giá mở đầu' : 'đã trả giá';
+      entries.push({
+        entryType: 'system',
+        key: `offer-${o.round ?? o.proposedPremium}`,
+        sortKey: toTime(o.createdAt),
+        text: `${who} ${verb}: ${formatMoney(o.proposedPremium)}`
+          + (o.message ? ` — “${o.message}”` : '')
+          + (o.decision === 'REJECTED' ? ' (mức giá này đã bị từ chối)' : ''),
+      });
+    });
+    if (shown?.status === 'PENDING_CONFIRMATION' && shown?.acceptedPremium != null) {
+      entries.push({
+        entryType: 'system',
+        key: 'status-pending',
+        sortKey: Number.MAX_SAFE_INTEGER - 1,
+        text: `✅ Đã chấp nhận mức giá ${formatMoney(shown.acceptedPremium)} — đang chờ xác nhận chốt (1/2).`,
+      });
+    }
+    if (shown?.status === 'ACCEPTED' && shown?.acceptedPremium != null) {
+      entries.push({
+        entryType: 'system',
+        key: 'status-accepted',
+        sortKey: Number.MAX_SAFE_INTEGER,
+        text: `🔒 Đã chốt giá ${formatMoney(shown.acceptedPremium)} (2/2).`,
+      });
+    }
+    return entries.sort((a, b) => a.sortKey - b.sortKey);
+  })();
+
+  // Cuộn chat: có entry mới thì nếu đang ở cuối khung thì cuộn xuống cuối,
+  // nếu đang đọc lịch sử cũ thì chỉ hiện pill "Có cập nhật mới".
+  const scrollChatToBottom = () => {
+    const el = chatScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    setHasNewChat(false);
+  };
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    const prev = prevChatCountRef.current;
+    prevChatCountRef.current = chatEntries.length;
+    if (chatEntries.length > prev) {
+      if (nearBottomRef.current) el.scrollTop = el.scrollHeight;
+      else setHasNewChat(true);
+    }
+  }, [chatEntries.length]);
+
   // Lượt đi: tính theo phe (Demand vs Supply)
   const demandTurn = !lastOffer || lastOffer.proposedByRole === 'UNDERWRITER';
   const myTurn = shown?.status === 'OPEN' && !isAdminView && (
     (isDemand && demandTurn) || (isSupply && !demandTurn)
   );
 
-  const canOpen = !shown && policy.status === 'QUOTED' && isDemand && !isAdminView;
+  // Mở mới được phép khi không còn phiên đang mở/chờ xác nhận. Phiên cũ đã
+  // SUPERSEDED (hợp đồng từng về DRAFT rồi báo giá lại) KHÔNG chặn mở mới
+  // vì backend chỉ chặn khi đã có OPEN/PENDING_CONFIRMATION/ACCEPTED; chỉ
+  // ACCEPTED (đã chốt giá) là khóa hẳn. Trước đây `!shown` khiến phiên cũ
+  // đã đóng vẫn chặn form mở mới dù backend cho phép.
+  const canOpen = !activeNeg && policy.status === 'QUOTED' && isDemand && !isAdminView
+    && latest?.status !== 'ACCEPTED';
   const canSetFloor = isSupply && !isAdminView && shown && shown.status === 'OPEN' && floorPremium == null
     && !sortedOffers.some((o) => o.proposedByRole === 'UNDERWRITER');
 
@@ -1116,24 +1214,50 @@ function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
             </div>
           </div>
 
-          {/* Vùng cuộn tin nhắn */}
+          {/* Vùng cuộn tin nhắn: tin nhắn + entry hệ thống từ các vòng đề xuất */}
           <div
+            ref={chatScrollRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+              if (nearBottomRef.current) setHasNewChat(false);
+            }}
             style={{
               flex: 1, minHeight: 340, maxHeight: 460, overflowY: 'auto',
               display: 'flex', flexDirection: 'column', gap: '0.6rem', padding: '0.5rem',
               background: 'var(--bg-subtle, #f8fafc)', borderRadius: '8px', marginBottom: '0.75rem',
             }}
           >
-            {safeList(shown?.messages).length === 0 ? (
+            {chatEntries.length === 0 ? (
               <div style={{ textAlign: 'center', color: 'var(--text-muted)', margin: 'auto', fontSize: '0.9rem' }}>
                 Chưa có tin nhắn nào. Bạn có thể trao đổi thêm chi tiết về mức phí tại đây.
               </div>
             ) : (
-              safeList(shown?.messages).map((m, idx) => {
-                const mine = m.senderEmail && m.senderEmail.toLowerCase() === me;
+              chatEntries.map((e, idx) => {
+                if (e.entryType === 'system') {
+                  return (
+                    <div
+                      key={e.key}
+                      style={{
+                        alignSelf: 'center',
+                        maxWidth: '92%',
+                        background: '#eef2ff',
+                        border: '1px solid #c7d2fe',
+                        borderRadius: '12px',
+                        padding: '0.45rem 0.85rem',
+                        fontSize: '0.85rem',
+                        color: '#3730a3',
+                        textAlign: 'center',
+                      }}
+                    >
+                      {e.text}
+                    </div>
+                  );
+                }
+                const mine = e.senderEmail && e.senderEmail.toLowerCase() === me;
                 return (
                   <div
-                    key={m.messageId || idx}
+                    key={e.messageId || idx}
                     style={{
                       alignSelf: mine ? 'flex-end' : 'flex-start',
                       maxWidth: '82%',
@@ -1146,17 +1270,27 @@ function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
                     }}
                   >
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.2rem', display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
-                      <span><strong>{mine ? 'Bạn' : m.senderEmail}</strong> ({ROLE_LABEL[m.senderRole] || m.senderRole})</span>
-                      <span>{formatDateTime(m.createdAt)}</span>
+                      <span><strong>{mine ? 'Bạn' : e.senderEmail}</strong> ({ROLE_LABEL[e.senderRole] || e.senderRole})</span>
+                      <span>{formatDateTime(e.createdAt)}</span>
                     </div>
                     <div style={{ fontSize: '0.9rem', wordBreak: 'break-word', color: '#1e293b' }}>
-                      {m.content}
+                      {e.content}
                     </div>
                   </div>
                 );
               })
             )}
           </div>
+
+          {hasNewChat && (
+            <button
+              type="button" className="btn btn-secondary btn-sm"
+              onClick={scrollChatToBottom}
+              style={{ alignSelf: 'center', marginBottom: '0.75rem' }}
+            >
+              ↓ Có cập nhật mới — nhấn để xuống cuối
+            </button>
+          )}
 
           {/* Khung nhập tin nhắn */}
           <div style={{ display: 'flex', gap: '0.5rem' }}>
