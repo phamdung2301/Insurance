@@ -36,9 +36,10 @@ import { ClaimsPage } from './pages/ClaimsPage';
 import { CreateClaimPage } from './pages/CreateClaimPage';
 import { ClaimDetailPage } from './pages/ClaimDetailPage';
 import { AgentStorefrontPage } from './pages/AgentStorefrontPage';
+import { PlatformLandingPage } from './pages/PlatformLandingPage';
 
 const TITLES = {
-  '/': 'Hợp đồng của tôi',
+  '/hop-dong-cua-toi': 'Hợp đồng của tôi',
   '/mua-bao-hiem': 'Mua bảo hiểm',
   '/ho-so': 'Hồ sơ cá nhân',
   '/doi-mat-khau': 'Đổi mật khẩu',
@@ -109,7 +110,11 @@ function AnimatedRoutes() {
             ProtectedRoute — khách chưa đăng nhập vẫn xem được, nút mua mới
             dẫn vào luồng cần đăng nhập; agentRef đã lưu thì sống qua login). */}
         <Route path="/a/:slug" element={withErrorBoundary(<AgentStorefrontPage />, 'Trang đại lý')} />
-        {page('/', <CustomerPortalPage />)}
+        {/* SaaS Phase 2 Track D: gốc `/` là landing nền tảng PUBLIC (không qua
+            ProtectedRoute — khách chỉ vào app qua link đại lý /a/<slug> nên
+            trang chủ cũ (portal khách) chuyển sang /hop-dong-cua-toi). */}
+        <Route path="/" element={withErrorBoundary(<PlatformLandingPage />, 'Trang nền tảng')} />
+        {page('/hop-dong-cua-toi', <CustomerPortalPage />)}
         {page('/mua-bao-hiem', <BuyWizardPage />)}
         {page('/hop-dong/:policyNumber', <PolicyDetailPage />)}
         {page('/ho-so', <ProfilePage />)}

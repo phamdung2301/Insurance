@@ -115,7 +115,7 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithToken = useCallback((tok, usr) => {
     persist(tok, usr);
-    navigate(hasRoleIn(usr?.roles ?? rolesFromToken(tok), 'ROLE_ADMIN') ? '/admin' : '/', { replace: true });
+    navigate(hasRoleIn(usr?.roles ?? rolesFromToken(tok), 'ROLE_ADMIN') ? '/admin' : '/hop-dong-cua-toi', { replace: true });
   }, [navigate]);
 
   const loginOtp = useCallback(async (email, otp) => {

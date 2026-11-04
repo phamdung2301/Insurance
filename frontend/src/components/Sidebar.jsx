@@ -15,7 +15,7 @@ export function Sidebar({ open, onClose }) {
   const benchmarkEnabled = import.meta.env.VITE_ENABLE_BENCHMARK === 'true';
 
   const customerLinks = [
-    { to: '/', label: 'Hợp đồng của tôi', icon: <Home size={18} />, end: true },
+    { to: '/hop-dong-cua-toi', label: 'Hợp đồng của tôi', icon: <Home size={18} />, end: true },
     { to: '/mua-bao-hiem', label: 'Mua bảo hiểm', icon: <ShoppingCart size={18} /> },
     { to: '/thanh-toan', label: 'Thanh toán', icon: <CreditCard size={18} />, roles: ['ROLE_CUSTOMER'] },
     { to: '/claims', label: 'Bồi thường', icon: <ShieldAlert size={18} /> },

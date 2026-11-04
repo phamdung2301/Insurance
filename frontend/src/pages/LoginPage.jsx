@@ -55,7 +55,7 @@ export function LoginPage() {
     toast.success(`Chào mừng ${usr.fullName}!`);
   }, []);
 
-  if (isAuthenticated) return <Navigate to="/" replace />;
+  if (isAuthenticated) return <Navigate to="/hop-dong-cua-toi" replace />;
 
   return (
     <div className="auth-split">

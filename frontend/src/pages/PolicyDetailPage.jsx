@@ -192,7 +192,7 @@ export function PolicyDetailPage() {
     try {
       await policyService.deletePolicy(policyNumber);
       toast.success('Đã xóa hợp đồng.');
-      navigate('/');
+      navigate('/hop-dong-cua-toi');
     } catch (err) {
       failToast(err, 'xóa hợp đồng');
     } finally {
@@ -301,7 +301,7 @@ export function PolicyDetailPage() {
         icon={<FileText size={40} />}
         title="Không tìm thấy hợp đồng"
         desc={`Hợp đồng ${policyNumber} không tồn tại hoặc bạn không có quyền xem.`}
-        action={<Link className="btn btn-primary" to="/"><ArrowLeft size={16} /> Về trang chủ</Link>}
+        action={<Link className="btn btn-primary" to="/hop-dong-cua-toi"><ArrowLeft size={16} /> Về hợp đồng của tôi</Link>}
       />
     );
   }
