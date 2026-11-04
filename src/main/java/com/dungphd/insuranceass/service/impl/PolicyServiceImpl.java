@@ -15,6 +15,7 @@ import com.dungphd.insuranceass.exception.ForbiddenException;
 import com.dungphd.insuranceass.exception.InvalidRequestException;
 import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.*;
+import com.dungphd.insuranceass.repository.AgentRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyTransactionRepository;
 import com.dungphd.insuranceass.repository.PriceNegotiationRepository;
@@ -73,6 +74,12 @@ public class PolicyServiceImpl implements PolicyService {
     // này failure-isolated nên không cần try/catch thêm ở đây.
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private CommissionService commissionService;
+
+    // SaaS Phase 1 (optional như các service phụ khác): chỉ dùng để (a) kiểm
+    // tra agentId ADMIN chọn khi tạo hộ có tồn tại không, (b) resolve agentName
+    // cho PolicyResponse. Null trong test unit cũ → bỏ qua cả hai, không fail.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AgentRepository agentRepository;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private RefundService refundService;
@@ -138,9 +145,30 @@ public class PolicyServiceImpl implements PolicyService {
                 }
             }
         }
+        // SaaS Phase 1 dual-write: ghi cả agentId (mới) và assignedAgentEmail
+        // (cũ) — scope vẫn dùng email cũ như trước, agentId chưa ép scope.
+        // ADMIN tạo hộ: theo agentId được chọn trong body (không chọn → null).
+        // AGENT tạo hộ: theo tenant của caller qua TenantContext (permissionService
+        // đọc context do filter resolve); agent chưa gán tenant → null, KHÔNG
+        // fail-closed ở Phase 1. Body agentId của non-ADMIN luôn bị bỏ qua.
+        // CUSTOMER tự tạo: null (khách tự mua). Thứ tự ưu tiên CUSTOMER trước
+        // AGENT giữ nguyên như nhánh assignedAgentEmail/insured ở trên.
+        String agentId = null;
+        if (permissionService != null) {
+            if (permissionService.isAdmin()) {
+                agentId = request.getAgentId() != null && !request.getAgentId().isBlank()
+                        ? request.getAgentId().trim() : null;
+                if (agentId != null && agentRepository != null && !agentRepository.existsById(agentId)) {
+                    throw new BadRequestException("Đại lý không tồn tại với id: " + agentId);
+                }
+            } else if (!permissionService.hasCustomerRole() && permissionService.hasAgentRole()) {
+                agentId = permissionService.currentTenantId();
+            }
+        }
         Policy policy = Policy.builder()
                 .policyNumber(request.getPolicyNumber())
                 .status(PolicyStatus.DRAFT)
+                .agentId(agentId)
                 .assignedAgentEmail(assignedAgentEmail)
                 .insured(insured)
                 .locations(request.getLocations() != null ?
@@ -238,6 +266,12 @@ public class PolicyServiceImpl implements PolicyService {
 
         if (criteria.getAssignedAgentEmail() != null && !criteria.getAssignedAgentEmail().isBlank()) {
             criteriaList.add(Criteria.where("assignedAgentEmail").is(criteria.getAssignedAgentEmail().trim().toLowerCase()));
+        }
+
+        // SaaS Phase 1: filter agentId thêm (ADMIN/UW xem theo từng agent).
+        // Chưa ép scope: applySearchScope vẫn ép assignedAgentEmail như cũ.
+        if (criteria.getAgentId() != null && !criteria.getAgentId().isBlank()) {
+            criteriaList.add(Criteria.where("agentId").is(criteria.getAgentId().trim()));
         }
 
         if (Boolean.TRUE.equals(criteria.getPaymentClaimedOnly())) {
@@ -642,6 +676,8 @@ public class PolicyServiceImpl implements PolicyService {
                         policy.getLocations().stream().map(this::mapToLocationDto).collect(Collectors.toList()) : new ArrayList<>())
                 .totalPremium(policy.getTotalPremium())
                 .assignedAgentEmail(policy.getAssignedAgentEmail())
+                .agentId(policy.getAgentId())
+                .agentName(resolveAgentName(policy.getAgentId()))
                 .negotiatedPremium(policy.getNegotiatedPremium())
                 .paymentClaimedAt(policy.getPaymentClaimedAt())
                 .paymentStatus(policy.getPaymentStatus())
@@ -653,6 +689,25 @@ public class PolicyServiceImpl implements PolicyService {
                 .createdAt(policy.getCreatedAt())
                 .updatedAt(policy.getUpdatedAt())
                 .build();
+    }
+
+    /**
+     * Tên hiển thị của đại lý sở hữu policy — null-safe: policy chưa có agent,
+     * repo chưa inject (test unit cũ), Agent đã xóa, hoặc lookup lỗi đều trả
+     * null thay vì làm fail đường đọc policy (agentName chỉ để hiển thị).
+     */
+    private String resolveAgentName(String agentId) {
+        if (agentId == null || agentId.isBlank() || agentRepository == null) {
+            return null;
+        }
+        try {
+            return agentRepository.findById(agentId)
+                    .map(Agent::getDisplayName)
+                    .orElse(null);
+        } catch (Exception e) {
+            log.warn("Không resolve được agentName cho agentId {}: {}", agentId, e.getMessage());
+            return null;
+        }
     }
 
     private Insured mapToInsured(InsuredDto dto) {

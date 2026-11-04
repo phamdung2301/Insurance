@@ -9,6 +9,7 @@ import com.dungphd.insuranceass.exception.BadRequestException;
 import com.dungphd.insuranceass.exception.PendingEndorsementException;
 import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.*;
+import com.dungphd.insuranceass.repository.AgentRepository;
 import com.dungphd.insuranceass.repository.PendingEndorsementRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyVersionRepository;
@@ -50,6 +51,11 @@ public class EndorsementServiceImpl implements EndorsementService {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private PendingEndorsementRepository pendingEndorsementRepository;
+
+    // SaaS Phase 1 (optional như các repo phụ khác): chỉ resolve agentName hiển
+    // thị cho PolicyResponse; null trong test unit cũ → agentName null, không fail.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AgentRepository agentRepository;
 
     @Override
     public PolicyResponse applyEndorsement(String policyNumber, EndorsementRequest request, String actor) {
@@ -445,6 +451,10 @@ public class EndorsementServiceImpl implements EndorsementService {
                 .insured(clonedInsured)
                 .locations(clonedLocations)
                 .totalPremium(origin.getTotalPremium())
+                // SaaS Phase 1: clone policy cho snapshot phải giữ nguyên agentId
+                // như giữ assignedAgentEmail — nếu không, endorsement sẽ lặng lẽ
+                // làm mất tenant của policy.
+                .agentId(origin.getAgentId())
                 .assignedAgentEmail(origin.getAssignedAgentEmail())
                 .negotiatedPremium(origin.getNegotiatedPremium())
                 .paymentClaimedAt(origin.getPaymentClaimedAt())
@@ -490,6 +500,24 @@ public class EndorsementServiceImpl implements EndorsementService {
                 .build();
     }
 
+    /**
+     * Như PolicyServiceImpl.resolveAgentName: agentName chỉ để hiển thị,
+     * null-safe, không được làm fail đường đọc policy.
+     */
+    private String resolveAgentName(String agentId) {
+        if (agentId == null || agentId.isBlank() || agentRepository == null) {
+            return null;
+        }
+        try {
+            return agentRepository.findById(agentId)
+                    .map(Agent::getDisplayName)
+                    .orElse(null);
+        } catch (Exception e) {
+            log.warn("Không resolve được agentName cho agentId {}: {}", agentId, e.getMessage());
+            return null;
+        }
+    }
+
     private PolicyResponse mapToPolicyResponse(Policy policy) {
         return PolicyResponse.builder()
                 .id(policy.getId())
@@ -508,6 +536,8 @@ public class EndorsementServiceImpl implements EndorsementService {
                         .collect(Collectors.toList()) : new ArrayList<>())
                 .totalPremium(policy.getTotalPremium())
                 .assignedAgentEmail(policy.getAssignedAgentEmail())
+                .agentId(policy.getAgentId())
+                .agentName(resolveAgentName(policy.getAgentId()))
                 .negotiatedPremium(policy.getNegotiatedPremium())
                 .paymentClaimedAt(policy.getPaymentClaimedAt())
                 .paymentStatus(policy.getPaymentStatus())

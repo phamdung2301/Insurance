@@ -24,6 +24,13 @@ public class PolicyResponse {
     private List<LocationDto> locations;
     private Double totalPremium;
     private String assignedAgentEmail;
+    /** Tenant sở hữu policy (Agent.id), null khi policy chưa có agent. */
+    private String agentId;
+    /**
+     * Tên hiển thị của đại lý sở hữu policy (lấy từ Agent theo agentId).
+     * Null-safe: null khi policy chưa có agent hoặc Agent không còn tồn tại.
+     */
+    private String agentName;
     private Double negotiatedPremium;
     private Instant paymentClaimedAt;
     private PaymentStatus paymentStatus;

@@ -23,8 +23,22 @@ public class PolicySearchCriteria {
     /** Lọc chính xác theo email người được bảo hiểm (dùng cho /policies/mine) */
     private String insuredEmail;
 
-    /** Lọc theo agent được giao (server ép theo role, PLAN §1.4) */
+    /**
+     * Lọc theo agent được giao (server ép theo role, PLAN §1.4).
+     *
+     * @deprecated Phase 1 giữ để tương thích ngược; từ Phase 2 scope chuyển
+     * sang {@link #agentId} và field này chỉ còn được server dịch email→agentId
+     * cho ADMIN (PLAN §2.4). Không xóa trong Phase 1, không đổi hành vi.
+     */
+    @Deprecated
     private String assignedAgentEmail;
+
+    /**
+     * Lọc theo tenant sở hữu policy (Agent.id). Phase 1: chỉ là filter thêm
+     * (ADMIN/UW dùng để xem theo từng agent); CHƯA ép scope theo tenant —
+     * applySearchScope vẫn ép theo assignedAgentEmail như cũ.
+     */
+    private String agentId;
 
     /** true → chỉ trả policy có paymentClaimedAt != null (hàng đợi FINANCE, PLAN §1.6) */
     private Boolean paymentClaimedOnly;

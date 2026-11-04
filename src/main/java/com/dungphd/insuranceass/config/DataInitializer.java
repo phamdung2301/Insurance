@@ -1,6 +1,7 @@
 package com.dungphd.insuranceass.config;
 
 import com.dungphd.insuranceass.model.*;
+import com.dungphd.insuranceass.repository.AgentRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyTransactionRepository;
 import com.dungphd.insuranceass.repository.PolicyVersionRepository;
@@ -28,6 +29,15 @@ public class DataInitializer {
     private final PolicyVersionRepository policyVersionRepository;
     private final PolicyTransactionRepository policyTransactionRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AgentRepository agentRepository;
+
+    /**
+     * Mã cố định của agent seed — SaaS Phase 1: test không phụ thuộc thứ tự
+     * sinh mã của AgentCodeGenerator (counter), và chạy lại seed không tạo
+     * thêm agent (find-by-code trước khi insert).
+     */
+    static final String SEED_AGENT_CODE = "AGT-SEED";
+    static final String SEED_AGENT_EMAIL = "agent@example.com";
 
     @Bean
     @Profile("!test")
@@ -66,11 +76,17 @@ public class DataInitializer {
                     log.info("Sample users created successfully! (user@example.com / Password123!)");
                 }
 
+                // SaaS Phase 1 — THỨ TỰ BẮT BUỘC: seed Agent TRƯỚC rồi mới gán
+                // agentId cho agent@example.com (PLAN §2.1). Agent seed dùng mã
+                // cố định AGT-SEED để test không phụ thuộc thứ tự sinh mã.
+                Agent seedAgent = seedAgent();
+
                 // Seed 4 tài khoản demo theo role (PLAN §3): find-or-create THEO TỪNG
                 // EMAIL, NGOÀI cổng count() == 0 — DB đã có dữ liệu thì seed mới
                 // vẫn chạy. User đã tồn tại thì giữ nguyên, không sửa password/roles.
                 seedDemoUser("customer@example.com", "Password123!", "Khách Hàng Mẫu", List.of("ROLE_CUSTOMER"));
                 seedDemoUser("agent@example.com", "Password123!", "Đại Lý Mẫu", List.of("ROLE_AGENT"));
+                assignSeedAgentToDemoAgent(seedAgent);
                 seedDemoUser("uw@example.com", "Password123!", "Thẩm Định Viên Mẫu", List.of("ROLE_UNDERWRITER"));
                 seedDemoUser("finance@example.com", "Password123!", "Kế Toán Mẫu (Admin)", List.of("ROLE_ADMIN"));
                 // admin@example.com giữ nguyên như seed gốc (ROLE_ADMIN, ROLE_USER).
@@ -175,6 +191,56 @@ public class DataInitializer {
                 log.warn("Could not initialize sample data (MongoDB may be offline): {}", e.getMessage());
             }
         };
+    }
+
+    /**
+     * Find-or-create agent seed (SaaS Phase 1). Lỗi ở đây không được phá seed
+     * user/policy phía sau nên bọc try/catch riêng, chỉ log warn (theo tinh thần
+     * failure-isolated của runner này, vốn đã bọc toàn bộ trong try/catch).
+     */
+    private Agent seedAgent() {
+        try {
+            return agentRepository.findByCode(SEED_AGENT_CODE).orElseGet(() -> {
+                Agent agent = Agent.builder()
+                        .code(SEED_AGENT_CODE)
+                        .displayName("Đại Lý Mẫu")
+                        .contactName("Đại Lý Mẫu")
+                        .contactEmail(SEED_AGENT_EMAIL)
+                        .status(AgentStatus.ACTIVE)
+                        .createdBy("seed")
+                        .createdAt(Instant.now())
+                        .updatedAt(Instant.now())
+                        .build();
+                Agent saved = agentRepository.save(agent);
+                log.info("Seeded agent {} ({})", SEED_AGENT_CODE, SEED_AGENT_EMAIL);
+                return saved;
+            });
+        } catch (Exception e) {
+            log.warn("Could not seed agent {}: {}", SEED_AGENT_CODE, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Gán agentId của agent seed cho agent@example.com — CHỈ khi user đó chưa
+     * có agentId. User đã được ADMIN gán tenant khác thì giữ nguyên (seed chạy
+     * lại không được phá quyết định tay của ADMIN).
+     */
+    private void assignSeedAgentToDemoAgent(Agent seedAgent) {
+        if (seedAgent == null || seedAgent.getId() == null) {
+            return;
+        }
+        try {
+            userRepository.findByEmail(SEED_AGENT_EMAIL).ifPresent(user -> {
+                if (user.getAgentId() == null) {
+                    user.setAgentId(seedAgent.getId());
+                    userRepository.save(user);
+                    log.info("Assigned seed agent {} to {}", SEED_AGENT_CODE, SEED_AGENT_EMAIL);
+                }
+            });
+        } catch (Exception e) {
+            log.warn("Could not assign seed agent to {}: {}", SEED_AGENT_EMAIL, e.getMessage());
+        }
     }
 
     private void seedDemoUser(String email, String rawPassword, String fullName, List<String> roles) {
