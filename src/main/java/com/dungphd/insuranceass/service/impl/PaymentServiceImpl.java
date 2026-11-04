@@ -258,7 +258,24 @@ public class PaymentServiceImpl implements PaymentService {
                     policy.getPolicyNumber(), policy.getStatus(), payment.getTxnRef());
             return WebhookResult.ok();
         }
+        // Đợt transaction/ACID — bù trừ (compensation) cho cặp ghi policy+payment:
+        // MongoDB multi-document transaction chỉ chạy trên replica set (xem
+        // RESEARCH-TRANSACTION-ACID.md §2), còn local dev mặc định là standalone
+        // nên KHÔNG gắn @Transactional ở đây. Thay vào đó: chụp trạng thái gốc
+        // của policy trước khi đổi; nếu bước save payment fail sau khi policy đã
+        // ACTIVE thì khôi phục policy về QUOTED rồi throw lại lỗi gốc để
+        // controller trả 500 → SePay retry (tối đa 7 lần/5h) có thể thành công,
+        // vì state đã sạch (policy QUOTED, payment PENDING, chưa ghi sepayId nên
+        // không bị chặn bởi nhánh idempotent). Không có bù trừ này, policy
+        // ACTIVE + payment PENDING sẽ kẹt ở nhánh "held for manual review" ở
+        // mọi lần retry sau (policy không còn QUOTED). Ledger + notification
+        // sau đây vốn đã failure-isolated nên không cần bù trừ thêm.
         Instant now = Instant.now();
+        PolicyStatus originalStatus = policy.getStatus();
+        PaymentStatus originalPaymentStatus = policy.getPaymentStatus();
+        Instant originalEffectiveDate = policy.getEffectiveDate();
+        Instant originalExpirationDate = policy.getExpirationDate();
+        Instant originalUpdatedAt = policy.getUpdatedAt();
         Instant effective = policy.getEffectiveDate() != null ? policy.getEffectiveDate() : now;
         policy.setStatus(PolicyStatus.ACTIVE);
         policy.setEffectiveDate(effective);
@@ -273,7 +290,27 @@ public class PaymentServiceImpl implements PaymentService {
         payment.setGatewayTransactionNo(sepayId);
         payment.setPaidAt(parseTransactionDate(textField(root, "transactionDate"), now));
         payment.setUpdatedAt(now);
-        Payment savedPayment = paymentRepository.save(payment);
+        Payment savedPayment;
+        try {
+            savedPayment = paymentRepository.save(payment);
+        } catch (RuntimeException paymentSaveFailure) {
+            try {
+                savedPolicy.setStatus(originalStatus);
+                savedPolicy.setPaymentStatus(originalPaymentStatus);
+                savedPolicy.setEffectiveDate(originalEffectiveDate);
+                savedPolicy.setExpirationDate(originalExpirationDate);
+                savedPolicy.setUpdatedAt(originalUpdatedAt);
+                policyRepository.save(savedPolicy);
+                log.warn("SePay webhook compensated: policy {} restored to {} after payment save failed for txnRef {}",
+                        savedPolicy.getPolicyNumber(), originalStatus, payment.getTxnRef());
+            } catch (RuntimeException compensationFailure) {
+                // Bù trừ cũng fail: state lệch ACTIVE+PENDING còn lại, phải đối
+                // soát tay — không giấu bằng 200, throw lỗi gốc để SePay retry.
+                log.error("SePay webhook compensation FAILED for txnRef {} (policy {} left ACTIVE with payment PENDING, manual reconciliation required): {}",
+                        payment.getTxnRef(), savedPolicy.getPolicyNumber(), compensationFailure.getMessage());
+            }
+            throw paymentSaveFailure;
+        }
 
         try {
             transactionLedgerService.recordTransaction(

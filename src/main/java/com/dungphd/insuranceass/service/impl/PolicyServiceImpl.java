@@ -155,13 +155,23 @@ public class PolicyServiceImpl implements PolicyService {
         policy.recalculateTotalPremium();
         Policy savedPolicy = policyRepository.save(policy);
 
-        transactionLedgerService.recordTransaction(
-                savedPolicy.getPolicyNumber(),
-                savedPolicy.getVersion(),
-                TransactionType.CREATE_POLICY,
-                "System",
-                "Created new insurance policy in DRAFT status"
-        );
+        // Đợt transaction/ACID: ledger là audit ghi SAU commit — fail của nó
+        // không được biến policy đã tạo thành 500 (client tưởng fail và có thể
+        // tạo lại). Pattern failure-isolated đã có ở webhook/negotiation.
+        // deletePolicy giữ nguyên không bọc vì ledger ở đó ghi TRƯỚC delete
+        // (fail-closed đúng).
+        try {
+            transactionLedgerService.recordTransaction(
+                    savedPolicy.getPolicyNumber(),
+                    savedPolicy.getVersion(),
+                    TransactionType.CREATE_POLICY,
+                    "System",
+                    "Created new insurance policy in DRAFT status"
+            );
+        } catch (Exception e) {
+            log.warn("Failed to record ledger for created policy {}: {}",
+                    savedPolicy.getPolicyNumber(), e.getMessage());
+        }
 
         return mapToPolicyResponse(savedPolicy);
     }
@@ -390,13 +400,19 @@ public class PolicyServiceImpl implements PolicyService {
         policy.recalculateTotalPremium();
         Policy updatedPolicy = policyRepository.save(policy);
 
-        transactionLedgerService.recordTransaction(
-                policyNumber,
-                policy.getVersion(),
-                TransactionType.UPDATE_POLICY,
-                "System",
-                "Updated policy terms in " + policy.getStatus() + " status"
-        );
+        // Đợt transaction/ACID: như createPolicy — ledger sau commit không
+        // được fail request (xem ghi chú ở createPolicy).
+        try {
+            transactionLedgerService.recordTransaction(
+                    policyNumber,
+                    policy.getVersion(),
+                    TransactionType.UPDATE_POLICY,
+                    "System",
+                    "Updated policy terms in " + policy.getStatus() + " status"
+            );
+        } catch (Exception e) {
+            log.warn("Failed to record ledger for updated policy {}: {}", policyNumber, e.getMessage());
+        }
 
         return mapToPolicyResponse(updatedPolicy);
     }
@@ -444,13 +460,20 @@ public class PolicyServiceImpl implements PolicyService {
         policy.setPaymentStatus(PaymentStatus.CLAIMED);
         policy.setUpdatedAt(Instant.now());
         Policy saved = policyRepository.save(policy);
-        transactionLedgerService.recordTransaction(
-                saved.getPolicyNumber(),
-                saved.getVersion(),
-                TransactionType.UPDATE_POLICY,
-                actor,
-                "Khách hàng khai báo đã chuyển khoản, chờ FINANCE đối soát"
-        );
+        // Đợt transaction/ACID: như createPolicy — ledger sau commit không
+        // được fail request (xem ghi chú ở createPolicy).
+        try {
+            transactionLedgerService.recordTransaction(
+                    saved.getPolicyNumber(),
+                    saved.getVersion(),
+                    TransactionType.UPDATE_POLICY,
+                    actor,
+                    "Khách hàng khai báo đã chuyển khoản, chờ FINANCE đối soát"
+            );
+        } catch (Exception e) {
+            log.warn("Failed to record ledger for payment claim on policy {}: {}",
+                    saved.getPolicyNumber(), e.getMessage());
+        }
         return mapToPolicyResponse(saved);
     }
 
@@ -579,13 +602,22 @@ public class PolicyServiceImpl implements PolicyService {
 
         String desc = "Status transitioned from " + currentStatus + " to " + targetStatus
                 + (request.getReason() != null && !request.getReason().isBlank() ? ": " + request.getReason() : "");
-        transactionLedgerService.recordTransaction(
-                savedPolicy.getPolicyNumber(),
-                savedPolicy.getVersion(),
-                TransactionType.STATUS_TRANSITION,
-                actor,
-                desc
-        );
+        // Đợt transaction/ACID: như createPolicy — ledger sau commit không
+        // được fail request (xem ghi chú ở createPolicy). Riêng vòng lặp đóng
+        // negotiation phía trên vẫn là lỗ đa ghi chưa có transaction thật
+        // (xem RESEARCH-TRANSACTION-ACID.md §6.5) — không bọc ẩu ở đây.
+        try {
+            transactionLedgerService.recordTransaction(
+                    savedPolicy.getPolicyNumber(),
+                    savedPolicy.getVersion(),
+                    TransactionType.STATUS_TRANSITION,
+                    actor,
+                    desc
+            );
+        } catch (Exception e) {
+            log.warn("Failed to record ledger for transition of policy {}: {}",
+                    savedPolicy.getPolicyNumber(), e.getMessage());
+        }
 
         log.info("Transitioned policy {} from {} to {}", savedPolicy.getPolicyNumber(), currentStatus, targetStatus);
         return mapToPolicyResponse(savedPolicy);

@@ -388,6 +388,39 @@ class PaymentServiceImplTest {
     }
 
     @Test
+    void webhook_paymentSaveFails_compensatesPolicyBackToQuoted() {
+        // Đợt transaction/ACID: policy đã ACTIVE nhưng payment-save fail thì
+        // policy phải về lại QUOTED (bù trừ), lỗi gốc phải throw để controller
+        // trả 500 → SePay retry được (state sạch, không bị chặn idempotent).
+        stubVerifiedWebhook();
+        when(paymentRepository.findByTransferContent("INSABCDEF1234"))
+                .thenReturn(Optional.of(pendingPayment));
+        when(paymentRepository.findByGatewayTransactionNo("987654")).thenReturn(Optional.empty());
+        when(paymentRepository.save(any(Payment.class)))
+                .thenThrow(new RuntimeException("simulated DB failure on payment save"));
+        // policyRepository.save trả về cùng instance nên ArgumentCaptor chỉ giữ
+        // tham chiếu — snapshot status tại thời điểm mỗi lần save để chứng minh
+        // thứ tự ACTIVE (ghi chính) rồi QUOTED (bù trừ).
+        java.util.List<PolicyStatus> savedStatuses = new java.util.ArrayList<>();
+        when(policyRepository.save(any(Policy.class))).thenAnswer(inv -> {
+            savedStatuses.add(inv.getArgument(0, Policy.class).getStatus());
+            return inv.getArgument(0);
+        });
+
+        assertThrows(RuntimeException.class, () -> webhookOk(webhookBody(
+                "987654", "in", "INSABCDEF1234", "INSABCDEF1234", "1234567890", 5_000_000L)));
+
+        assertEquals(java.util.List.of(PolicyStatus.ACTIVE, PolicyStatus.QUOTED), savedStatuses);
+        assertEquals(PolicyStatus.QUOTED, quotedPolicy.getStatus());
+        // Lưu ý: pendingPayment trong bộ nhớ đã bị service set PAID trước khi
+        // save throw, nhưng lần save đó fail nên DB vẫn PENDING — không assert
+        // trạng thái trên object trong bộ nhớ, chỉ assert policy đã về QUOTED
+        // và không có mail/ledger nào được ghi sau thất bại.
+        verify(notificationService, never()).notifyPaymentSucceeded(any(), any());
+        verify(transactionLedgerService, never()).recordTransaction(any(), any(), any(), any(), any());
+    }
+
+    @Test
     void listPayments_includesTransferContentAndScope() {
         when(permissionService.isDemandSide(quotedPolicy, "customer@example.com")).thenReturn(true);
         when(paymentRepository.findByPolicyNumberOrderByCreatedAtDesc("POL-1001"))

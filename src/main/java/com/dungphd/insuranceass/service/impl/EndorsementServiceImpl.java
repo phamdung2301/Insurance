@@ -150,7 +150,27 @@ public class EndorsementServiceImpl implements EndorsementService {
         recalculateTotalPremiumPreservingDeal(policy, oldCoverageSum);
         policy.setUpdatedAt(Instant.now());
 
-        Policy savedPolicy = policyRepository.save(policy);
+        // Đợt transaction/ACID — bù trừ cho cặp ghi snapshot+policy: không có
+        // multi-document transaction trên standalone (xem RESEARCH-TRANSACTION-ACID.md
+        // §2) nên nếu policy-save fail sau khi snapshot đã lưu, snapshot đó sẽ
+        // mồ côi (version cũ tồn tại dù policy chưa hề lên version mới). Xóa
+        // snapshot bù trừ rồi throw lại lỗi gốc; notification + ledger không
+        // chạy vì chưa có gì commit. Xóa bù mà fail thì chỉ log warn (snapshot
+        // mồ côi là rác đọc, không sai tiền) và vẫn throw lỗi gốc.
+        Policy savedPolicy;
+        try {
+            savedPolicy = policyRepository.save(policy);
+        } catch (RuntimeException policySaveFailure) {
+            try {
+                policyVersionRepository.delete(versionDoc);
+                log.warn("Endorsement compensated: deleted orphan snapshot for policy {} version {} after policy save failed",
+                        policy.getPolicyNumber(), currentVersion);
+            } catch (RuntimeException deleteFailure) {
+                log.warn("Endorsement compensation FAILED: orphan snapshot for policy {} version {} could not be deleted: {}",
+                        policy.getPolicyNumber(), currentVersion, deleteFailure.getMessage());
+            }
+            throw policySaveFailure;
+        }
 
         // Hook đợt 2B: SAU khi endorsement đã save thành công.
         // NotificationService failure-isolated nên không cần try/catch thêm ở đây.

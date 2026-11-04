@@ -215,6 +215,44 @@ class EndorsementServiceImplTest {
     }
 
     @Test
+    void applyEndorsement_PolicySaveFails_DeletesSnapshotAndThrows() {
+        // Đợt transaction/ACID: snapshot đã lưu nhưng policy-save fail thì
+        // snapshot phải bị xóa bù trừ (không để version mồ côi), lỗi gốc phải
+        // throw (không chạy notification/ledger vì chưa có gì commit).
+        when(policyRepository.findByPolicyNumber("POL-ACTIVE-01")).thenReturn(Optional.of(activePolicy));
+        when(policyRepository.save(any(Policy.class)))
+                .thenThrow(new RuntimeException("simulated DB failure on policy save"));
+
+        // 750 -> 900 = +20% đúng biên ngưỡng nên apply ngay (không đi pending).
+        CoverageDto newCoverage = CoverageDto.builder()
+                .coverageCode("GEN_LIAB")
+                .limit(2000000.0)
+                .premium(150.0)
+                .build();
+        LocationDto newLoc = LocationDto.builder()
+                .locationId(2)
+                .address("Factory 2, Hai Phong")
+                .coverages(List.of(newCoverage))
+                .build();
+        EndorsementRequest request = EndorsementRequest.builder()
+                .reason("Mở rộng xưởng sản xuất Hải Phòng")
+                .locations(List.of(
+                        LocationDto.fromEntity(activePolicy.getLocations().get(0)),
+                        newLoc
+                ))
+                .build();
+
+        assertThrows(RuntimeException.class, () ->
+                endorsementService.applyEndorsement("POL-ACTIVE-01", request, "underwriter@insurance.com"));
+
+        verify(policyVersionRepository).save(argThat(v ->
+                v.getVersion().equals(1) && v.getPolicyNumber().equals("POL-ACTIVE-01")));
+        verify(policyVersionRepository).delete(argThat(v ->
+                v.getVersion().equals(1) && v.getPolicyNumber().equals("POL-ACTIVE-01")));
+        verify(transactionLedgerService, never()).recordTransaction(any(), any(), any(), any(), any());
+    }
+
+    @Test
     void compareVersions_Success() {
         activePolicy.setVersion(2);
         when(policyRepository.findByPolicyNumber("POL-ACTIVE-01")).thenReturn(Optional.of(activePolicy));

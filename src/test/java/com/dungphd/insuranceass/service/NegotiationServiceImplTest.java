@@ -338,6 +338,32 @@ class NegotiationServiceImplTest {
     }
 
     @Test
+    @DisplayName("Confirm: policy-save fail -> negotiation hoàn về PENDING_CONFIRMATION để confirm lại được (bù trừ ACID)")
+    void confirmNegotiation_PolicySaveFails_RestoresPendingConfirmation() {
+        openNegotiation.setStatus(NegotiationStatus.PENDING_CONFIRMATION);
+        openNegotiation.setAcceptedPremium(8_500_000.0);
+        when(negotiationRepository.findByIdAndPolicyNumber("neg-1", policyNumber)).thenReturn(Optional.of(openNegotiation));
+        // negotiationRepository.save trả về cùng instance nên snapshot status
+        // tại thời điểm mỗi lần save để chứng minh thứ tự ACCEPTED rồi hoàn
+        // về PENDING_CONFIRMATION.
+        List<NegotiationStatus> savedStatuses = new ArrayList<>();
+        when(negotiationRepository.save(any(PriceNegotiation.class))).thenAnswer(inv -> {
+            savedStatuses.add(inv.getArgument(0, PriceNegotiation.class).getStatus());
+            return inv.getArgument(0);
+        });
+        when(policyRepository.save(any(Policy.class)))
+                .thenThrow(new RuntimeException("simulated DB failure on policy save"));
+
+        assertThrows(RuntimeException.class,
+                () -> negotiationService.confirmNegotiation(policyNumber, "neg-1", customerEmail));
+
+        assertEquals(List.of(NegotiationStatus.ACCEPTED, NegotiationStatus.PENDING_CONFIRMATION), savedStatuses);
+        assertEquals(NegotiationStatus.PENDING_CONFIRMATION, openNegotiation.getStatus());
+        assertNull(openNegotiation.getClosedBy());
+        assertNull(openNegotiation.getClosedAt());
+    }
+
+    @Test
     @DisplayName("Decline confirmation -> mở lại OPEN, giá chấp nhận bị hủy, offer chuyển REJECTED")
     void declineConfirmation_ReopensNegotiation() {
         openNegotiation.setStatus(NegotiationStatus.PENDING_CONFIRMATION);
