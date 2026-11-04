@@ -1,6 +1,7 @@
 package com.dungphd.insuranceass.controller;
 
 import com.dungphd.insuranceass.dto.request.AdminUserCreateRequest;
+import com.dungphd.insuranceass.dto.request.SetAgentRequest;
 import com.dungphd.insuranceass.dto.request.SetEnabledRequest;
 import com.dungphd.insuranceass.dto.request.UpdateRolesRequest;
 import com.dungphd.insuranceass.dto.response.AdminAuditLogResponse;
@@ -24,8 +25,9 @@ public class AdminUserController {
     private final AdminUserService adminUserService;
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<AdminUserResponse>>> listUsers() {
-        return ResponseEntity.ok(ApiResponse.success(adminUserService.listUsers(), "Danh sách người dùng."));
+    public ResponseEntity<ApiResponse<List<AdminUserResponse>>> listUsers(
+            @RequestParam(required = false) String agentId) {
+        return ResponseEntity.ok(ApiResponse.success(adminUserService.listUsers(agentId), "Danh sách người dùng."));
     }
 
     @PostMapping
@@ -44,6 +46,20 @@ public class AdminUserController {
             Principal principal) {
         AdminUserResponse response = adminUserService.updateRoles(id, request.getRoles(), actor(principal));
         return ResponseEntity.ok(ApiResponse.success(response, "Đã cập nhật vai trò."));
+    }
+
+    /**
+     * PUT /admin/users/{id}/agent — gán/đổi/thu hồi tenant cho user.
+     * Body agentId null/rỗng = thu hồi. Chỉ đổi User.agentId, KHÔNG đổi
+     * Policy.agentId của các policy cũ (xem AdminUserService.setAgent).
+     */
+    @PutMapping("/{id}/agent")
+    public ResponseEntity<ApiResponse<AdminUserResponse>> setAgent(
+            @PathVariable String id,
+            @Valid @RequestBody SetAgentRequest request,
+            Principal principal) {
+        AdminUserResponse response = adminUserService.setAgent(id, request.getAgentId(), actor(principal));
+        return ResponseEntity.ok(ApiResponse.success(response, "Đã cập nhật đại lý của người dùng."));
     }
 
     @PutMapping("/{id}/enabled")

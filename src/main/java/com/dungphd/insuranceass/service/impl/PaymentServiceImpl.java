@@ -92,6 +92,10 @@ public class PaymentServiceImpl implements PaymentService {
                 || !permissionService.isDemandSide(policy, principal)) {
             throw new ForbiddenException("Chỉ bên cầu của hợp đồng (người được bảo hiểm hoặc đại lý được giao) mới được tạo thanh toán.");
         }
+        // Track B mục 5: tạo payment của nhân viên tenant bị guard trạng
+        // thái chặn (SUSPENDED/CLOSED); khách tạo payment cho hợp đồng của
+        // chính mình và webhook SePay không đi qua guard này.
+        permissionService.checkTenantWriteForPolicy(policy);
         if (policy.getStatus() != PolicyStatus.QUOTED) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Chỉ tạo thanh toán khi hợp đồng ở trạng thái QUOTED. Trạng thái hiện tại: " + policy.getStatus());

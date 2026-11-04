@@ -30,11 +30,20 @@ import java.util.TreeSet;
  * giờ bị ghi đè — bảo vệ việc ADMIN gán tay sau lần chạy đầu).</p>
  *
  * <p>CHẾ ĐỘ DRY-RUN: {@link #dryRun()} chỉ đọc, không ghi document nào, không
- * sinh mã (không chạm counter). Đây là chế độ DUY NHẤT được phép chạy trong
- * Phase 1; {@link #apply()} tồn tại để test chứng minh tính idempotent trên
- * mock và để Phase 2 gọi sau khi có duyệt riêng — Phase 1 KHÔNG gắn migration
- * vào bất kỳ endpoint HTTP nào, nên không thể vô tình chạy trên dữ liệu thật
- * qua API.</p>
+ * sinh mã (không chạm counter). {@link #apply()} tồn tại để test chứng minh
+ * tính idempotent trên mock — KHÔNG gắn migration vào bất kỳ endpoint HTTP
+ * nào, nên không thể vô tình chạy trên dữ liệu thật qua API (đã rà soát
+ * Track B: không controller nào inject service này).</p>
+ *
+ * <p><b>LẦN CHẠY PRODUCTION CẦN DUYỆT RIÊNG, KHÔNG THUỘC TRACK NÀY:</b>
+ * trước khi chạy thật phải có (a) kết quả dry-run trên dữ liệu thật đã được
+ * ADMIN duyệt (số agent sẽ tạo, số user/policy sẽ gán, danh sách unassigned
+ * và customer đa tenant), (b) snapshot/backup theo PLAN §5.1, (c) giờ chạy
+ * đã chốt. Chạy production bằng một công cụ chạy một lần có giám sát (job/
+ * script vận hành), KHÔNG bằng cách gắn tạm endpoint HTTP — endpoint sẽ
+ * biến lần chạy có kiểm soát thành nút bấm có thể vô tình bấm lại trên
+ * production. Sau lần chạy thật phải đối soát theo checklist PLAN §5.5
+ * (tổng số không đổi, phân bổ tenant khớp email cũ, unassigned đúng số).</p>
  *
  * <p>Nguyên tắc sắt: {@code assignedAgentEmail} không bao giờ bị xóa hay sửa;
  * {@code agentId} chỉ được THÊM. Policy/user chưa xác định được tenant thì để

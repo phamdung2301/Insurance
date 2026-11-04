@@ -50,6 +50,9 @@ public class NegotiationServiceImpl implements NegotiationService {
         if (principal == null || !permissionService.isDemandSide(policy, principal)) {
             throw new ForbiddenException("Chỉ chủ hợp đồng hoặc agent được giao mới được mở thương lượng.");
         }
+        // Track B mục 5: ghi thương lượng của nhân viên tenant bị guard
+        // trạng thái chặn (SUSPENDED/CLOSED); phía CUSTOMER không bị chặn.
+        permissionService.checkTenantWriteForPolicy(policy);
         if (policy.getStatus() != PolicyStatus.QUOTED) {
             throw new BadRequestException("Chỉ mở thương lượng khi hợp đồng ở trạng thái QUOTED.");
         }
@@ -168,6 +171,10 @@ public class NegotiationServiceImpl implements NegotiationService {
             }
         }
 
+        // Track B mục 5: như createNegotiation (guard trạng thái tenant cho
+        // ghi của nhân viên; UW bypass, CUSTOMER không bị chặn).
+        permissionService.checkTenantWriteForPolicy(policy);
+
         validatePremium(request, negotiation.getListPremium());
 
         // Nếu người gửi là UNDERWRITER, không được gửi giá dưới sàn
@@ -209,6 +216,10 @@ public class NegotiationServiceImpl implements NegotiationService {
         String principal = resolveActor(actor);
         checkOpenAndQuoted(policy, negotiation);
         checkTurn(policy, negotiation, principal);
+        // Track B mục 5: guard trạng thái tenant cho ghi của nhân viên
+        // (accept thực tế chỉ CUSTOMER/UW được gọi tiếp nên guard này
+        // thường là no-op — giữ để khỏi sót nếu luật accept đổi sau này).
+        permissionService.checkTenantWriteForPolicy(policy);
 
         PriceOffer current = negotiation.getCurrentOffer();
         if (current == null || current.getProposedPremium() == null) {
@@ -377,6 +388,8 @@ public class NegotiationServiceImpl implements NegotiationService {
         String principal = resolveActor(actor);
         checkOpenAndQuoted(policy, negotiation);
         checkTurn(policy, negotiation, principal);
+        // Track B mục 5: guard trạng thái tenant cho ghi của nhân viên.
+        permissionService.checkTenantWriteForPolicy(policy);
 
         PriceOffer current = negotiation.getCurrentOffer();
         if (current == null) {
@@ -418,6 +431,9 @@ public class NegotiationServiceImpl implements NegotiationService {
         if (!isDemand && !isUW) {
             throw new ForbiddenException("Bạn không có quyền tham gia trao đổi trong hợp đồng này.");
         }
+        // Track B mục 5: guard trạng thái tenant cho ghi của nhân viên
+        // (chat cũng là ghi; UW bypass, CUSTOMER không bị chặn).
+        permissionService.checkTenantWriteForPolicy(policy);
 
         if (content == null || content.trim().isBlank()) {
             throw new BadRequestException("Nội dung tin nhắn không được để trống.");

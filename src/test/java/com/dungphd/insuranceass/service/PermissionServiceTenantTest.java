@@ -12,9 +12,9 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * SaaS Phase 1: helper đọc tenant trong PermissionService — chỉ là helper để
- * service dùng từ Phase 2. Test này KHÔNG assert bất kỳ thay đổi scope nào:
- * scope Phase 1 vẫn chạy đúng như cũ (xem PermissionServiceTest).
+ * SaaS Phase 2 Track B: scope theo tenant trong PermissionService.
+ * (File này gốc từ Phase 1 chỉ test helper đọc tenant; từ Track B nó khóa
+ * luôn hành vi cutover — xem test tenantScope_cutover_*.)
  */
 class PermissionServiceTenantTest {
 
@@ -45,16 +45,31 @@ class PermissionServiceTenantTest {
         assertFalse(permissionService.isTenantMember(Policy.builder().agentId("tenant-1").build()));
     }
 
+    // THAY ĐỔI HÀNH VI CÓ CHỦ ĐÍCH (SaaS Phase 2 Track B — scope cutover):
+    // test Phase 1 "tenantHelper_doesNotChangeExistingScope" khóa hành vi
+    // scope email cũ; từ Phase 2 scope chạy theo tenant nên agent của
+    // tenant-1 ĐỌC ĐƯỢC policy của tenant-1 dù assignedAgentEmail khác,
+    // và KHÔNG đọc được policy tenant khác dù email cũ có trùng.
     @Test
-    void tenantHelper_doesNotChangeExistingScope() {
-        // Agent của tenant-1 vẫn bị scope cũ chặn khi đọc policy của agent khác
-        // theo email (Phase 1 chưa đổi scope sang tenant) — khóa hành vi cũ.
+    void tenantScope_cutover_readsByTenantNotEmail() {
         SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken("agent1@example.com", null, List.of()));
-        Policy foreign = Policy.builder()
+                new UsernamePasswordAuthenticationToken("agent1@example.com", null,
+                        List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_AGENT"))));
+        TenantContext.setTenantId("tenant-1");
+        Policy ownTenant = Policy.builder()
                 .assignedAgentEmail("agent2@example.com")
                 .agentId("tenant-1")
                 .build();
-        assertFalse(permissionService.canReadPolicy(foreign));
+        assertTrue(permissionService.canReadPolicy(ownTenant));
+        Policy foreignTenant = Policy.builder()
+                .assignedAgentEmail("agent1@example.com")
+                .agentId("tenant-2")
+                .build();
+        assertFalse(permissionService.canReadPolicy(foreignTenant));
+        Policy unassigned = Policy.builder()
+                .assignedAgentEmail("agent1@example.com")
+                .agentId(null)
+                .build();
+        assertFalse(permissionService.canReadPolicy(unassigned));
     }
 }

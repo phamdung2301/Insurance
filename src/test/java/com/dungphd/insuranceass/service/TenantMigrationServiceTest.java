@@ -186,6 +186,40 @@ class TenantMigrationServiceTest {
     }
 
     @Test
+    void apply_neverOverwritesManualAssignment() {
+        // Track B mục 1 — nguyên tắc sắt: record ĐÃ có agentId (ADMIN gán
+        // tay sau lần chạy đầu) không bị ghi đè, kể cả khi email cũ map
+        // sang tenant khác. Đây là trường hợp test idempotent cũ chưa bao
+        // phủ (nó chỉ gán lại đúng tenant đã map).
+        Agent agentA = Agent.builder().id("tenant-agent").code("AGT-0001")
+                .contactEmail("agent@example.com").status(AgentStatus.ACTIVE).build();
+        when(agentRepository.findAll()).thenReturn(List.of(agentA));
+
+        Policy manualPolicy = policy("POL-M-9", "agent@example.com", "cust@example.com");
+        manualPolicy.setAgentId("tenant-manual");
+        when(policyRepository.findAll()).thenReturn(List.of(manualPolicy));
+
+        User manualUser = user("agent@example.com", List.of("ROLE_AGENT"), "Đại Lý A");
+        manualUser.setAgentId("tenant-manual");
+        when(userRepository.findAll()).thenReturn(List.of(manualUser));
+
+        TenantMigrationReport report = migrationService.apply();
+
+        assertEquals(0, report.getPoliciesToUpdate());
+        assertEquals(0, report.getUsersToUpdate());
+        assertEquals(1, report.getPoliciesSkippedAlreadyAssigned());
+        assertEquals(1, report.getUsersSkippedAlreadyAssigned());
+        assertTrue(report.getUnassignedPolicyNumbers().isEmpty());
+        // assignedAgentEmail không bao giờ bị sửa — migration chỉ THÊM agentId.
+        assertEquals("agent@example.com", manualPolicy.getAssignedAgentEmail());
+        assertEquals("tenant-manual", manualPolicy.getAgentId());
+        assertEquals("tenant-manual", manualUser.getAgentId());
+        verify(policyRepository, never()).save(any());
+        verify(userRepository, never()).save(any());
+        verify(agentRepository, never()).save(any());
+    }
+
+    @Test
     void pureMapping_normalizeAndDisplayName() {
         assertEquals("agent@example.com", TenantMigrationService.normalizeEmail("  Agent@Example.COM "));
         assertNull(TenantMigrationService.normalizeEmail("   "));

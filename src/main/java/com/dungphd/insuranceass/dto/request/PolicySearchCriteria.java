@@ -34,11 +34,24 @@ public class PolicySearchCriteria {
     private String assignedAgentEmail;
 
     /**
-     * Lọc theo tenant sở hữu policy (Agent.id). Phase 1: chỉ là filter thêm
-     * (ADMIN/UW dùng để xem theo từng agent); CHƯA ép scope theo tenant —
-     * applySearchScope vẫn ép theo assignedAgentEmail như cũ.
+     * Lọc theo tenant sở hữu policy (Agent.id). Phase 2: applySearchScope
+     * ép field này cho AGENT (thuần và dual-role); ADMIN/UW dùng để xem
+     * theo từng agent.
      */
     private String agentId;
+
+    /**
+     * Phase 2 Track B — CHỈ server set (trong
+     * {@code PermissionService.applySearchScope} cho tài khoản dual-role
+     * AGENT+CUSTOMER): khi true, {@code PolicyServiceImpl} dựng MỘT
+     * {@code $or} duy nhất ({@code insured.email == principal} HOẶC
+     * {@code agentId == tenant}) thay vì AND hai điều kiện riêng lẻ.
+     * applySearchScope luôn set lại cờ này tường minh cho mọi role nên
+     * client không thể tự bật qua query param để lách scope; các đường
+     * search không qua applySearchScope (vd. /mine) cũng set false.
+     */
+    @Builder.Default
+    private boolean dualRoleOrScope = false;
 
     /** true → chỉ trả policy có paymentClaimedAt != null (hàng đợi FINANCE, PLAN §1.6) */
     private Boolean paymentClaimedOnly;

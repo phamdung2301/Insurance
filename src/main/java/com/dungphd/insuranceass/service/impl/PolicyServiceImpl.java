@@ -141,14 +141,17 @@ public class PolicyServiceImpl implements PolicyService {
                 }
             }
         }
-        // SaaS Phase 1 dual-write: ghi cả agentId (mới) và assignedAgentEmail
-        // (cũ) — scope vẫn dùng email cũ như trước, agentId chưa ép scope.
+        // SaaS Phase 2 Track B: dual-write vẫn ghi cả agentId (mới, nguồn
+        // sự thật tenant) và assignedAgentEmail (cũ, chỉ để đối soát).
         // ADMIN tạo hộ: theo agentId được chọn trong body (không chọn → null).
-        // AGENT tạo hộ: theo tenant của caller qua TenantContext (permissionService
-        // đọc context do filter resolve); agent chưa gán tenant → null, KHÔNG
-        // fail-closed ở Phase 1. Body agentId của non-ADMIN luôn bị bỏ qua.
-        // CUSTOMER tự tạo: null (khách tự mua). Thứ tự ưu tiên CUSTOMER trước
-        // AGENT giữ nguyên như nhánh assignedAgentEmail/insured ở trên.
+        // AGENT tạo hộ (thuần, không mang CUSTOMER): FAIL-CLOSED — chưa gán
+        // tenant thì 403 (không tạo policy agentId null lặng), tenant
+        // SUSPENDED/CLOSED thì 403 theo guard trạng thái. Body agentId của
+        // non-ADMIN luôn bị bỏ qua. CUSTOMER tự tạo (kể cả phía CUSTOMER
+        // của dual-role): null (khách tự mua) và KHÔNG bị guard trạng thái
+        // tenant chặn — đó là hành động của khách, không phải ghi của nhân
+        // viên. Thứ tự ưu tiên CUSTOMER trước AGENT giữ nguyên như nhánh
+        // assignedAgentEmail/insured ở trên.
         String agentId = null;
         if (permissionService != null) {
             if (permissionService.isAdmin()) {
@@ -158,6 +161,7 @@ public class PolicyServiceImpl implements PolicyService {
                     throw new BadRequestException("Đại lý không tồn tại với id: " + agentId);
                 }
             } else if (!permissionService.hasCustomerRole() && permissionService.hasAgentRole()) {
+                permissionService.checkTenantWriteForStaff();
                 agentId = permissionService.currentTenantId();
             }
         }
@@ -257,16 +261,51 @@ public class PolicyServiceImpl implements PolicyService {
         if (permissionService != null) {
             permissionService.applySearchScope(criteria);
         }
+        return executeSearch(criteria);
+    }
 
+    /**
+     * GET /policies/mine — Track B mục 3: "hợp đồng mà tôi là người được
+     * bảo hiểm", CHỈ lọc {@code insured.email = principal}, KHÔNG đi qua
+     * {@code applySearchScope} (nhánh agent của scope cũ sinh ra AND giữa
+     * insuredEmail và assignedAgentEmail làm /mine rỗng với agent thuần —
+     * chính là bug cần sửa). Agent thuần tạo hộ: policy tạo hộ có insured
+     * là khách nên KHÔNG nằm trong /mine của agent, nhưng nằm trong
+     * /policies của agent (scope tenant, xem searchPolicies + OR dual-role).
+     */
+    @Override
+    public PageResponse<Policy> searchMyPolicies(PolicySearchCriteria criteria, String principalEmail) {
+        if (criteria == null) {
+            criteria = new PolicySearchCriteria();
+        }
+        if (principalEmail == null || principalEmail.isBlank()) {
+            throw new ForbiddenException("Bạn không có quyền xem danh sách hợp đồng.");
+        }
+        criteria.setInsuredEmail(principalEmail.trim().toLowerCase());
+        criteria.setAgentId(null);
+        criteria.setAssignedAgentEmail(null);
+        criteria.setDualRoleOrScope(false);
+        return executeSearch(criteria);
+    }
+
+    /** Dựng query Mongo từ criteria ĐÃ scope (dùng chung cho /policies và /mine). */
+    private PageResponse<Policy> executeSearch(PolicySearchCriteria criteria) {
         List<Criteria> criteriaList = new ArrayList<>();
 
         if (criteria.getAssignedAgentEmail() != null && !criteria.getAssignedAgentEmail().isBlank()) {
             criteriaList.add(Criteria.where("assignedAgentEmail").is(criteria.getAssignedAgentEmail().trim().toLowerCase()));
         }
 
-        // SaaS Phase 1: filter agentId thêm (ADMIN/UW xem theo từng agent).
-        // Chưa ép scope: applySearchScope vẫn ép assignedAgentEmail như cũ.
-        if (criteria.getAgentId() != null && !criteria.getAgentId().isBlank()) {
+        // SaaS Phase 2 Track B: dual-role AGENT+CUSTOMER dùng MỘT $or duy
+        // nhất (insured == principal HOẶC agentId == tenant). AND hai điều
+        // kiện riêng lẻ sẽ rỗng với policy agent tạo hộ (insured là khách,
+        // agentId là tenant) và rỗng với policy khách tự mua (không có
+        // agentId) — đó là lý do phải có nhánh OR riêng, không ghép AND.
+        if (criteria.isDualRoleOrScope()) {
+            criteriaList.add(new Criteria().orOperator(
+                    Criteria.where("insured.email").is(criteria.getInsuredEmail().trim().toLowerCase()),
+                    Criteria.where("agentId").is(criteria.getAgentId().trim())));
+        } else if (criteria.getAgentId() != null && !criteria.getAgentId().isBlank()) {
             criteriaList.add(Criteria.where("agentId").is(criteria.getAgentId().trim()));
         }
 
@@ -292,7 +331,10 @@ public class PolicyServiceImpl implements PolicyService {
             criteriaList.add(keywordCriteria);
         }
 
-        if (criteria.getInsuredEmail() != null && !criteria.getInsuredEmail().isBlank()) {
+        // Dual-role: insured.email đã nằm trong $or ở trên, không AND thêm
+        // (AND thêm sẽ triệt tiêu nhánh tenant của OR).
+        if (!criteria.isDualRoleOrScope()
+                && criteria.getInsuredEmail() != null && !criteria.getInsuredEmail().isBlank()) {
             criteriaList.add(Criteria.where("insured.email").is(criteria.getInsuredEmail().trim().toLowerCase()));
         }
 

@@ -18,7 +18,9 @@ import org.springframework.stereotype.Service;
  * trong TenantContext → 403 fail-closed (không đoán tenant từ email như
  * phễu cũ, vì scope Phase 2 đếm theo agentId). HTTP layer đã giới hạn
  * /agent/** cho AGENT + ADMIN trong SecurityConfig; service enforce lại
- * fail-closed như mọi service scope khác trong repo.</p>
+ * fail-closed như mọi service scope khác trong repo. Track B: dùng chung
+ * helper PermissionService.requireAgentTenant()/checkTenantReadForStaff()
+ * nên tenant CLOSED cũng chặn đọc thống kê (theo §2.1).</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -45,11 +47,11 @@ public class AgentPolicyStatsServiceImpl implements AgentPolicyStatsService {
                     .build();
         }
         if (permissionService.hasAgentRole()) {
-            String tenantId = permissionService.currentTenantId();
-            if (tenantId == null || tenantId.isBlank()) {
-                throw new ForbiddenException(
-                        "Tài khoản đại lý chưa được gán tenant nên không xem được thống kê.");
-            }
+            // Track B mục 2: dùng helper fail-closed chung (message phân
+            // biệt "chưa gán tenant") + guard đọc CLOSED (nhân viên tenant
+            // đã đóng không đọc thống kê tenant; SUSPENDED vẫn đọc được).
+            String tenantId = permissionService.requireAgentTenant();
+            permissionService.checkTenantReadForStaff();
             return TenantPolicyStatsResponse.builder()
                     .tenantId(tenantId)
                     .draft(policyRepository.countByAgentIdAndStatus(tenantId, PolicyStatus.DRAFT))
