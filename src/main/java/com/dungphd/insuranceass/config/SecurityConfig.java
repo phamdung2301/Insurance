@@ -126,6 +126,11 @@ public class SecurityConfig {
                         // GET báo cáo: ADMIN + UNDERWRITER được đọc.
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/reports/**", "/api/reports/**").hasAnyRole("ADMIN", "UNDERWRITER")
                         .requestMatchers("/reports/**", "/api/reports/**").hasRole("ADMIN")
+                        // Tiếp nhận bồi thường: chỉ UNDERWRITER + ADMIN (lớp matcher,
+                        // service intakeClaim enforce lại). Đặt TRƯỚC matcher /claims/**
+                        // generic (match đầu thắng); chỉ thu hẹp đúng POST intake nên
+                        // không ảnh hưởng endpoint claim khác (vẫn authenticated).
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/claims/*/intake", "/api/claims/*/intake").hasAnyRole("UNDERWRITER", "ADMIN")
                         .requestMatchers("/claims/**", "/api/claims/**").authenticated()
                         // Khóa các endpoint nghiệp vụ: yêu cầu đăng nhập (đóng lỗ hổng 28 endpoints public)
                         // Frontend mọi trang đều qua ProtectedRoute nên không gãy luồng nào

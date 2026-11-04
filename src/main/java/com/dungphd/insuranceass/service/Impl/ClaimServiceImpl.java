@@ -489,6 +489,45 @@ public class ClaimServiceImpl implements ClaimService {
         return mapToResponse(saved);
     }
 
+    /**
+     * Tiếp nhận bồi thường (POST /claims/{id}/intake) — API mới, tách khỏi
+     * reviewClaim cũ (giữ nguyên endpoint/method cũ cho caller/test cũ).
+     * Chỉ UNDERWRITER hoặc ADMIN; CUSTOMER (kể cả chính claimant) và AGENT
+     * đều 403. SUBMITTED -> UNDER_REVIEW, ghi history (changedBy = người
+     * xử lý) + audit INTAKE_CLAIM. Claim không có field handler/assignedTo
+     * riêng nên history changedBy chính là bản ghi người xử lý.
+     */
+    @Override
+    public ClaimResponse intakeClaim(String claimId) {
+        checkStaff();
+        String principal = permissionService.currentPrincipal();
+        Claim claim = claimRepository.findById(claimId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy yêu cầu bồi thường: " + claimId));
+
+        if (claim.getStatus() != ClaimStatus.SUBMITTED) {
+            throw new BadRequestException("Chỉ có thể tiếp nhận thẩm định từ trạng thái SUBMITTED (trạng thái hiện tại: " + claim.getStatus() + ").");
+        }
+
+        claim.setStatus(ClaimStatus.UNDER_REVIEW);
+        claim.setUpdatedAt(Instant.now());
+        if (claim.getStatusHistory() == null) {
+            claim.setStatusHistory(new ArrayList<>());
+        }
+        claim.getStatusHistory().add(ClaimStatusHistory.builder()
+                .id(UUID.randomUUID().toString())
+                .fromStatus(ClaimStatus.SUBMITTED)
+                .toStatus(ClaimStatus.UNDER_REVIEW)
+                .changedBy(principal)
+                .changedAt(Instant.now())
+                .note("Tiếp nhận thẩm định")
+                .build());
+
+        Claim saved = claimRepository.save(claim);
+        log.info("Claim {} intake by {}", claimId, principal);
+        recordAudit(principal, "INTAKE_CLAIM", "ClaimId: " + claimId);
+        return mapToResponse(saved);
+    }
+
     @Override
     public ClaimResponse approveClaim(String claimId, ApproveClaimRequest request) {
         checkAdmin();
@@ -608,6 +647,15 @@ public class ClaimServiceImpl implements ClaimService {
             throw new ForbiddenException("Chỉ Quản trị viên (ADMIN) mới có quyền xử lý yêu cầu bồi thường.");
         }
     }
+
+    /** Nhân viên xử lý bồi thường: UNDERWRITER hoặc ADMIN (pattern checkAdmin). */
+    private void checkStaff() {
+        if (!permissionService.isAdmin() && !permissionService.isUnderwriter()) {
+            throw new ForbiddenException("Chỉ nhân viên xử lý (UNDERWRITER hoặc ADMIN) mới được tiếp nhận yêu cầu bồi thường.");
+        }
+    }
+
+
 
     private ClaimResponse mapToResponse(Claim claim) {
         return ClaimResponse.builder()

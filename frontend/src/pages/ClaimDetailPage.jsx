@@ -93,6 +93,10 @@ export function ClaimDetailPage() {
   const addPhotosInputRef = useRef(null);
 
   const isAdmin = hasRole('ROLE_ADMIN');
+  // Nút "Tiếp nhận thẩm định" dùng API intake mới: nhân viên xử lý
+  // (UNDERWRITER hoặc ADMIN). Phê duyệt/từ chối/chi trả vẫn ADMIN-only
+  // (service checkAdmin) nên các nút đó vẫn gate riêng bằng isAdmin.
+  const isStaff = isAdmin || hasRole('ROLE_UNDERWRITER');
 
   const loadClaim = useCallback(async () => {
     try {
@@ -115,7 +119,7 @@ export function ClaimDetailPage() {
   const handleReview = async () => {
     try {
       setBusy(true);
-      await claimApi.reviewClaim(id);
+      await claimApi.intakeClaim(id);
       toast.success('Đã tiếp nhận hồ sơ sang trạng thái thẩm định.');
       await loadClaim();
     } catch (err) {
@@ -245,6 +249,19 @@ export function ClaimDetailPage() {
   }
 
   const isOwner = user?.email && claim.claimantEmail && user.email.toLowerCase() === claim.claimantEmail.toLowerCase();
+  // Tràn số: số rất dài (VD 100 nghìn tỷ -> "100.000.000.000.000 ₫")
+  // không còn bị cắt ở mép thẻ: grid item minWidth 0 + break-anywhere +
+  // title tooltip đủ giá trị + font co dần theo độ dài chuỗi.
+  const claimedFormatted = formatMoney(claim.claimedAmount);
+  const approvedFormatted = claim.approvedAmount ? formatMoney(claim.approvedAmount) : null;
+  const amountFontSize = (s) => (s && s.length > 24 ? '1.05rem' : s && s.length > 18 ? '1.25rem' : '1.45rem');
+  const amountStyle = (color) => ({
+    fontSize: '1.45rem',
+    color,
+    overflowWrap: 'anywhere',
+    wordBreak: 'break-all',
+    lineHeight: 1.3,
+  });
   const canAddMorePhotos = isOwner && (claim.photos ? claim.photos.length : 0) < 10 && !['PAID', 'REJECTED'].includes(claim.status);
   const statusCfg = STATUS_CONFIG[claim.status] || { label: claim.status, color: '#64748b', bg: '#f1f5f9' };
 
@@ -288,8 +305,9 @@ export function ClaimDetailPage() {
           </div>
         </div>
 
-        {/* Action bar dành cho ADMIN */}
-        {isAdmin && (
+        {/* Action bar dành cho nhân viên xử lý (UNDERWRITER/ADMIN);
+            riêng phê duyệt/từ chối/chi trả vẫn chỉ ADMIN (xem isAdmin). */}
+        {isStaff && (
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             {claim.status === 'SUBMITTED' && (
               <button
@@ -303,7 +321,7 @@ export function ClaimDetailPage() {
               </button>
             )}
 
-            {claim.status === 'UNDER_REVIEW' && (
+            {isAdmin && claim.status === 'UNDER_REVIEW' && (
               <>
                 <button
                   type="button"
@@ -329,7 +347,7 @@ export function ClaimDetailPage() {
               </>
             )}
 
-            {claim.status === 'APPROVED' && (
+            {isAdmin && claim.status === 'APPROVED' && (
               <button
                 type="button"
                 className="btn btn-primary"
@@ -370,21 +388,21 @@ export function ClaimDetailPage() {
 
       {/* Tổng quan tài chính & Thông tin */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
-        <div className="glass-card" style={{ padding: '1.25rem' }}>
+        <div className="glass-card" style={{ padding: '1.25rem', minWidth: 0 }}>
           <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>
             Số tiền yêu cầu bồi thường
           </span>
-          <strong style={{ fontSize: '1.45rem', color: '#1663d9' }}>
-            {formatMoney(claim.claimedAmount)}
+          <strong title={claimedFormatted} style={{ ...amountStyle('#1663d9'), fontSize: amountFontSize(claimedFormatted) }}>
+            {claimedFormatted}
           </strong>
         </div>
 
-        <div className="glass-card" style={{ padding: '1.25rem' }}>
+        <div className="glass-card" style={{ padding: '1.25rem', minWidth: 0 }}>
           <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>
             Số tiền được phê duyệt
           </span>
-          <strong style={{ fontSize: '1.45rem', color: claim.approvedAmount ? '#059669' : 'var(--text-secondary)' }}>
-            {claim.approvedAmount ? formatMoney(claim.approvedAmount) : 'Chưa xác định'}
+          <strong title={approvedFormatted || undefined} style={{ ...amountStyle(claim.approvedAmount ? '#059669' : 'var(--text-secondary)'), fontSize: approvedFormatted ? amountFontSize(approvedFormatted) : '1.45rem' }}>
+            {approvedFormatted || 'Chưa xác định'}
           </strong>
         </div>
 
@@ -587,8 +605,8 @@ export function ClaimDetailPage() {
               required
               style={{ width: '100%', padding: '0.5rem' }}
             />
-            <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '0.25rem' }}>
-              Tối đa bằng số tiền yêu cầu: {formatMoney(claim.claimedAmount)}
+            <small title={claimedFormatted} style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '0.25rem', overflowWrap: 'anywhere', wordBreak: 'break-all' }}>
+              Tối đa bằng số tiền yêu cầu: {claimedFormatted}
             </small>
           </div>
 

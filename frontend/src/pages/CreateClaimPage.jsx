@@ -7,6 +7,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { claimApi } from '../services/claimApi';
+import { policyService } from '../services/api';
 import { formatMoney } from '../utils/format';
 
 const MAX_FILES = 10;
@@ -20,7 +21,7 @@ export function CreateClaimPage() {
   const toast = useToast();
   const { user, hasRole } = useAuth();
 
-  const [policyNumber, setPolicyNumber] = useState(searchParams.get('policyNumber') || '');
+  const [policyNumber, setPolicyNumber] = useState('');
   const [claimedAmount, setClaimedAmount] = useState('');
   const [damageDescription, setDamageDescription] = useState('');
   const [photos, setPhotos] = useState([]);
@@ -28,8 +29,40 @@ export function CreateClaimPage() {
   const [errors, setErrors] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  // Hợp đồng ACTIVE của chính user — tái dùng GET /policies/mine
+  // (BE ép insuredEmail từ JWT + status=ACTIVE; không dùng applySearchScope
+  // chung, và FE chỉ gửi status/page/size nên không có điều kiện AND thừa).
+  const [activePolicies, setActivePolicies] = useState([]);
+  const [policiesLoading, setPoliciesLoading] = useState(true);
+  const [policiesFailed, setPoliciesFailed] = useState(false);
 
   const fileInputRef = useRef(null);
+
+  // Tải hợp đồng ACTIVE của user; preselect ?policyNumber= CHỈ khi số đó
+  // nằm trong list (khớp policyNumber hoặc id) — không preselect mù.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await policyService.listMine({ status: 'ACTIVE', page: 0, size: 100 });
+        const raw = res?.data?.content ?? res?.data ?? [];
+        const list = (Array.isArray(raw) ? raw : []).filter((p) => p.status === 'ACTIVE');
+        if (!active) return;
+        setActivePolicies(list);
+        const param = searchParams.get('policyNumber');
+        if (param) {
+          const match = list.find((p) => p.policyNumber === param || p.id === param);
+          if (match) setPolicyNumber(match.policyNumber);
+        }
+      } catch (err) {
+        console.error(err);
+        if (active) setPoliciesFailed(true);
+      } finally {
+        if (active) setPoliciesLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [searchParams]);
 
   // Xử lý tạo ObjectURL preview khi files thay đổi
   useEffect(() => {
@@ -142,7 +175,7 @@ export function CreateClaimPage() {
     e.preventDefault();
 
     if (!policyNumber.trim()) {
-      toast.error('Vui lòng nhập số hợp đồng bảo hiểm.');
+      toast.error('Vui lòng chọn hợp đồng bảo hiểm từ danh sách.');
       return;
     }
     const amountNum = parseFloat(claimedAmount);
@@ -210,22 +243,50 @@ export function CreateClaimPage() {
 
       <div className="glass-card" style={{ padding: '1.75rem' }}>
         <form onSubmit={handleSubmit}>
-          {/* Số hợp đồng */}
+          {/* Số hợp đồng — dropdown hợp đồng ACTIVE của chính user */}
           <div className="form-group" style={{ marginBottom: '1.25rem' }}>
             <label className="form-label" style={{ fontWeight: 600, display: 'block', marginBottom: '0.4rem' }}>
               Số hợp đồng bảo hiểm (ACTIVE) <span style={{ color: 'red' }}>*</span>
             </label>
-            <input
-              type="text"
-              className="form-control"
-              placeholder="VD: POL-2026-0001"
-              value={policyNumber}
-              onChange={(e) => setPolicyNumber(e.target.value)}
-              required
-              style={{ width: '100%', padding: '0.65rem 0.85rem' }}
-            />
+            {policiesLoading ? (
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', padding: '0.65rem 0' }}>
+                <Loader2 size={16} className="spin" style={{ verticalAlign: 'middle' }} /> Đang tải danh sách hợp đồng của bạn...
+              </div>
+            ) : policiesFailed ? (
+              <div style={{ color: '#dc2626', fontSize: '0.9rem', padding: '0.65rem 0' }}>
+                Không tải được danh sách hợp đồng. Vui lòng tải lại trang và thử lại.
+              </div>
+            ) : activePolicies.length === 0 ? (
+              <div style={{
+                backgroundColor: '#fef3c7',
+                border: '1px solid #fde68a',
+                borderRadius: '6px',
+                padding: '0.85rem 1rem',
+                fontSize: '0.9rem',
+                color: '#92400e'
+              }}>
+                Bạn chưa có hợp đồng nào đang có hiệu lực (ACTIVE) để yêu cầu bồi thường.
+                Vui lòng <Link to="/mua-bao-hiem" style={{ color: '#1663d9', fontWeight: 600 }}>mua bảo hiểm</Link> và
+                chờ hợp đồng được kích hoạt trước khi gửi yêu cầu.
+              </div>
+            ) : (
+              <select
+                className="form-control"
+                value={policyNumber}
+                onChange={(e) => setPolicyNumber(e.target.value)}
+                required
+                style={{ width: '100%', padding: '0.65rem 0.85rem' }}
+              >
+                <option value="">-- Chọn hợp đồng bảo hiểm --</option>
+                {activePolicies.map((p) => (
+                  <option key={p.policyNumber || p.id} value={p.policyNumber}>
+                    {p.policyNumber}{p.insured?.name ? ` — ${p.insured.name}` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
             <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '0.3rem' }}>
-              Hợp đồng phải thuộc quyền sở hữu của bạn và đang ở trạng thái có hiệu lực (ACTIVE).
+              Chỉ liệt kê hợp đồng thuộc quyền sở hữu của bạn và đang ở trạng thái có hiệu lực (ACTIVE).
             </small>
           </div>
 
@@ -426,7 +487,7 @@ export function CreateClaimPage() {
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={submitting || errors.length > 0}
+              disabled={submitting || errors.length > 0 || policiesLoading || policiesFailed || activePolicies.length === 0 || !policyNumber}
               style={{
                 backgroundColor: '#ea580c',
                 borderColor: '#ea580c',

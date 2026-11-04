@@ -6,6 +6,7 @@ import com.dungphd.insuranceass.dto.request.RejectClaimRequest;
 import com.dungphd.insuranceass.dto.response.ClaimResponse;
 import com.dungphd.insuranceass.exception.BadRequestException;
 import com.dungphd.insuranceass.exception.ForbiddenException;
+import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.*;
 import com.dungphd.insuranceass.repository.AdminAuditLogRepository;
 import com.dungphd.insuranceass.repository.ClaimRepository;
@@ -503,5 +504,115 @@ class ClaimServiceImplTest {
                 .approvedAmount(2500000.0)
                 .build();
         assertThrows(BadRequestException.class, () -> claimService.approveClaim("claim-1", overReq));
+    }
+
+    // 21. Intake từ trạng thái khác SUBMITTED (vd đã UNDER_REVIEW) -> 400 Bad Request
+    @Test
+    void reviewClaim_fromNonSubmitted_throws400() {
+        sampleClaim.setStatus(ClaimStatus.UNDER_REVIEW);
+        when(permissionService.isAdmin()).thenReturn(true);
+        when(claimRepository.findById("claim-1")).thenReturn(Optional.of(sampleClaim));
+
+        assertThrows(BadRequestException.class, () -> claimService.reviewClaim("claim-1"));
+        verify(claimRepository, never()).save(any(Claim.class));
+    }
+
+    // 22. API intake mới: UNDERWRITER tiếp nhận SUBMITTED -> UNDER_REVIEW,
+    // history ghi đúng người xử lý + audit INTAKE_CLAIM.
+    @Test
+    void intakeClaim_underwriter_success_recordsHandlerAndAudit() {
+        // auditLogRepository là field @Autowired(required=false), không nằm
+        // trong constructor nên @InjectMocks không tự gắn mock — gắn tay.
+        ReflectionTestUtils.setField(claimService, "auditLogRepository", auditLogRepository);
+        sampleClaim.setStatus(ClaimStatus.SUBMITTED);
+        when(permissionService.isAdmin()).thenReturn(false);
+        when(permissionService.isUnderwriter()).thenReturn(true);
+        when(permissionService.currentPrincipal()).thenReturn("uw@insurance.vn");
+        when(claimRepository.findById("claim-1")).thenReturn(Optional.of(sampleClaim));
+        when(claimRepository.save(any(Claim.class))).thenAnswer(i -> i.getArgument(0));
+
+        ClaimResponse resp = claimService.intakeClaim("claim-1");
+
+        assertEquals(ClaimStatus.UNDER_REVIEW, resp.getStatus());
+        assertEquals(1, sampleClaim.getStatusHistory().size());
+        assertEquals(ClaimStatus.SUBMITTED, sampleClaim.getStatusHistory().get(0).getFromStatus());
+        assertEquals(ClaimStatus.UNDER_REVIEW, sampleClaim.getStatusHistory().get(0).getToStatus());
+        assertEquals("uw@insurance.vn", sampleClaim.getStatusHistory().get(0).getChangedBy());
+        assertEquals("Tiếp nhận thẩm định", sampleClaim.getStatusHistory().get(0).getNote());
+        verify(auditLogRepository).save(any());
+    }
+
+    // 23. API intake mới: ADMIN cũng được tiếp nhận.
+    @Test
+    void intakeClaim_admin_success() {
+        sampleClaim.setStatus(ClaimStatus.SUBMITTED);
+        when(permissionService.isAdmin()).thenReturn(true);
+        when(permissionService.currentPrincipal()).thenReturn("admin@insurance.vn");
+        when(claimRepository.findById("claim-1")).thenReturn(Optional.of(sampleClaim));
+        when(claimRepository.save(any(Claim.class))).thenAnswer(i -> i.getArgument(0));
+
+        ClaimResponse resp = claimService.intakeClaim("claim-1");
+
+        assertEquals(ClaimStatus.UNDER_REVIEW, resp.getStatus());
+        assertEquals("admin@insurance.vn", sampleClaim.getStatusHistory().get(0).getChangedBy());
+    }
+
+    // 24. API intake mới: CUSTOMER — kể cả chính claimant — không được tự
+    // xác nhận hồ sơ của mình -> 403.
+    @Test
+    void intakeClaim_customerOwnClaim_throws403() {
+        when(permissionService.isAdmin()).thenReturn(false);
+        when(permissionService.isUnderwriter()).thenReturn(false);
+
+        assertThrows(ForbiddenException.class, () -> claimService.intakeClaim("claim-1"));
+        verify(claimRepository, never()).save(any(Claim.class));
+    }
+
+    // 25. API intake mới: AGENT không phải nhân viên xử lý -> 403.
+    @Test
+    void intakeClaim_agent_throws403() {
+        when(permissionService.isAdmin()).thenReturn(false);
+        when(permissionService.isUnderwriter()).thenReturn(false);
+
+        assertThrows(ForbiddenException.class, () -> claimService.intakeClaim("claim-1"));
+        verify(claimRepository, never()).save(any(Claim.class));
+    }
+
+    // 26. API intake mới: trạng thái khác SUBMITTED -> 400.
+    @Test
+    void intakeClaim_fromNonSubmitted_throws400() {
+        sampleClaim.setStatus(ClaimStatus.UNDER_REVIEW);
+        when(permissionService.isAdmin()).thenReturn(true);
+        when(claimRepository.findById("claim-1")).thenReturn(Optional.of(sampleClaim));
+
+        assertThrows(BadRequestException.class, () -> claimService.intakeClaim("claim-1"));
+        verify(claimRepository, never()).save(any(Claim.class));
+    }
+
+    // 27. API intake mới: claim không tồn tại -> 404.
+    @Test
+    void intakeClaim_notFound_throws404() {
+        when(permissionService.isAdmin()).thenReturn(true);
+        when(claimRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> claimService.intakeClaim("missing"));
+        verify(claimRepository, never()).save(any(Claim.class));
+    }
+
+    // 28. API intake mới: claim cũ có statusHistory == null không NPE.
+    @Test
+    void intakeClaim_nullStatusHistory_initializes() {
+        sampleClaim.setStatus(ClaimStatus.SUBMITTED);
+        sampleClaim.setStatusHistory(null);
+        when(permissionService.isAdmin()).thenReturn(true);
+        when(permissionService.currentPrincipal()).thenReturn("admin@insurance.vn");
+        when(claimRepository.findById("claim-1")).thenReturn(Optional.of(sampleClaim));
+        when(claimRepository.save(any(Claim.class))).thenAnswer(i -> i.getArgument(0));
+
+        ClaimResponse resp = claimService.intakeClaim("claim-1");
+
+        assertEquals(ClaimStatus.UNDER_REVIEW, resp.getStatus());
+        assertNotNull(sampleClaim.getStatusHistory());
+        assertEquals(1, sampleClaim.getStatusHistory().size());
     }
 }

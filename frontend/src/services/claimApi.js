@@ -37,6 +37,11 @@ export const claimApi = {
     return api.post(`/api/claims/${claimId}/review`);
   },
 
+  /** API tiếp nhận mới: chỉ UNDERWRITER/ADMIN (BE enforce 2 lớp). */
+  intakeClaim: async (claimId) => {
+    return api.post(`/api/claims/${claimId}/intake`);
+  },
+
   approveClaim: async (claimId, data) => {
     return api.post(`/api/claims/${claimId}/approve`, data);
   },

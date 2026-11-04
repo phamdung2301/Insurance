@@ -79,6 +79,12 @@ public class ClaimController {
         return ResponseEntity.ok(claimService.reviewClaim(id));
     }
 
+    /** API tiếp nhận bồi thường mới: chỉ UNDERWRITER/ADMIN (xem intakeClaim). */
+    @PostMapping("/{id}/intake")
+    public ResponseEntity<ClaimResponse> intakeClaim(@PathVariable("id") String id) {
+        return ResponseEntity.ok(claimService.intakeClaim(id));
+    }
+
     @PostMapping("/{id}/approve")
     public ResponseEntity<ClaimResponse> approveClaim(
             @PathVariable("id") String id,

@@ -29,6 +29,13 @@ public interface ClaimService {
 
     ClaimResponse reviewClaim(String claimId);
 
+    /**
+     * API tiếp nhận bồi thường mới (POST /claims/{id}/intake): chỉ nhân viên
+     * xử lý (UNDERWRITER hoặc ADMIN) được xác nhận hồ sơ của khách hàng.
+     * Khách hàng không bao giờ được tự xác nhận hồ sơ của chính mình.
+     */
+    ClaimResponse intakeClaim(String claimId);
+
     ClaimResponse approveClaim(String claimId, ApproveClaimRequest request);
 
     ClaimResponse rejectClaim(String claimId, RejectClaimRequest request);
