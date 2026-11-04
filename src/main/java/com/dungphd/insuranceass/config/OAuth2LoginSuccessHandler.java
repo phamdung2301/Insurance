@@ -2,6 +2,7 @@ package com.dungphd.insuranceass.config;
 
 import com.dungphd.insuranceass.dto.response.AuthResponse;
 import com.dungphd.insuranceass.service.AuthService;
+import com.dungphd.insuranceass.util.ClientRequestInfo;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -43,7 +44,15 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
                 response.sendRedirect(frontendUrl + "/login?error=oauth_no_email");
                 return;
             }
-            AuthResponse auth = authService.loginWithOAuth2(email.trim().toLowerCase(), name);
+            // Đường Google (đợt 4D): handler này là nơi DUY NHẤT có
+            // HttpServletRequest của callback OAuth2 — trích xuất ip +
+            // userAgent tại đây rồi truyền vào service. AuthServiceImpl
+            // ghi lịch sử SAU khi upsert thành công; nếu handler redirect
+            // lỗi (catch bên dưới) thì login chưa hoàn tất nên không ghi.
+            AuthResponse auth = authService.loginWithOAuth2(
+                    email.trim().toLowerCase(), name,
+                    ClientRequestInfo.extractIp(request),
+                    ClientRequestInfo.extractUserAgent(request));
             log.info("[OAuth2] Đăng nhập Google thành công: {}", auth.getEmail());
             // Truyền cả user info qua URL để frontend không cần gọi thêm /auth/me
             String target = UriComponentsBuilder.fromUriString(frontendUrl + "/login")

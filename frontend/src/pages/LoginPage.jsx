@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Mail, ShieldCheck, Hammer, BadgeCheck, Clock3, Users } from 'lucide-react';
+import { Mail, KeyRound, ShieldCheck, Hammer, BadgeCheck, Clock3, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -22,7 +22,7 @@ const TRUST_STATS = [
 /**
  * Trang đăng nhập — 2 cột:
  *  trái: thương hiệu + khiên 3D động + số liệu tin cậy
- *  phải: form (a) "Email OTP" | (b) "Đăng nhập dev"
+ *  phải: form (a) "Email OTP" | (b) "Mật khẩu" | (c) "Đăng nhập dev"
  */
 export function LoginPage() {
   const { isAuthenticated, loginWithToken } = useAuth();
@@ -131,6 +131,16 @@ export function LoginPage() {
           </button>
           <button
             type="button"
+            className={`tab${tab === 'password' ? ' active' : ''}`}
+            onClick={() => setTab('password')}
+            aria-selected={tab === 'password'}
+            role="tab"
+          >
+            <KeyRound size={15} style={{ verticalAlign: '-2px', marginRight: 6 }} />
+            Mật khẩu
+          </button>
+          <button
+            type="button"
             className={`tab${tab === 'dev' ? ' active' : ''}`}
             onClick={() => setTab('dev')}
             aria-selected={tab === 'dev'}
@@ -141,7 +151,7 @@ export function LoginPage() {
           </button>
         </div>
 
-        {tab === 'otp' ? <OtpForm /> : <DevForm />}
+        {tab === 'otp' ? <OtpForm /> : tab === 'password' ? <PasswordForm /> : <DevForm />}
 
         {/* Đăng nhập bằng Google */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', margin: '1.25rem 0 0.75rem' }}>
@@ -332,6 +342,85 @@ function OtpForm() {
           </div>
         </>
       )}
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------- Password tab
+function PasswordForm() {
+  const { loginPassword } = useAuth();
+  const toast = useToast();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const em = email.trim().toLowerCase();
+    if (!isValidEmail(em)) {
+      toast.error('Vui lòng nhập địa chỉ email hợp lệ.');
+      return;
+    }
+    if (!password) {
+      toast.error('Vui lòng nhập mật khẩu.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await loginPassword(em, password);
+      toast.success('Đăng nhập thành công.');
+      // AuthContext tự điều hướng sau khi đăng nhập
+    } catch (err) {
+      toast.error(err.message || 'Email hoặc mật khẩu không đúng.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} style={{ marginTop: '0.5rem' }}>
+      <div className="form-group">
+        <label className="form-label" htmlFor="pw-email">Địa chỉ email</label>
+        <input
+          id="pw-email"
+          type="email"
+          className="form-control"
+          placeholder="ban@example.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
+        />
+      </div>
+
+      <div className="form-group">
+        <label className="form-label" htmlFor="pw-password">Mật khẩu</label>
+        <div style={{ position: 'relative' }}>
+          <input
+            id="pw-password"
+            type={showPassword ? 'text' : 'password'}
+            className="form-control"
+            placeholder="Nhập mật khẩu"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            style={{ paddingRight: '3.5rem' }}
+          />
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => setShowPassword((s) => !s)}
+            style={{ position: 'absolute', right: '0.4rem', top: '50%', transform: 'translateY(-50%)' }}
+          >
+            {showPassword ? 'Ẩn' : 'Hiện'}
+          </button>
+        </div>
+      </div>
+
+      <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
+        {busy ? <span className="spinner" /> : null}
+        Đăng nhập
+      </button>
     </form>
   );
 }

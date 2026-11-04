@@ -70,7 +70,10 @@ class UserControllerTest {
     }
 
     @Test
-    void getProfile_WithHeader_Success() throws Exception {
+    void getProfile_WithPrincipalOnly_Success() throws Exception {
+        // PLAN §1.5: bỏ fallback ?email=/header — identity chỉ lấy từ Principal (JWT).
+        // Test cũ dùng header X-User-Email (mà controller vốn không đọc) nên không
+        // còn phù hợp; chuyển sang principal.
         UserProfileResponse responseDto = UserProfileResponse.builder()
                 .id("usr-123")
                 .email("header@example.com")
@@ -80,7 +83,7 @@ class UserControllerTest {
         when(userService.getProfile("header@example.com")).thenReturn(responseDto);
 
         mockMvc.perform(get("/user/profile")
-                        .header("X-User-Email", "header@example.com"))
+                        .principal(() -> "header@example.com"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.email").value("header@example.com"));

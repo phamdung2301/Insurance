@@ -1,30 +1,55 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  ShieldCheck, Home, ShoppingCart, LayoutDashboard, FileText,
-  TableProperties, Gauge, Database, User, X,
+  ShieldCheck, ShieldAlert, Home, ShoppingCart, LayoutDashboard, FileText,
+  Gauge, Database, User, X, Users, HandCoins, BarChart3,
+  MessagesSquare, ScrollText, CreditCard, Scale, Clock, History,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export function Sidebar({ open, onClose }) {
-  const { isAdmin } = useAuth();
+  const { hasAnyRole } = useAuth();
+
+  // Đợt 1C: cùng cờ VITE_ENABLE_BENCHMARK như App.jsx — chỉ "true" mới hiện
+  // mục benchmark. Mặc định OFF.
+  const benchmarkEnabled = import.meta.env.VITE_ENABLE_BENCHMARK === 'true';
 
   const customerLinks = [
     { to: '/', label: 'Hợp đồng của tôi', icon: <Home size={18} />, end: true },
     { to: '/mua-bao-hiem', label: 'Mua bảo hiểm', icon: <ShoppingCart size={18} /> },
+    { to: '/thanh-toan', label: 'Thanh toán', icon: <CreditCard size={18} />, roles: ['ROLE_CUSTOMER'] },
+    { to: '/claims', label: 'Bồi thường', icon: <ShieldAlert size={18} /> },
+    { to: '/so-sanh-goi', label: 'So sánh gói', icon: <Scale size={18} /> },
   ];
+  // Mỗi mục kèm roles được phép (PLAN §1.4) — filter bằng hasRole, không
+  // còn blanket isAdmin cho cả khối menu admin.
   const adminLinks = [
-    { to: '/admin', label: 'Tổng quan', icon: <LayoutDashboard size={18} />, end: true },
-    { to: '/admin/hop-dong', label: 'Quản lý hợp đồng', icon: <FileText size={18} /> },
-    { to: '/admin/excel', label: 'Bảng giá Excel', icon: <TableProperties size={18} /> },
-    { to: '/admin/benchmark', label: 'Kiểm thử hiệu năng', icon: <Gauge size={18} /> },
-    { to: '/admin/index-audit', label: 'Kiểm tra index DB', icon: <Database size={18} /> },
+    { to: '/admin', label: 'Tổng quan', icon: <LayoutDashboard size={18} />, end: true, roles: ['ROLE_ADMIN'] },
+    { to: '/admin/hop-dong', label: 'Quản lý hợp đồng', icon: <FileText size={18} />, roles: ['ROLE_ADMIN', 'ROLE_UNDERWRITER'] },
+    { to: '/claims', label: 'Duyệt bồi thường', icon: <ShieldAlert size={18} />, roles: ['ROLE_ADMIN', 'ROLE_UNDERWRITER'] },
+    { to: '/admin/users', label: 'Quản lý người dùng', icon: <Users size={18} />, roles: ['ROLE_ADMIN'] },
+    { to: '/admin/reports', label: 'Báo cáo', icon: <BarChart3 size={18} />, roles: ['ROLE_ADMIN', 'ROLE_UNDERWRITER'] },
+    { to: '/admin/thuong-luong', label: 'Thương lượng', icon: <MessagesSquare size={18} />, roles: ['ROLE_UNDERWRITER', 'ROLE_ADMIN'] },
+    { to: '/admin/audit-logs', label: 'Nhật ký quản trị', icon: <ScrollText size={18} />, roles: ['ROLE_ADMIN'] },
+    { to: '/admin/phan-quyen', label: 'Ma trận phân quyền', icon: <ShieldCheck size={18} />, roles: ['ROLE_ADMIN'] },
+    ...(benchmarkEnabled
+      ? [{ to: '/admin/benchmark', label: 'Kiểm thử hiệu năng', icon: <Gauge size={18} />, roles: ['ROLE_ADMIN'] }]
+      : []),
+    { to: '/admin/index-audit', label: 'Kiểm tra index DB', icon: <Database size={18} />, roles: ['ROLE_ADMIN'] },
+  ];
+  const agentLinks = [
+    { to: '/agent/khach-hang', label: 'Khách hàng của tôi', icon: <Users size={18} />, roles: ['ROLE_AGENT', 'ROLE_ADMIN'] },
+    { to: '/agent/hoa-hong', label: 'Hoa hồng', icon: <HandCoins size={18} />, roles: ['ROLE_AGENT', 'ROLE_ADMIN'] },
+    { to: '/claims', label: 'Bồi thường khách hàng', icon: <ShieldAlert size={18} />, roles: ['ROLE_AGENT'] },
   ];
   const accountLinks = [
     { to: '/ho-so', label: 'Hồ sơ cá nhân', icon: <User size={18} /> },
+    { to: '/ho-so/lich-su-dang-nhap', label: 'Lịch sử đăng nhập', icon: <History size={18} /> },
+    { to: '/cho-duyet', label: 'Chờ duyệt', icon: <Clock size={18} /> },
   ];
 
-  const renderLinks = (links) => links.map((l) => (
+  const visible = (links) => links.filter((l) => !l.roles || hasAnyRole(l.roles));
+  const renderLinks = (links) => visible(links).map((l) => (
     <NavLink
       key={l.to}
       to={l.to}
@@ -35,6 +60,9 @@ export function Sidebar({ open, onClose }) {
       {l.icon}<span>{l.label}</span>
     </NavLink>
   ));
+
+  const shownAdmin = visible(adminLinks);
+  const shownAgent = visible(agentLinks);
 
   return (
     <>
@@ -54,7 +82,14 @@ export function Sidebar({ open, onClose }) {
         <div className="nav-section">Khách hàng</div>
         {renderLinks(customerLinks)}
 
-        {isAdmin && (
+        {shownAgent.length > 0 && (
+          <>
+            <div className="nav-section">Đại lý</div>
+            {renderLinks(agentLinks)}
+          </>
+        )}
+
+        {shownAdmin.length > 0 && (
           <>
             <div className="nav-section">Quản trị</div>
             {renderLinks(adminLinks)}
@@ -78,3 +113,4 @@ export function Sidebar({ open, onClose }) {
     </>
   );
 }
+export default Sidebar;

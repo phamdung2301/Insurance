@@ -176,6 +176,6 @@ class PolicyLocationServiceImplTest {
 
         BadRequestException ex = assertThrows(BadRequestException.class,
                 () -> policyLocationService.addLocation("pol-123", dto));
-        assertTrue(ex.getMessage().contains("Cannot modify locations"));
+        assertTrue(ex.getMessage().contains("CANCELLED") || ex.getMessage().contains("Không thể sửa"));
     }
 }

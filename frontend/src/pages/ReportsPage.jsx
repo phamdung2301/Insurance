@@ -28,10 +28,10 @@ export const ReportsPage = () => {
     try {
       setLoading(true);
       const [countRes, premRes, topRes, monthRes] = await Promise.all([
-        reportService.getPolicyCountByStatus(),
-        reportService.getTotalPremiumByStatus(),
-        reportService.getTopPremiumPolicies(),
-        reportService.getPremiumByEffectiveMonth(),
+        reportService.countByStatus(),
+        reportService.premiumByStatus(),
+        reportService.topPolicies(),
+        reportService.premiumByMonth(),
       ]);
 
       setStatusCounts(countRes.data || []);

@@ -2,13 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   MapPin, Plus, Pencil, Trash2, ChevronDown, History,
-  FileText, ArrowLeft, CreditCard, Zap, Send, SlidersHorizontal, Download, Check,
+  FileText, ArrowLeft, CreditCard, Zap, Send, SlidersHorizontal, Download, Check, ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import {
   policyService, policyLocationService, policyCoverageService,
-  documentService, downloadBlob,
+  documentService, downloadBlob, negotiationService,
 } from '../services/api';
 import { isBackendMissing, BACKEND_TODO_HINT } from '../utils/backend';
 import { StatusBadge, LifecycleStepper } from '../components/Status';
@@ -40,7 +40,7 @@ export function PolicyDetailPage() {
   const { policyNumber } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { isAdmin } = useAuth();
+  const { user, hasRole, hasAnyRole } = useAuth();
 
   const [policy, setPolicy] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -101,9 +101,21 @@ export function PolicyDetailPage() {
     if (ok) setPayOpen(true);
   };
   const confirmPayment = async () => {
-    // "Tôi đã chuyển khoản" -> BOUND -> ACTIVE
-    const ok = await doTransition('ACTIVE', 'Thanh toán thành công. Hợp đồng đã có hiệu lực.');
-    if (ok) setPayOpen(false);
+    // PLAN §1.6: "Tôi đã chuyển khoản" chỉ ghi nhận đã báo trả (marker
+    // paymentClaimedAt / paymentStatus=CLAIMED), policy GIỮ BOUND và hiển thị
+    // "Đang chờ đối soát". Kích hoạt ACTIVE là bước riêng của ADMIN ở trang
+    // chi tiết hợp đồng (ADMIN giữ nút "Kích hoạt trực tiếp" bên dưới).
+    setBusy(true);
+    try {
+      await policyService.claimPayment(policyNumber);
+      toast.success('Đã ghi nhận khai báo chuyển khoản. Hợp đồng đang chờ quản trị viên xác nhận đã nhận tiền trước khi kích hoạt.');
+      setPayOpen(false);
+      await load();
+    } catch (err) {
+      failToast(err, 'ghi nhận chuyển khoản');
+    } finally {
+      setBusy(false);
+    }
   };
   const adminActivate = async () => {
     if (!window.confirm('Kích hoạt trực tiếp hợp đồng này mà không qua thanh toán?')) return;
@@ -230,6 +242,15 @@ export function PolicyDetailPage() {
 
   const status = policy.status;
   const locations = safeList(policy.locations);
+  // PLAN §1.6: marker "đã báo trả" — BOUND + marker = đang chờ đối soát.
+  const isPaymentClaimed = policy.paymentStatus === 'CLAIMED' || policy.paymentClaimedAt != null;
+  // Ma trận PLAN §1.3 (FE chỉ ẩn/hiện cho UX, BE mới là chốt chặn):
+  // chuyển trạng thái / thanh toán / endorsement thuộc CUSTOMER (chủ), AGENT
+  // (được giao) và ADMIN; UNDERWRITER xem chi tiết ở chế độ đọc.
+  const canManage = hasAnyRole(['ROLE_CUSTOMER', 'ROLE_AGENT', 'ROLE_ADMIN']);
+  const isInsured = !policy.insured?.email || (user?.email && policy.insured.email.toLowerCase() === user.email.toLowerCase());
+  const canClaim = (hasRole('ROLE_CUSTOMER') || hasRole('ROLE_USER')) && isInsured;
+  const isAdmin = hasRole('ROLE_ADMIN');
 
   return (
     <>
@@ -251,10 +272,23 @@ export function PolicyDetailPage() {
         <LifecycleStepper status={status} />
       </div>
 
-      {/* Action bar theo trạng thái */}
+      {/* Trạng thái chờ đối soát (PLAN §1.6): BOUND + đã báo trả, chưa ACTIVE */}
+      {status === 'BOUND' && isPaymentClaimed && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '0.8rem 1rem', marginBottom: '1.5rem', fontSize: '0.9rem', color: '#92400e' }}>
+          <strong>Đang chờ đối soát:</strong> bạn đã khai báo chuyển khoản
+          {policy.paymentClaimedAt ? ` lúc ${formatDateTime(policy.paymentClaimedAt)}` : ''}. Hợp đồng sẽ
+          được kích hoạt sau khi quản trị viên xác nhận đã nhận tiền.
+        </div>
+      )}
+
+      {/* Action bar theo trạng thái + vai trò */}
       <ActionBar
         status={status}
         isAdmin={isAdmin}
+        canManage={canManage}
+        isPaymentClaimed={isPaymentClaimed}
+        canClaim={canClaim}
+        onClaim={() => navigate(`/claims/new?policyNumber=${policy.policyNumber}`)}
         busy={busy}
         onRequestQuote={requestQuote}
         onAcceptQuote={acceptQuote}
@@ -263,6 +297,11 @@ export function PolicyDetailPage() {
         onEndorse={() => setEndorseOpen(true)}
         onDelete={() => setDelPolicy(true)}
       />
+
+      {/* Panel thương lượng giá — CHỈ hiện khi QUOTED (PLAN §2.5) */}
+      {status === 'QUOTED' && (
+        <NegotiationPanel policy={policy} user={user} onPolicyReload={load} failToast={failToast} />
+      )}
 
       {/* Tabs */}
       <div className="tabs" role="tablist" aria-label="Chi tiết hợp đồng">
@@ -296,6 +335,10 @@ export function PolicyDetailPage() {
       )}
 
       {tab === 'history' && <HistoryTab policyNumber={policyNumber} currentPolicy={policy} />}
+
+      {tab === 'negotiation' && (
+        <NegotiationPanel policy={policy} user={user} onPolicyReload={load} failToast={failToast} />
+      )}
 
       {/* Modals */}
       <LocationFormModal
@@ -371,26 +414,574 @@ export function PolicyDetailPage() {
 }
 
 // ---------------------------------------------------------------- Action bar
-function ActionBar({ status, isAdmin, busy, onRequestQuote, onAcceptQuote, onPayNow, onAdminActivate, onEndorse, onDelete }) {
+// Nút bấm filter theo role VÀ status (PLAN §1.4/§1.3): FE chỉ ẩn/hiện cho UX,
+// BE vẫn check lại mọi transition. Nút "Kích hoạt trực tiếp" BOUND→ACTIVE của
+// ADMIN nằm trong ActionBar bên dưới, không phải ở trang đối soát riêng.
+function ActionBar({ status, isAdmin, canManage, isPaymentClaimed, canClaim, onClaim, busy, onRequestQuote, onAcceptQuote, onPayNow, onAdminActivate, onEndorse, onDelete }) {
   const btn = (props, children) => (
     <button type="button" className="btn" disabled={busy} {...props}>{children}</button>
   );
   return (
     <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-      {status === 'DRAFT' && (
+      {status === 'DRAFT' && canManage && (
         <>
           {btn({ className: 'btn btn-primary', onClick: onRequestQuote }, <><Send size={16} /> Yêu cầu báo giá</>)}
           {btn({ className: 'btn btn-danger', onClick: onDelete }, <><Trash2 size={16} /> Xóa hợp đồng</>)}
         </>
       )}
-      {status === 'QUOTED' && btn({ className: 'btn btn-primary', onClick: onAcceptQuote }, <><Check size={16} /> Chấp nhận & thanh toán</>)}
+      {status === 'QUOTED' && canManage && btn({ className: 'btn btn-primary', onClick: onAcceptQuote }, <><Check size={16} /> Chấp nhận & thanh toán</>)}
       {status === 'BOUND' && (
         <>
-          {btn({ className: 'btn btn-primary', onClick: onPayNow }, <><CreditCard size={16} /> Thanh toán ngay</>)}
+          {canManage && !isPaymentClaimed && btn({ className: 'btn btn-primary', onClick: onPayNow }, <><CreditCard size={16} /> Thanh toán ngay</>)}
           {isAdmin && btn({ className: 'btn btn-secondary', onClick: onAdminActivate }, <><Zap size={16} /> Kích hoạt trực tiếp</>)}
         </>
       )}
-      {status === 'ACTIVE' && btn({ className: 'btn btn-secondary', onClick: onEndorse }, <><SlidersHorizontal size={16} /> Yêu cầu điều chỉnh</>)}
+      {status === 'ACTIVE' && (
+        <>
+          {canManage && btn({ className: 'btn btn-secondary', onClick: onEndorse }, <><SlidersHorizontal size={16} /> Yêu cầu điều chỉnh</>)}
+          {canClaim && btn({ className: 'btn btn-warning', style: { backgroundColor: '#ea580c', borderColor: '#ea580c', color: '#fff' }, onClick: onClaim }, <><ShieldAlert size={16} /> Yêu cầu bồi thường</>)}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Negotiation
+// Panel "Thương lượng giá" 2 cột theo mẫu demo:
+// Cột trái: Tóm tắt giá, Tiến trình 0/2-1/2-2/2, Đặt giá sàn, Lịch sử đề xuất, Form gửi giá.
+// Cột phải: Khung chat trao đổi trực tiếp (append-only, lưu vết toàn bộ).
+const NEG_STATUS_LABEL = {
+  OPEN: 'Đang thương lượng',
+  PENDING_CONFIRMATION: 'Chờ xác nhận chốt giá (1/2)',
+  ACCEPTED: 'Đã chốt giá & khóa (2/2)',
+  REJECTED: 'Đã từ chối',
+  SUPERSEDED: 'Đã thay thế',
+};
+
+const ROLE_LABEL = {
+  UNDERWRITER: 'Thẩm định viên',
+  CUSTOMER: 'Khách hàng',
+  AGENT: 'Đại lý',
+  ADMIN: 'Quản trị viên',
+};
+
+function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
+  const toast = useToast();
+  const { hasRole } = useAuth();
+  const [negotiations, setNegotiations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
+  const [premium, setPremium] = useState('');
+  const [message, setMessage] = useState('');
+  const [floorInput, setFloorInput] = useState('');
+  const [chatInput, setChatInput] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const loadNeg = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await negotiationService.list(policy.policyNumber);
+      const d = res?.data;
+      const list = Array.isArray(d) ? d : d?.items ?? d?.negotiations ?? [];
+      setNegotiations(list);
+      setUnavailable(false);
+    } catch (err) {
+      if (isBackendMissing(err)) setUnavailable(true);
+      else toast.error(err.message || 'Không tải được lịch sử thương lượng.');
+    } finally {
+      setLoading(false);
+    }
+  }, [policy.policyNumber, toast]);
+
+  useEffect(() => { loadNeg(); }, [loadNeg]);
+
+  const me = String(user?.email || '').toLowerCase();
+  const isCustomer = me && me === String(policy.insured?.email || '').toLowerCase();
+  const isAgent = me && policy.assignedAgentEmail && me === String(policy.assignedAgentEmail).toLowerCase();
+  const isDemand = isCustomer || isAgent;
+  const isSupply = hasRole('ROLE_UNDERWRITER');
+  const isAdminView = hasRole('ROLE_ADMIN');
+
+  // Lấy phiên thương lượng hiện hành (ưu tiên phiên OPEN hoặc PENDING_CONFIRMATION, fallback phiên mới nhất)
+  const activeNeg = negotiations.find((n) => n.status === 'OPEN' || n.status === 'PENDING_CONFIRMATION');
+  const latest = negotiations[0] || null;
+  const shown = activeNeg || latest;
+
+  const offers = safeList(shown?.offers);
+  const sortedOffers = [...offers].sort((a, b) => (a.round ?? 0) - (b.round ?? 0));
+  const lastOffer = sortedOffers[sortedOffers.length - 1];
+  const currentPrice = shown?.currentOffer?.proposedPremium ?? lastOffer?.proposedPremium ?? null;
+  const listPremium = shown?.listPremium ?? policy.totalPremium;
+  const floorPremium = shown?.floorPremium ?? null;
+
+  // Lượt đi: tính theo phe (Demand vs Supply)
+  const demandTurn = !lastOffer || lastOffer.proposedByRole === 'UNDERWRITER';
+  const myTurn = shown?.status === 'OPEN' && !isAdminView && (
+    (isDemand && demandTurn) || (isSupply && !demandTurn)
+  );
+
+  const canOpen = !shown && policy.status === 'QUOTED' && isDemand && !isAdminView;
+  const canSetFloor = isSupply && !isAdminView && shown && shown.status === 'OPEN' && floorPremium == null
+    && !sortedOffers.some((o) => o.proposedByRole === 'UNDERWRITER');
+
+  // Kiểm tra xác nhận 2 lớp
+  const isPendingConfirmation = shown?.status === 'PENDING_CONFIRMATION';
+  const proposerEmail = shown?.proposerEmail || lastOffer?.proposedByEmail || '';
+  const offerWasSupply = lastOffer?.proposedByRole === 'UNDERWRITER';
+  // LUẬT MỚI: AGENT không bao giờ canConfirm. Offer phe cầu đưa thì chỉ CUSTOMER canConfirm.
+  const canConfirm = isPendingConfirmation && !isAdminView && !isAgent && (
+    shown?.canConfirm != null ? shown.canConfirm : (
+      offerWasSupply ? (isSupply && lastOffer?.proposedByEmail?.toLowerCase() === me) : isCustomer
+    )
+  );
+
+  // Tiến trình xác nhận: 0/2, 1/2, 2/2
+  const progressStep = shown?.status === 'ACCEPTED' ? 2 : isPendingConfirmation ? 1 : 0;
+
+  // Gửi đề xuất / phản hồi / chấp nhận / từ chối
+  const submitAction = async (kind) => {
+    setBusy(true);
+    try {
+      if (kind === 'open') {
+        const val = Number(premium);
+        if (!Number.isFinite(val) || val <= 0) {
+          toast.error('Giá đề xuất phải lớn hơn 0.');
+          return;
+        }
+        if (listPremium != null && val > Number(listPremium)) {
+          toast.error(`Giá đề xuất không được vượt giá hệ thống (${formatMoney(listPremium)}).`);
+          return;
+        }
+        await negotiationService.open(policy.policyNumber, { proposedPremium: val, message: message.trim() || undefined });
+        toast.success('Đã gửi đề xuất giá mở đầu.');
+      } else if (kind === 'counter') {
+        const val = Number(premium);
+        if (!Number.isFinite(val) || val <= 0) {
+          toast.error('Giá đề xuất phải lớn hơn 0.');
+          return;
+        }
+        if (listPremium != null && val > Number(listPremium)) {
+          toast.error(`Giá đề xuất không được vượt giá hệ thống (${formatMoney(listPremium)}).`);
+          return;
+        }
+        if (isSupply && floorPremium != null && val < floorPremium) {
+          toast.error(`Thẩm định viên không được đề xuất giá dưới giá sàn (${formatMoney(floorPremium)}).`);
+          return;
+        }
+        await negotiationService.addOffer(policy.policyNumber, shown.id, { proposedPremium: val, message: message.trim() || undefined });
+        toast.success('Đã gửi phản hồi giá mới.');
+      } else if (kind === 'accept') {
+        if (isSupply && floorPremium != null && currentPrice < floorPremium) {
+          toast.error(`Không thể chấp nhận mức giá dưới giá sàn (${formatMoney(floorPremium)}).`);
+          return;
+        }
+        await negotiationService.accept(policy.policyNumber, shown.id);
+        toast.success('Đã chấp thuận mức giá (1/2). Đang chờ người đề xuất xác nhận lần cuối.');
+        await onPolicyReload();
+      } else if (kind === 'reject') {
+        await negotiationService.reject(policy.policyNumber, shown.id);
+        toast.success('Đã từ chối mức giá này. Thương lượng vẫn tiếp tục để hai bên trả giá.');
+        await onPolicyReload();
+      } else if (kind === 'confirm') {
+        await negotiationService.confirm(policy.policyNumber, shown.id);
+        toast.success('Đã hoàn tất xác nhận chốt giá (2/2)! Hợp đồng đã được cập nhật giá thương lượng.');
+        await onPolicyReload();
+      } else if (kind === 'decline') {
+        await negotiationService.declineConfirmation(policy.policyNumber, shown.id);
+        toast.success('Đã từ chối xác nhận chốt giá. Phiên thương lượng đã được mở lại.');
+        await onPolicyReload();
+      }
+      setPremium('');
+      setMessage('');
+      await loadNeg();
+    } catch (err) {
+      failToast(err, 'thao tác thương lượng');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Đặt giá sàn
+  const handleSetFloor = async () => {
+    const f = Number(floorInput);
+    if (!Number.isFinite(f) || f <= 0) {
+      toast.error('Giá sàn phải lớn hơn 0.');
+      return;
+    }
+    if (listPremium != null && f > Number(listPremium)) {
+      toast.error(`Giá sàn không được lớn hơn giá niêm yết (${formatMoney(listPremium)}).`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await negotiationService.setFloor(policy.policyNumber, shown.id, f);
+      toast.success('Đã thiết lập giá sàn bảo mật thành công.');
+      setFloorInput('');
+      await loadNeg();
+    } catch (err) {
+      failToast(err, 'đặt giá sàn');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Gửi tin nhắn chat
+  const handleSendChat = async () => {
+    const text = chatInput.trim();
+    if (!text) return;
+    setBusy(true);
+    try {
+      await negotiationService.sendMessage(policy.policyNumber, shown.id, text);
+      setChatInput('');
+      await loadNeg();
+    } catch (err) {
+      failToast(err, 'gửi tin nhắn');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) return (<div className="glass-card" style={{ marginBottom: '1.5rem' }}><Skeleton height={140} /></div>);
+  if (unavailable) return null;
+
+
+
+  const isLocked = shown?.status === 'ACCEPTED';
+  const isQuoted = policy.status === 'QUOTED';
+
+  return (
+    <div style={{ marginBottom: '1.5rem' }}>
+      {/* Tiêu đề & Tiến trình chốt giá 2 lớp */}
+      <div className="glass-card" style={{ marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
+          <div>
+            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              Thương lượng giá hợp đồng {policy.policyNumber}
+            </h3>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Phiên thương lượng append-only · Minh bạch · Không sửa xóa lịch sử
+            </span>
+          </div>
+          {shown && (
+            <span className={`badge badge-${shown.status === 'ACCEPTED' ? 'success' : shown.status === 'PENDING_CONFIRMATION' ? 'warning' : shown.status === 'REJECTED' ? 'danger' : 'info'}`}>
+              {NEG_STATUS_LABEL[shown.status] || shown.status}
+            </span>
+          )}
+        </div>
+
+        {/* Thanh tiến trình 0/2 - 1/2 - 2/2 */}
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', background: 'var(--bg-subtle, #f8fafc)', padding: '0.75rem 1rem', borderRadius: '10px' }}>
+          <div style={{ flex: 1, textAlign: 'center', opacity: progressStep >= 0 ? 1 : 0.4 }}>
+            <div style={{ fontWeight: progressStep === 0 ? 700 : 500, color: progressStep === 0 ? '#2563eb' : 'inherit' }}>
+              0/2: Đang thương lượng
+            </div>
+            <small style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Đề xuất & phản hồi giá</small>
+          </div>
+          <div style={{ color: 'var(--border-subtle, #cbd5e1)' }}>→</div>
+          <div style={{ flex: 1, textAlign: 'center', opacity: progressStep >= 1 ? 1 : 0.4 }}>
+            <div style={{ fontWeight: progressStep === 1 ? 700 : 500, color: progressStep === 1 ? '#d97706' : 'inherit' }}>
+              1/2: Chờ xác nhận
+            </div>
+            <small style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Một bên đã chấp thuận</small>
+          </div>
+          <div style={{ color: 'var(--border-subtle, #cbd5e1)' }}>→</div>
+          <div style={{ flex: 1, textAlign: 'center', opacity: progressStep >= 2 ? 1 : 0.4 }}>
+            <div style={{ fontWeight: progressStep === 2 ? 700 : 500, color: progressStep === 2 ? '#059669' : 'inherit' }}>
+              2/2: Đã chốt & Khóa
+            </div>
+            <small style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Ghi nhận vào hợp đồng</small>
+          </div>
+        </div>
+      </div>
+
+      {/* Bố cục 2 cột chính */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.25rem', alignItems: 'start' }}>
+        {/* CỘT TRÁI: Tóm tắt giá, Tiến trình, Form gửi giá / đặt sàn, Lịch sử */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {isAgent && (
+            <div className="glass-card" style={{ padding: '0.75rem 1rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px' }}>
+              <span style={{ color: '#1e40af', fontSize: '0.875rem' }}>
+                ℹ️ <strong>Vai trò Đại lý:</strong> Bạn chỉ hỗ trợ khách hàng trả giá và trao đổi trực tiếp; quyền quyết định chấp nhận mức giá và xác nhận chốt hợp đồng hoàn toàn thuộc về khách hàng.
+              </span>
+            </div>
+          )}
+          {/* Card Tóm tắt giá */}
+          <div className="glass-card">
+            <h4 style={{ marginTop: 0, marginBottom: '0.75rem' }}>Thông tin mức giá</h4>
+            <dl className="kv" style={{ margin: 0 }}>
+              <dt>Giá niêm yết</dt>
+              <dd><strong>{formatMoney(listPremium)}</strong></dd>
+
+              {floorPremium != null && (
+                <>
+                  <dt>Giá sàn (bảo mật)</dt>
+                  <dd>
+                    <strong style={{ color: '#dc2626' }}>{formatMoney(floorPremium)}</strong>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.4rem' }}>
+                      (Chỉ Thẩm định & Admin thấy)
+                    </span>
+                  </dd>
+                </>
+              )}
+
+              <dt>Giá đề xuất hiện tại</dt>
+              <dd>
+                <strong style={{ color: '#2563eb', fontSize: '1.1rem' }}>
+                  {currentPrice != null ? formatMoney(currentPrice) : 'Chưa có'}
+                </strong>
+              </dd>
+
+              {shown?.acceptedPremium != null && (
+                <>
+                  <dt>Giá đã chốt (2/2)</dt>
+                  <dd><strong style={{ color: '#059669', fontSize: '1.1rem' }}>{formatMoney(shown.acceptedPremium)}</strong></dd>
+                </>
+              )}
+
+              {shown && (
+                <>
+                  <dt>Mở bởi</dt>
+                  <dd>{shown.openedBy || '—'} · {formatDateTime(shown.openedAt)}</dd>
+                </>
+              )}
+            </dl>
+          </div>
+
+          {/* Banner hành động khi PENDING_CONFIRMATION (1/2) */}
+          {isPendingConfirmation && (
+            <div className="glass-card" style={{ border: '2px solid #f59e0b', background: '#fffbeb' }}>
+              <h4 style={{ color: '#b45309', marginTop: 0, marginBottom: '0.5rem' }}>
+                Xác nhận chốt giá (1/2 → 2/2)
+              </h4>
+              <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.9rem', color: '#92400e' }}>
+                Mức giá <strong>{formatMoney(currentPrice)}</strong> đã được đối phương chấp thuận.
+                {canConfirm
+                  ? ' Bạn là người đề xuất mức giá này, vui lòng xác nhận lần cuối để chính thức chốt giá và ghi vào hợp đồng, hoặc từ chối để mở lại thương lượng.'
+                  : ` Đang chờ bên đề xuất (${proposerEmail || 'đối phương'}) xác nhận để chính thức hoàn tất chốt giá.`}
+              </p>
+              {canConfirm && (
+                <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn btn-primary" disabled={busy} onClick={() => submitAction('confirm')}>
+                    {busy ? <span className="spinner" /> : null} Xác nhận chốt giá (2/2)
+                  </button>
+                  <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => submitAction('decline')}>
+                    Từ chối, mở lại thương lượng
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Form Đặt giá sàn (Underwriter) */}
+          {canSetFloor && (
+            <div className="glass-card" style={{ border: '1px solid #fed7aa', background: '#fff7ed' }}>
+              <h4 style={{ color: '#c2410c', marginTop: 0, marginBottom: '0.5rem' }}>Thiết lập giá sàn bảo hiểm</h4>
+              <p style={{ fontSize: '0.85rem', color: '#9a3412', margin: '0 0 0.75rem 0' }}>
+                Giá sàn chỉ được đặt 1 lần duy nhất trước phản hồi đầu tiên của bạn. Khách hàng và đại lý sẽ không thấy giá sàn.
+              </p>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input
+                  type="number" min="1" max={listPremium ?? undefined} className="form-control"
+                  style={{ maxWidth: 220 }} placeholder="Nhập giá sàn (VND)"
+                  value={floorInput} onChange={(e) => setFloorInput(e.target.value)}
+                  disabled={busy}
+                />
+                <button type="button" className="btn btn-primary btn-sm" disabled={busy || !floorInput} onClick={handleSetFloor}>
+                  {busy ? <span className="spinner" /> : null} Đặt giá sàn
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Form Gửi giá mở đầu hoặc Trả giá tiếp theo */}
+          {(canOpen || (myTurn && !isPendingConfirmation)) && (
+            <div className="glass-card">
+              <h4 style={{ marginTop: 0, marginBottom: '0.75rem' }}>
+                {canOpen ? 'Gửi đề xuất giá mở đầu' : 'Gửi giá phản hồi (trả giá)'}
+              </h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label" htmlFor="neg-input-premium">Mức giá đề xuất (VND) *</label>
+                  <input
+                    id="neg-input-premium" type="number" min="1" max={listPremium ?? undefined}
+                    className="form-control" value={premium} onChange={(e) => setPremium(e.target.value)}
+                    placeholder={`Tối đa ${formatMoney(listPremium)}`} disabled={busy}
+                  />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label" htmlFor="neg-input-msg">Ghi chú kèm theo</label>
+                  <input
+                    id="neg-input-msg" className="form-control" value={message}
+                    onChange={(e) => setMessage(e.target.value)} placeholder="Không bắt buộc" disabled={busy}
+                  />
+                </div>
+              </div>
+
+              {isSupply && floorPremium != null && (
+                <small style={{ color: '#b91c1c', display: 'block', marginTop: '0.4rem' }}>
+                  * Lưu ý: Giá bạn đề xuất không được thấp hơn giá sàn ({formatMoney(floorPremium)}).
+                </small>
+              )}
+
+              <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem', flexWrap: 'wrap' }}>
+                {canOpen && (
+                  <button type="button" className="btn btn-primary" disabled={busy || !premium} onClick={() => submitAction('open')}>
+                    {busy ? <span className="spinner" /> : null} Gửi đề xuất mở đầu
+                  </button>
+                )}
+                {myTurn && (
+                  <>
+                    <button type="button" className="btn btn-primary" disabled={busy || !premium} onClick={() => submitAction('counter')}>
+                      {busy ? <span className="spinner" /> : null} Gửi phản hồi giá
+                    </button>
+                    {lastOffer && (
+                      <>
+                        {(isSupply || isCustomer) && (
+                          <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => submitAction('accept')}>
+                            Chấp nhận mức giá hiện tại (1/2)
+                          </button>
+                        )}
+                        <button type="button" className="btn btn-danger" disabled={busy} onClick={() => submitAction('reject')}>
+                          Từ chối mức giá này
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Thông báo trạng thái lượt đi */}
+          {shown?.status === 'OPEN' && !myTurn && !isAdminView && (
+            <div className="glass-card" style={{ padding: '0.85rem 1rem', background: 'var(--bg-subtle, #f8fafc)' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                ⏳ {demandTurn ? 'Đang chờ khách hàng / đại lý phản hồi mức giá.' : 'Đang chờ chuyên viên thẩm định phản hồi mức giá.'}
+              </span>
+            </div>
+          )}
+
+          {isAdminView && (
+            <div className="glass-card" style={{ padding: '0.85rem 1rem', background: '#f1f5f9' }}>
+              <span style={{ color: '#475569', fontSize: '0.875rem' }}>
+                👁️ Bạn đang xem với vai trò Quản trị viên (ADMIN) — chỉ có quyền xem lịch sử và tiến trình thương lượng.
+              </span>
+            </div>
+          )}
+
+          {/* Lịch sử các vòng đề xuất */}
+          <div className="glass-card">
+            <h4 style={{ marginTop: 0, marginBottom: '0.75rem' }}>Lịch sử đề xuất giá (Append-Only)</h4>
+            {sortedOffers.length === 0 ? (
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Chưa có đề xuất giá nào được ghi nhận.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {sortedOffers.map((o, i) => (
+                  <div
+                    key={o.round ?? i}
+                    style={{
+                      display: 'flex', gap: '0.75rem', padding: '0.75rem 0.9rem',
+                      border: '1px solid var(--border-subtle, #e2e8f0)', borderRadius: '10px',
+                      background: o.decision === 'ACCEPTED' ? '#f0fdf4' : o.decision === 'REJECTED' ? '#fef2f2' : 'transparent',
+                    }}
+                  >
+                    <span className="badge badge-info" style={{ height: 'fit-content' }}>
+                      Vòng {o.round ?? i + 1}
+                    </span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong style={{ color: '#2563eb', fontSize: '1rem' }}>{formatMoney(o.proposedPremium)}</strong>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                            {' '}— {ROLE_LABEL[o.proposedByRole] || o.proposedByRole} ({o.proposedByEmail})
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: o.decision === 'ACCEPTED' ? '#16a34a' : o.decision === 'REJECTED' ? '#dc2626' : 'var(--text-secondary)' }}>
+                          {o.decision === 'ACCEPTED' ? 'Đã chấp nhận' : o.decision === 'REJECTED' ? 'Đã từ chối' : 'Đề xuất'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                        {formatDateTime(o.createdAt)}
+                        {o.message ? ` · “${o.message}”` : ''}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* CỘT PHẢI: Khung chat trực tiếp append-only */}
+        <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 520 }}>
+          <div style={{ borderBottom: '1px solid var(--border-subtle, #e2e8f0)', paddingBottom: '0.75rem', marginBottom: '0.75rem' }}>
+            <h4 style={{ margin: '0 0 0.25rem 0' }}>Trao đổi trực tiếp</h4>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Tin nhắn được lưu vết đầy đủ và chỉ đọc khi chốt giá. Mọi trao đổi trong chat mang tính tham khảo và không thay thế việc gửi đề xuất giá chính thức.
+            </div>
+          </div>
+
+          {/* Vùng cuộn tin nhắn */}
+          <div
+            style={{
+              flex: 1, minHeight: 340, maxHeight: 460, overflowY: 'auto',
+              display: 'flex', flexDirection: 'column', gap: '0.6rem', padding: '0.5rem',
+              background: 'var(--bg-subtle, #f8fafc)', borderRadius: '8px', marginBottom: '0.75rem',
+            }}
+          >
+            {safeList(shown?.messages).length === 0 ? (
+              <div style={{ textAlign: 'center', color: 'var(--text-muted)', margin: 'auto', fontSize: '0.9rem' }}>
+                Chưa có tin nhắn nào. Bạn có thể trao đổi thêm chi tiết về mức phí tại đây.
+              </div>
+            ) : (
+              safeList(shown?.messages).map((m, idx) => {
+                const mine = m.senderEmail && m.senderEmail.toLowerCase() === me;
+                return (
+                  <div
+                    key={m.messageId || idx}
+                    style={{
+                      alignSelf: mine ? 'flex-end' : 'flex-start',
+                      maxWidth: '82%',
+                      background: mine ? '#dbeafe' : '#ffffff',
+                      border: '1px solid',
+                      borderColor: mine ? '#bfdbfe' : '#e2e8f0',
+                      borderRadius: '12px',
+                      padding: '0.6rem 0.85rem',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                    }}
+                  >
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.2rem', display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
+                      <span><strong>{mine ? 'Bạn' : m.senderEmail}</strong> ({ROLE_LABEL[m.senderRole] || m.senderRole})</span>
+                      <span>{formatDateTime(m.createdAt)}</span>
+                    </div>
+                    <div style={{ fontSize: '0.9rem', wordBreak: 'break-word', color: '#1e293b' }}>
+                      {m.content}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Khung nhập tin nhắn */}
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <input
+              type="text" className="form-control"
+              placeholder={isLocked ? 'Phiên thương lượng đã khóa (chỉ đọc)' : !isQuoted ? 'Hợp đồng không còn ở trạng thái báo giá' : isAdminView ? 'Quản trị viên chỉ có quyền đọc' : 'Nhập tin nhắn trao đổi...'}
+              value={chatInput} onChange={(e) => setChatInput(e.target.value)}
+              disabled={busy || isLocked || !isQuoted || isAdminView || !shown}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSendChat(); }}
+            />
+            <button
+              type="button" className="btn btn-primary"
+              disabled={busy || isLocked || !isQuoted || isAdminView || !chatInput.trim() || !shown}
+              onClick={handleSendChat}
+            >
+              {busy ? <span className="spinner" /> : null} Gửi
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -409,6 +1000,8 @@ function OverviewTab({ policy, locations }) {
           <dt>Điện thoại</dt><dd>{ins.phone || '—'}</dd>
           <dt>Địa chỉ</dt><dd>{ins.address || '—'}</dd>
           <dt>Loại khách hàng</dt><dd>{ins.type === 'DOANH_NGHIEP' ? 'Doanh nghiệp' : 'Cá nhân'}</dd>
+          {policy.assignedAgentEmail && (<><dt>Đại lý phụ trách</dt><dd>{policy.assignedAgentEmail}</dd></>)}
+          {policy.paymentStatus && (<><dt>Thanh toán</dt><dd>{policy.paymentStatus === 'CLAIMED' ? 'Đã khai báo — chờ đối soát' : policy.paymentStatus === 'CONFIRMED' ? 'Đã xác nhận thu tiền' : 'Chưa khai báo'}</dd></>)}
         </dl>
       </div>
       <div className="glass-card">
@@ -429,6 +1022,7 @@ function OverviewTab({ policy, locations }) {
               <dd>{formatMoney(locPremium(l))}</dd>
             </React.Fragment>
           ))}
+          {policy.negotiatedPremium != null && (<><dt>Giá đã thương lượng</dt><dd><strong style={{ color: '#047857' }}>{formatMoney(policy.negotiatedPremium)}</strong></dd></>)}
           <dt style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '0.6rem' }}><strong>Tổng cộng</strong></dt>
           <dd style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '0.6rem' }}>
             <strong style={{ color: '#1663d9' }}>{formatMoney(policy.totalPremium)}</strong>

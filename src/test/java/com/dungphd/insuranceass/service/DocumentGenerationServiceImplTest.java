@@ -165,9 +165,12 @@ class DocumentGenerationServiceImplTest {
         List<DocumentMetadataDto> docs = documentGenerationService.getAvailableDocuments("POL-2026-001");
 
         assertNotNull(docs);
-        assertEquals(2, docs.size());
+        // Dot 3B: them INVOICE vao danh sach (truoc day chi co 2).
+        assertEquals(3, docs.size());
         assertEquals("CERTIFICATE", docs.get(0).getDocumentType());
         assertEquals("SUMMARY", docs.get(1).getDocumentType());
+        assertEquals("INVOICE", docs.get(2).getDocumentType());
         assertTrue(docs.get(0).getDownloadUrl().contains("certificate"));
+        assertTrue(docs.get(2).getDownloadUrl().endsWith("/invoice"));
     }
 }

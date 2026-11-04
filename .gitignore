@@ -44,3 +44,6 @@ build/
 
 # Local env config (secrets) — không commit
 .env
+
+# Uploads
+uploads/

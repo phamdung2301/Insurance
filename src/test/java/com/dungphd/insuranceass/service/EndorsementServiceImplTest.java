@@ -42,6 +42,11 @@ class EndorsementServiceImplTest {
     @Mock
     private PremiumCalculationService premiumCalculationService;
 
+    // Đợt 4B: bean pending (mock) để luồng maker-checker có repo; case thành
+    // công dưới đây giữ ở đúng biên ngưỡng 20% nên không chạm tới repo này.
+    @Mock
+    private com.dungphd.insuranceass.repository.PendingEndorsementRepository pendingEndorsementRepository;
+
     @InjectMocks
     private EndorsementServiceImpl endorsementService;
 
@@ -78,10 +83,13 @@ class EndorsementServiceImplTest {
         when(policyRepository.findByPolicyNumber("POL-ACTIVE-01")).thenReturn(Optional.of(activePolicy));
         when(policyRepository.save(any(Policy.class))).thenAnswer(inv -> inv.getArgument(0));
 
+        // Đợt 4B: 750 -> 900 = +20% đúng biên ngưỡng nên vẫn apply ngay.
+        // (Premium cũ 1200 cho tổng 1950 = +160% sẽ đi pending theo luật mới,
+        // xem PendingEndorsementMakerCheckerTest.)
         CoverageDto newCoverage = CoverageDto.builder()
                 .coverageCode("GEN_LIAB")
                 .limit(2000000.0)
-                .premium(1200.0)
+                .premium(150.0)
                 .build();
 
         LocationDto newLoc = LocationDto.builder()
@@ -103,7 +111,7 @@ class EndorsementServiceImplTest {
         assertNotNull(res);
         assertEquals(2, res.getVersion());
         assertEquals(2, res.getLocations().size());
-        assertEquals(1950.0, res.getTotalPremium()); // 750 + 1200
+        assertEquals(900.0, res.getTotalPremium()); // 750 + 150
 
         // Verify version snapshot 1 was saved into policy_versions
         verify(policyVersionRepository).save(argThat(v ->
@@ -118,6 +126,59 @@ class EndorsementServiceImplTest {
                 eq("underwriter@insurance.com"),
                 contains("Mở rộng xưởng")
         );
+    }
+
+    // FIX 9: policy đã deal (coverage sum 1000, giá chốt 900, mức giảm 100).
+    // Endorsement đổi coverage sum 1000 -> 1050: total mới phải là
+    // 900 + (1050 - 1000) = 950 (giữ mức giảm), và negotiatedPremium cũng
+    // thành 950 để lần sau vẫn giữ đúng mức giảm. Hành vi cũ sai sẽ ra 1050.
+    @Test
+    void applyEndorsement_WithNegotiatedDeal_PreservesAbsoluteDiscount() {
+        Coverage cov = Coverage.builder()
+                .coverageCode("PROP_FIRE")
+                .limit(1000000.0)
+                .premium(1000.0)
+                .build();
+        Policy dealtPolicy = Policy.builder()
+                .id("pol-deal")
+                .policyNumber("POL-DEAL-01")
+                .status(PolicyStatus.ACTIVE)
+                .version(1)
+                .locations(new ArrayList<>(List.of(Location.builder()
+                        .locationId(1)
+                        .address("Warehouse 1, Ha Noi")
+                        .coverages(new ArrayList<>(List.of(cov)))
+                        .build())))
+                .totalPremium(900.0)
+                .negotiatedPremium(900.0)
+                .effectiveDate(Instant.now())
+                .expirationDate(Instant.now().plusSeconds(86400 * 365))
+                .build();
+
+        when(policyRepository.findByPolicyNumber("POL-DEAL-01")).thenReturn(Optional.of(dealtPolicy));
+        when(policyRepository.save(any(Policy.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        CoverageDto newCoverage = CoverageDto.builder()
+                .coverageCode("PROP_FIRE")
+                .limit(1000000.0)
+                .premium(1050.0)
+                .build();
+        LocationDto newLoc = LocationDto.builder()
+                .locationId(1)
+                .address("Warehouse 1, Ha Noi")
+                .coverages(List.of(newCoverage))
+                .build();
+        EndorsementRequest request = EndorsementRequest.builder()
+                .reason("Tăng hạn mức")
+                .locations(List.of(newLoc))
+                .build();
+
+        PolicyResponse res = endorsementService.applyEndorsement("POL-DEAL-01", request, "underwriter@insurance.com");
+
+        assertNotNull(res);
+        assertEquals(2, res.getVersion());
+        assertEquals(950.0, res.getTotalPremium());
+        assertEquals(950.0, res.getNegotiatedPremium());
     }
 
     @Test

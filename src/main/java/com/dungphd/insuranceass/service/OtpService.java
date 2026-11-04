@@ -21,6 +21,21 @@ public class OtpService {
     private static final int MAX_FAILED_ATTEMPTS = 5;
     private static final long COOLDOWN_SECONDS = 60; // 60s resend cooldown
 
+    /**
+     * Khóa đăng nhập bằng mật khẩu (đợt 1A, L5). ĐÍNH CHÍNH so với giả định
+     * trong brief: OtpService trước đợt này KHÔNG có khóa tài khoản 15 phút
+     * nào cả; cơ chế sẵn có chỉ là: sai OTP 5 lần → mã OTP đó bị vô hiệu
+     * hoá (tài khoản không bị khóa, không có đồng hồ 15 phút). Vì vậy đợt 1A bổ sung tại đây
+     * một cơ chế khóa RIÊNG cho nhánh password, cùng ngưỡng 5 lần sai và
+     * thời gian khóa 15 phút như yêu cầu đợt 1A, tách khỏi OTP cache (OTP
+     * cache chỉ tồn tại khi đã generate OTP, còn password login thì không).
+     * Khóa này CHỈ chặn nhánh password: OTP/Google login thành công vẫn đi
+     * qua được và tự mở khóa (xem AuthServiceImpl).
+     */
+    private static final long PASSWORD_LOCKOUT_SECONDS = 900; // 15 minutes
+    private final Map<String, AtomicInteger> passwordFailedAttempts = new ConcurrentHashMap<>();
+    private final Map<String, Instant> passwordLockedUntil = new ConcurrentHashMap<>();
+
     private final SecureRandom secureRandom = new SecureRandom();
     private final Map<String, OtpEntry> otpCache = new ConcurrentHashMap<>();
     private final Map<String, Instant> cooldownCache = new ConcurrentHashMap<>();
@@ -115,6 +130,68 @@ public class OtpService {
     public void clearCooldown(String email) {
         if (email != null) {
             cooldownCache.remove(email.trim().toLowerCase());
+        }
+    }
+
+    /**
+     * Nhánh password có đang bị khóa không. Khóa hết hạn → tự dọn và trả false
+     * (không cần job dọn riêng; lần login tiếp theo sau 15 phút được thử lại).
+     */
+    public boolean isPasswordLocked(String email) {
+        if (email == null) {
+            return false;
+        }
+        String normalized = email.trim().toLowerCase();
+        Instant until = passwordLockedUntil.get(normalized);
+        if (until == null) {
+            return false;
+        }
+        if (Instant.now().isBefore(until)) {
+            return true;
+        }
+        // Hết hạn: dọn cả khóa lẫn bộ đếm để lần sai tiếp theo đếm lại từ 1.
+        passwordLockedUntil.remove(normalized);
+        passwordFailedAttempts.remove(normalized);
+        return false;
+    }
+
+    /**
+     * Ghi 1 lần sai mật khẩu. Đủ 5 lần → khóa 15 phút, xóa bộ đếm (để sau
+     * khi hết khóa, lần sai tiếp theo đếm lại từ 1 thay vì khóa ngay lại).
+     * Chỉ gọi khi tài khoản TỒN TẠI (AuthServiceImpl): không tạo trạng thái
+     * khóa cho email lạ, tránh rò rỉ/khóa nhầm.
+     */
+    public void recordFailedPasswordAttempt(String email) {
+        if (email == null) {
+            return;
+        }
+        String normalized = email.trim().toLowerCase();
+        if (isPasswordLocked(normalized)) {
+            return;
+        }
+        int attempts = passwordFailedAttempts
+                .computeIfAbsent(normalized, k -> new AtomicInteger(0))
+                .incrementAndGet();
+        if (attempts >= MAX_FAILED_ATTEMPTS) {
+            passwordFailedAttempts.remove(normalized);
+            passwordLockedUntil.put(normalized, Instant.now().plusSeconds(PASSWORD_LOCKOUT_SECONDS));
+            log.warn("[SECURITY LOCKOUT] Password login for email {} locked for {}s after {} failed attempts",
+                    normalized, PASSWORD_LOCKOUT_SECONDS, attempts);
+        } else {
+            log.warn("Invalid password entered for email {} (Attempt {}/{})", normalized, attempts, MAX_FAILED_ATTEMPTS);
+        }
+    }
+
+    /**
+     * Mở khóa password: đăng nhập đúng bằng mật khẩu (reset bộ đếm), đăng
+     * nhập OTP/Google thành công, hoặc admin mở (hook admin do coordinator
+     * nối sau vào AdminUserService — file đó ngoài phạm vi đợt 1A).
+     */
+    public void clearPasswordLockout(String email) {
+        if (email != null) {
+            String normalized = email.trim().toLowerCase();
+            passwordFailedAttempts.remove(normalized);
+            passwordLockedUntil.remove(normalized);
         }
     }
 

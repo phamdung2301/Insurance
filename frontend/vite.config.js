@@ -11,6 +11,7 @@ const PAGE_ROUTES = [
   '/ho-so',
   '/doi-mat-khau',
   '/admin',
+  '/agent/khach-hang',
   '/dev/api-tester',
 ];
 const PAGE_PREFIXES = ['/hop-dong/', '/admin/'];

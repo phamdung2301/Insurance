@@ -67,4 +67,65 @@ class OtpServiceSecurityTest {
 
         assertDoesNotThrow(() -> otpService.generateOtp(email));
     }
+
+    // ---- Đợt 1A, L5: khóa password login (cơ chế riêng, không phải OTP cache) ----
+
+    @Test
+    void passwordLockout_FewerThan5Attempts_NotLocked() {
+        String email = "pwd-attempts@example.com";
+        for (int i = 0; i < 4; i++) {
+            otpService.recordFailedPasswordAttempt(email);
+        }
+        assertFalse(otpService.isPasswordLocked(email));
+    }
+
+    @Test
+    void passwordLockout_After5FailedAttempts_IsLocked() {
+        String email = "pwd-locked@example.com";
+        for (int i = 0; i < 4; i++) {
+            otpService.recordFailedPasswordAttempt(email);
+            assertFalse(otpService.isPasswordLocked(email));
+        }
+        otpService.recordFailedPasswordAttempt(email);
+        assertTrue(otpService.isPasswordLocked(email));
+    }
+
+    @Test
+    void passwordLockout_ClearUnlocksAndResetsCounter() {
+        String email = "pwd-unlock@example.com";
+        for (int i = 0; i < 5; i++) {
+            otpService.recordFailedPasswordAttempt(email);
+        }
+        assertTrue(otpService.isPasswordLocked(email));
+
+        otpService.clearPasswordLockout(email);
+        assertFalse(otpService.isPasswordLocked(email));
+
+        // Bộ đếm đã reset: 4 lần sai nữa vẫn chưa khóa, lần thứ 5 mới khóa lại.
+        for (int i = 0; i < 4; i++) {
+            otpService.recordFailedPasswordAttempt(email);
+        }
+        assertFalse(otpService.isPasswordLocked(email));
+        otpService.recordFailedPasswordAttempt(email);
+        assertTrue(otpService.isPasswordLocked(email));
+    }
+
+    @Test
+    void passwordLockout_NullEmail_IsSafe() {
+        assertFalse(otpService.isPasswordLocked(null));
+        assertDoesNotThrow(() -> otpService.recordFailedPasswordAttempt(null));
+        assertDoesNotThrow(() -> otpService.clearPasswordLockout(null));
+    }
+
+    @Test
+    void passwordLockout_IsIndependentFromOtpCache() {
+        // Sai password 5 lần không làm hỏng OTP đang chờ và ngược lại.
+        String email = "pwd-otp-independent@example.com";
+        String otp = otpService.generateOtp(email);
+        for (int i = 0; i < 5; i++) {
+            otpService.recordFailedPasswordAttempt(email);
+        }
+        assertTrue(otpService.isPasswordLocked(email));
+        assertTrue(otpService.validateOtp(email, otp));
+    }
 }

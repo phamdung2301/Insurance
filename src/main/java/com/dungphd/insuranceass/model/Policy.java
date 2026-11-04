@@ -56,6 +56,17 @@ public class Policy {
     @Indexed
     private Double totalPremium;
 
+    private String assignedAgentEmail;
+
+    /** Giá chốt thương lượng (set khi negotiation ACCEPTED), null nếu chưa thương lượng. */
+    private Double negotiatedPremium;
+
+    /** Thời điểm khách bấm "Tôi đã chuyển khoản" (PLAN §1.6); null = chưa khai báo. */
+    private Instant paymentClaimedAt;
+
+    @Builder.Default
+    private PaymentStatus paymentStatus = PaymentStatus.UNCLAIMED;
+
     @Indexed
     private Instant effectiveDate;
 

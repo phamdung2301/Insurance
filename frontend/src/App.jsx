@@ -18,9 +18,23 @@ import { ProfilePage } from './pages/ProfilePage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { AdminPolicyListPage } from './pages/AdminPolicyListPage';
-import { ExcelToolsPage } from './pages/ExcelToolsPage';
 import { BenchmarkPage } from './pages/BenchmarkPage';
 import { IndexAuditPage } from './pages/IndexAuditPage';
+import { ReportsPage } from './pages/ReportsPage';
+import { AdminUserPage } from './pages/AdminUserPage';
+import { AgentCustomerPage } from './pages/AgentCustomerPage';
+import { AgentCommissionPage } from './pages/AgentCommissionPage';
+import { PaymentPage } from './pages/PaymentPage';
+import { UnderwriterQueuePage } from './pages/UnderwriterQueuePage';
+import { NotificationsPage } from './pages/NotificationsPage';
+import { AdminAuditLogPage } from './pages/AdminAuditLogPage';
+import { ComparePackagesPage } from './pages/ComparePackagesPage';
+import { PendingEndorsementsPage } from './pages/PendingEndorsementsPage';
+import { PermissionMatrixPage } from './pages/PermissionMatrixPage';
+import { LoginHistoryPage } from './pages/LoginHistoryPage';
+import { ClaimsPage } from './pages/ClaimsPage';
+import { CreateClaimPage } from './pages/CreateClaimPage';
+import { ClaimDetailPage } from './pages/ClaimDetailPage';
 
 const TITLES = {
   '/': 'Hợp đồng của tôi',
@@ -29,8 +43,23 @@ const TITLES = {
   '/doi-mat-khau': 'Đổi mật khẩu',
   '/admin': 'Tổng quan quản trị',
   '/admin/hop-dong': 'Quản lý hợp đồng',
-  '/admin/excel': 'Bảng giá Excel',
+  '/admin/doi-soat': 'Đối soát thanh toán',
+  '/admin/users': 'Quản lý người dùng',
   '/admin/benchmark': 'Kiểm thử hiệu năng',
+  '/admin/index-audit': 'Kiểm tra index DB',
+  '/admin/reports': 'Báo cáo',
+  '/agent/khach-hang': 'Khách hàng của tôi',
+  '/admin/thuong-luong': 'Hàng đợi thương lượng',
+  '/thong-bao': 'Thông báo',
+  '/admin/audit-logs': 'Nhật ký quản trị',
+  '/agent/hoa-hong': 'Hoa hồng của tôi',
+  '/thanh-toan': 'Thanh toán của tôi',
+  '/so-sanh-goi': 'So sánh gói',
+  '/cho-duyet': 'Chờ duyệt endorsement',
+  '/admin/phan-quyen': 'Ma trận phân quyền',
+  '/ho-so/lich-su-dang-nhap': 'Lịch sử đăng nhập',
+  '/claims': 'Hồ sơ bồi thường',
+  '/claims/new': 'Yêu cầu bồi thường mới',
 };
 
 function Shell({ title, children }) {
@@ -46,12 +75,14 @@ function Shell({ title, children }) {
   );
 }
 
-const page = (path, el) => (
+// Route có phân quyền theo bảng PLAN §1.4 — roles rỗng = chỉ cần đăng nhập
+// (scope dữ liệu do BE enforce). Không còn bọc adminPage() blanket.
+const page = (path, el, roles) => (
   <Route
     path={path}
     element={
-      <ProtectedRoute>
-        <Shell title={path.startsWith('/hop-dong/') ? 'Chi tiết hợp đồng' : TITLES[path] || ''}>
+      <ProtectedRoute roles={roles}>
+        <Shell title={path.startsWith('/hop-dong/') ? 'Chi tiết hợp đồng' : (path.startsWith('/claims/') && path !== '/claims/new') ? 'Chi tiết bồi thường' : TITLES[path] || ''}>
           <div className="page-wrapper"><PageShell>{withErrorBoundary(el, TITLES[path] || path)}</PageShell></div>
         </Shell>
       </ProtectedRoute>
@@ -59,18 +90,12 @@ const page = (path, el) => (
   />
 );
 
-const adminPage = (path, el) => (
-  <Route
-    path={path}
-    element={
-      <ProtectedRoute roles={['ROLE_ADMIN']}>
-        <Shell title={TITLES[path] || ''}>
-          <div className="page-wrapper"><PageShell>{withErrorBoundary(el, TITLES[path] || path)}</PageShell></div>
-        </Shell>
-      </ProtectedRoute>
-    }
-  />
-);
+// Đợt 1C: benchmark gate phía FE. Chỉ coi là BẬT khi đúng chuỗi "true"
+// (mặc định OFF — build không set biến, set "1"/"yes"/"True" đều OFF).
+// Khi tắt: Sidebar ẩn mục benchmark và route /admin/benchmark redirect về
+// /admin (xem AnimatedRoutes). FE chỉ là UX — chốt chặn thật là cờ
+// app.benchmark.enabled ở BenchmarkController + matcher ADMIN ở BE.
+const BENCHMARK_ENABLED = import.meta.env.VITE_ENABLE_BENCHMARK === 'true';
 
 /** Routes bọc AnimatePresence để chuyển trang mượt */
 function AnimatedRoutes() {
@@ -84,11 +109,27 @@ function AnimatedRoutes() {
         {page('/hop-dong/:policyNumber', <PolicyDetailPage />)}
         {page('/ho-so', <ProfilePage />)}
         {page('/doi-mat-khau', <ChangePasswordPage />)}
-        {adminPage('/admin', <AdminDashboardPage />)}
-        {adminPage('/admin/hop-dong', <AdminPolicyListPage />)}
-        {adminPage('/admin/excel', <ExcelToolsPage />)}
-        {adminPage('/admin/benchmark', <BenchmarkPage />)}
-        {adminPage('/admin/index-audit', <IndexAuditPage />)}
+        {page('/thong-bao', <NotificationsPage />)}
+        {page('/admin', <AdminDashboardPage />, ['ROLE_ADMIN'])}
+        {page('/admin/hop-dong', <AdminPolicyListPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER'])}
+        {page('/admin/users', <AdminUserPage />, ['ROLE_ADMIN'])}
+        {BENCHMARK_ENABLED
+          ? page('/admin/benchmark', <BenchmarkPage />, ['ROLE_ADMIN'])
+          : <Route path="/admin/benchmark" element={<Navigate to="/admin" replace />} />}
+        {page('/admin/index-audit', <IndexAuditPage />, ['ROLE_ADMIN'])}
+        {page('/admin/reports', <ReportsPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER'])}
+        {page('/admin/thuong-luong', <UnderwriterQueuePage />, ['ROLE_UNDERWRITER', 'ROLE_ADMIN'])}
+        {page('/admin/audit-logs', <AdminAuditLogPage />, ['ROLE_ADMIN'])}
+        {page('/agent/khach-hang', <AgentCustomerPage />, ['ROLE_AGENT', 'ROLE_ADMIN'])}
+        {page('/agent/hoa-hong', <AgentCommissionPage />, ['ROLE_AGENT', 'ROLE_ADMIN'])}
+        {page('/thanh-toan', <PaymentPage />)}
+        {page('/so-sanh-goi', <ComparePackagesPage />)}
+        {page('/cho-duyet', <PendingEndorsementsPage />)}
+        {page('/admin/phan-quyen', <PermissionMatrixPage />, ['ROLE_ADMIN'])}
+        {page('/ho-so/lich-su-dang-nhap', <LoginHistoryPage />)}
+        {page('/claims', <ClaimsPage />)}
+        {page('/claims/new', <CreateClaimPage />, ['ROLE_CUSTOMER', 'ROLE_USER'])}
+        {page('/claims/:id', <ClaimDetailPage />)}
         {import.meta.env.DEV && (
           <Route path="/dev/api-tester" element={<DevTester />} />
         )}
