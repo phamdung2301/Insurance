@@ -9,12 +9,13 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * Response cho payment qua cổng. Field {@code paymentUrl} chỉ có ở
- * response tạo payment (FE dùng để redirect sang VNPay); các response
- * tra cứu/lịch sử không trả URL này (NON_NULL loại bỏ).
- * {@code policyStatus} chỉ có ở response tra cứu return URL.
- * {@code signatureValid}: true khi FE gửi kèm vnp_SecureHash và verify
- * pass; false khi FE chỉ gửi txnRef (không có chữ ký để verify).
+ * Response cho payment qua cổng SePay. Các field QR/tài khoản
+ * ({@code qrUrl}, {@code bankCode}, {@code accountNumber},
+ * {@code accountName}) chỉ có ở response tạo payment (FE hiển thị QR +
+ * thông tin chuyển khoản); các response tra cứu/lịch sử không trả chúng
+ * (NON_NULL loại bỏ). {@code transferContent} có ở response tạo payment
+ * và lịch sử (để đối soát); {@code policyStatus} chỉ có ở response tra
+ * cứu trạng thái.
  */
 @Data
 @NoArgsConstructor
@@ -28,11 +29,14 @@ public class PaymentResponse {
     private Double amount;
     private String provider;
     private String txnRef;
+    private String transferContent;
     private String status;
     private String gatewayTransactionNo;
     private Instant paidAt;
     private Instant createdAt;
-    private String paymentUrl;
+    private String bankCode;
+    private String accountNumber;
+    private String accountName;
+    private String qrUrl;
     private String policyStatus;
-    private Boolean signatureValid;
 }

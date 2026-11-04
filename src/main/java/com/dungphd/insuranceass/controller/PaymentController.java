@@ -7,6 +7,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -15,16 +17,17 @@ import java.security.Principal;
 import java.util.Map;
 
 /**
- * Endpoint cổng VNPay (đợt payment).
+ * Endpoint cổng SePay (chuyển khoản + webhook).
  *
- * <p>Return URL chỉ tra cứu + hiển thị — KHÔNG đổi trạng thái.
- * IPN là nguồn sự thật duy nhất đổi trạng thái (verify chữ ký + khớp tiền).
- * IPN response KHÔNG bọc ApiResponse envelope: VNPay yêu cầu JSON thô
- * {"RspCode": "...", "Message": "..."}.
+ * <p>Webhook là nguồn sự thật duy nhất đổi trạng thái: SePay gửi POST JSON
+ * tới {@code /payments/sepay-webhook} (không JWT → permitAll ĐÚNG path +
+ * ĐÚNG method POST này trong SecurityConfig; an toàn dựa vào verify
+ * HMAC-SHA256 trên RAW BODY + khớp tiền + idempotent trong
+ * PaymentServiceImpl). Webhook response KHÔNG bọc ApiResponse envelope:
+ * SePay yêu cầu JSON thô {@code {"success": true/false}}.
  *
- * <p>Chú ý: VNPay thực tế gọi IPN bằng GET (query string), trong khi task
- * đợt này ghi POST — controller hỗ trợ cả hai method, và SecurityConfig
- * permitAll cả GET + POST nhưng CHỈ đúng path IPN này.
+ * <p>Tra cứu trạng thái chỉ đọc — KHÔNG đổi trạng thái, KHÔNG gửi mail —
+ * và vẫn cần JWT + đúng scope đọc policy (không permitAll).
  */
 @RestController
 @RequestMapping({"/payments", "/api/payments"})
@@ -34,35 +37,33 @@ public class PaymentController {
     private final PaymentService paymentService;
 
     /**
-     * GET /payments/vnpay-return — FE trang kết quả gọi sau khi khách quay về
-     * từ VNPay, truyền toàn bộ tham số vnp_* trên return URL (ít nhất txnRef).
-     * Chỉ đọc: trả Payment + policyStatus hiện tại từ backend (nguồn sự thật).
-     * Nếu có vnp_SecureHash mà verify fail → 403, không trả dữ liệu.
-     * Yêu cầu đăng nhập + đúng scope đọc policy (không permitAll).
+     * POST /payments/sepay-webhook — server-to-server từ SePay, KHÔNG có JWT.
+     * Nhận RAW BODY (byte[]) để verify HMAC trước khi parse JSON — KHÔNG
+     * parse DTO rồi serialize lại để verify (bytes khác là chữ ký khác).
+     * Chỉ lỗi xác thực mới trả 401; mọi lỗi dữ liệu trả 200 success + log
+     * (SePay retry cũng vô ích) — xem PaymentService.handleSepayWebhook.
      */
-    @GetMapping("/vnpay-return")
-    public ResponseEntity<ApiResponse<PaymentResponse>> vnpayReturn(
-            @RequestParam Map<String, String> allParams,
-            Principal principal) {
-        String txnRef = allParams.get("vnp_TxnRef");
-        String actor = principal != null && principal.getName() != null ? principal.getName() : "System";
-        PaymentResponse response = paymentService.lookupReturn(txnRef, allParams, actor);
-        return ResponseEntity.ok(ApiResponse.success(response, "Payment status retrieved successfully"));
+    @PostMapping("/sepay-webhook")
+    public ResponseEntity<Map<String, Boolean>> sepayWebhook(
+            @RequestBody byte[] rawBody,
+            @RequestHeader(value = "X-SePay-Signature", required = false) String signature,
+            @RequestHeader(value = "X-SePay-Timestamp", required = false) String timestamp) {
+        PaymentService.WebhookResult result =
+                paymentService.handleSepayWebhook(rawBody, signature, timestamp);
+        return ResponseEntity.status(result.httpStatus()).body(Map.of("success", result.success()));
     }
 
     /**
-     * POST /payments/vnpay-ipn (+ GET, xem class javadoc) — server-to-server
-     * từ VNPay, KHÔNG có JWT → permitAll đúng path này trong SecurityConfig.
-     * An toàn dựa vào verify chữ ký + khớp số tiền + idempotent theo txnRef,
-     * không dựa vào permitAll.
+     * GET /payments/status?txnRef=... — FE tra cứu sau khi khách chuyển khoản.
+     * Chỉ đọc: trả Payment + policyStatus hiện tại từ backend (nguồn sự thật).
+     * Yêu cầu đăng nhập + đúng scope đọc policy (không permitAll).
      */
-    @PostMapping("/vnpay-ipn")
-    public ResponseEntity<Map<String, String>> vnpayIpnPost(@RequestParam Map<String, String> allParams) {
-        return ResponseEntity.ok(paymentService.handleIpn(allParams));
-    }
-
-    @GetMapping("/vnpay-ipn")
-    public ResponseEntity<Map<String, String>> vnpayIpnGet(@RequestParam Map<String, String> allParams) {
-        return ResponseEntity.ok(paymentService.handleIpn(allParams));
+    @GetMapping("/status")
+    public ResponseEntity<ApiResponse<PaymentResponse>> paymentStatus(
+            @RequestParam String txnRef,
+            Principal principal) {
+        String actor = principal != null && principal.getName() != null ? principal.getName() : "System";
+        PaymentResponse response = paymentService.lookupStatus(txnRef, actor);
+        return ResponseEntity.ok(ApiResponse.success(response, "Payment status retrieved successfully"));
     }
 }

@@ -12,15 +12,20 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import java.time.Instant;
 
 /**
- * Bản ghi thanh toán qua cổng (VNPay sandbox) — MỚI, đợt payment.
+ * Bản ghi thanh toán qua cổng (SePay — chuyển khoản + webhook) — đợt payment.
  * Một policy QUOTED có thể có nhiều Payment (thanh toán lại sau khi
  * hủy/thất bại), nhưng tại một thời điểm chỉ tối đa một PENDING: khi tạo
  * payment mới, payment PENDING cũ của cùng policy bị chuyển CANCELLED
  * (supersede — xem PaymentServiceImpl.createPayment).
  *
  * <p>Số tiền {@code amount} được KHÓA tại lúc tạo payment (= totalPremium
- * lúc đó). IPN luôn đối chiếu với amount đã lưu này, không đối chiếu với
+ * lúc đó). Webhook luôn đối chiếu với amount đã lưu này, không đối chiếu với
  * totalPremium hiện tại của policy (giá có thể đã đổi sau đó).
+ *
+ * <p>SePay không có API tạo đơn: {@code transferContent} là nội dung chuyển
+ * khoản duy nhất khách phải gõ (tra cứu ngược được payment từ content
+ * webhook); {@code gatewayTransactionNo} tái dùng để lưu SePay transaction
+ * {@code id} (dạng chuỗi) khi tiền về, phục vụ chống trùng webhook.
  */
 @Data
 @NoArgsConstructor
@@ -38,21 +43,28 @@ public class Payment {
     /** Số tiền phải trả (VND), khóa tại lúc tạo payment. */
     private Double amount;
 
-    /** Cổng thanh toán, hiện chỉ có VNPAY. */
+    /** Cổng thanh toán, hiện chỉ có SEPAY. */
     @Builder.Default
-    private String provider = "VNPAY";
+    private String provider = "SEPAY";
 
-    /** Mã giao dịch riêng của hệ thống, gửi sang VNPay làm vnp_TxnRef. */
+    /** Mã giao dịch riêng của hệ thống (dùng làm txnRef tra cứu). */
     @Indexed(unique = true)
     private String txnRef;
+
+    /**
+     * Nội dung chuyển khoản duy nhất khách phải gõ, dạng INS + 10 ký tự
+     * [A-Z0-9]. Unique để tra cứu ngược payment từ content/code webhook.
+     */
+    @Indexed(unique = true)
+    private String transferContent;
 
     @Builder.Default
     private GatewayPaymentStatus status = GatewayPaymentStatus.PENDING;
 
-    /** Mã giao dịch phía VNPay (vnp_TransactionNo), chỉ có sau khi IPN thành công. */
+    /** SePay transaction {@code id} (dạng chuỗi), chỉ có sau khi webhook tiền về. */
     private String gatewayTransactionNo;
 
-    /** Thời điểm IPN xác nhận tiền về (lấy từ vnp_PayDate nếu parse được, nếu không là now). */
+    /** Thời điểm webhook xác nhận tiền về (lấy từ transactionDate nếu parse được, nếu không là now). */
     private Instant paidAt;
 
     /** Email bên cầu đã tạo payment (principal lúc tạo). */

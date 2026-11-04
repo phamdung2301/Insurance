@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   MapPin, Plus, Pencil, Trash2, ChevronDown, History,
-  FileText, ArrowLeft, CreditCard, Zap, Send, SlidersHorizontal, Download, Check, ShieldAlert,
+  FileText, ArrowLeft, CreditCard, Zap, Send, SlidersHorizontal, Download, Check, ShieldAlert, Copy,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -48,6 +48,11 @@ export function PolicyDetailPage() {
   const [tab, setTab] = useState('overview');
   const [payOpen, setPayOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Thanh toán chuyển khoản SePay: thông tin tạo payment + trạng thái polling.
+  const [sepayOpen, setSepayOpen] = useState(false);
+  const [sepayPayment, setSepayPayment] = useState(null);
+  const [sepayStatus, setSepayStatus] = useState(null);
+  const [sepayChecking, setSepayChecking] = useState(false);
 
   // Modals
   const [locModal, setLocModal] = useState(null);   // {mode:'add'} | {mode:'edit', loc}
@@ -121,19 +126,22 @@ export function PolicyDetailPage() {
     if (!window.confirm('Kích hoạt trực tiếp hợp đồng này mà không qua thanh toán?')) return;
     await doTransition('ACTIVE', 'Hợp đồng đã được kích hoạt.');
   };
-  const payViaGateway = async () => {
-    // Thanh toán qua cổng VNPay (song song với luồng chuyển khoản tay):
-    // chỉ tạo payment khi QUOTED, rồi redirect trình duyệt sang paymentUrl.
-    // Trạng thái chỉ đổi khi IPN từ VNPay về — không tự kết luận từ đây.
+  const payViaSepay = async () => {
+    // Thanh toán chuyển khoản qua SePay (song song với luồng chuyển khoản
+    // tay): chỉ tạo payment khi QUOTED, rồi MỞ MODAL hiển thị QR + thông
+    // tin chuyển khoản — KHÔNG redirect sang cổng. Trạng thái chỉ đổi khi
+    // SePay gửi xác nhận về backend — không tự kết luận thành công từ đây.
     setBusy(true);
     try {
-      const res = await policyService.createGatewayPayment(policyNumber);
+      const res = await policyService.createSepayPayment(policyNumber);
       const data = res?.data ?? res ?? {};
-      if (data.paymentUrl) {
-        window.location.href = data.paymentUrl;
+      if (!data.txnRef) {
+        toast.error('Không nhận được thông tin chuyển khoản từ hệ thống. Vui lòng thử lại.');
         return;
       }
-      toast.error('Không nhận được đường dẫn thanh toán từ cổng. Vui lòng thử lại.');
+      setSepayPayment(data);
+      setSepayStatus({ txnRef: data.txnRef, status: data.status ?? 'PENDING' });
+      setSepayOpen(true);
     } catch (err) {
       if (err.status === 403) {
         // Interceptor đã thay message 403 bằng câu chung về quyền admin nên
@@ -151,6 +159,34 @@ export function PolicyDetailPage() {
       setBusy(false);
     }
   };
+  // Tra cứu trạng thái SePay theo txnRef — CHỈ ĐỌC, không đổi trạng thái.
+  const checkSepayStatus = useCallback(async () => {
+    const txnRef = sepayPayment?.txnRef;
+    if (!txnRef) return null;
+    setSepayChecking(true);
+    try {
+      const res = await policyService.getPaymentStatus(txnRef);
+      const data = res?.data ?? res ?? null;
+      if (data) setSepayStatus(data);
+      return data;
+    } catch (err) {
+      toast.error(err.message || 'Không tra cứu được trạng thái thanh toán.');
+      return null;
+    } finally {
+      setSepayChecking(false);
+    }
+  }, [sepayPayment?.txnRef, toast]);
+  // Polling mỗi ~10s khi modal mở và chưa có trạng thái cuối; dừng khi
+  // unmount/đóng modal hoặc khi đã PAID/ACTIVE/FAILED/CANCELLED.
+  useEffect(() => {
+    const status = sepayStatus?.status;
+    const policyStatus = sepayStatus?.policyStatus;
+    const terminal = status === 'PAID' || status === 'FAILED' || status === 'CANCELLED'
+      || policyStatus === 'ACTIVE';
+    if (!sepayOpen || !sepayPayment?.txnRef || terminal) return undefined;
+    const id = setInterval(() => { checkSepayStatus(); }, 10000);
+    return () => clearInterval(id);
+  }, [sepayOpen, sepayPayment?.txnRef, sepayStatus?.status, sepayStatus?.policyStatus, checkSepayStatus]);
   const deletePolicy = async () => {
     setBusy(true);
     try {
@@ -279,12 +315,12 @@ export function PolicyDetailPage() {
   // (được giao) và ADMIN; UNDERWRITER xem chi tiết ở chế độ đọc.
   const canManage = hasAnyRole(['ROLE_CUSTOMER', 'ROLE_AGENT', 'ROLE_ADMIN']);
   const isInsured = !policy.insured?.email || (user?.email && policy.insured.email.toLowerCase() === user.email.toLowerCase());
-  // Nút VNPay chỉ bên cầu thấy: isInsured (biến hiện có, lỏng khi thiếu
+  // Nút SePay chỉ bên cầu thấy: isInsured (biến hiện có, lỏng khi thiếu
   // insured email) hoặc đại lý được giao (pattern isAgent của NegotiationPanel).
   // FE chỉ ẩn/hiện cho UX — BE (isDemandSide) mới là chốt chặn.
   const isAssignedAgent = user?.email && policy.assignedAgentEmail
     && policy.assignedAgentEmail.toLowerCase() === user.email.toLowerCase();
-  const canPayGateway = status === 'QUOTED' && canManage && (isInsured || isAssignedAgent);
+  const canPaySepay = status === 'QUOTED' && canManage && (isInsured || isAssignedAgent);
   const canClaim = (hasRole('ROLE_CUSTOMER') || hasRole('ROLE_USER')) && isInsured;
   const isAdmin = hasRole('ROLE_ADMIN');
 
@@ -328,8 +364,8 @@ export function PolicyDetailPage() {
         busy={busy}
         onRequestQuote={requestQuote}
         onAcceptQuote={acceptQuote}
-        onPayGateway={payViaGateway}
-        showGatewayPay={canPayGateway}
+        onPaySepay={payViaSepay}
+        showSepayPay={canPaySepay}
         onPayNow={() => setPayOpen(true)}
         onAdminActivate={adminActivate}
         onEndorse={() => setEndorseOpen(true)}
@@ -441,6 +477,18 @@ export function PolicyDetailPage() {
       </Modal>
       <EndorseModal open={endorseOpen} onClose={() => setEndorseOpen(false)} onSubmit={submitEndorse} busy={busy} policy={policy} />
 
+      <SepayPaymentModal
+        open={sepayOpen}
+        onClose={() => setSepayOpen(false)}
+        payment={sepayPayment}
+        statusInfo={sepayStatus}
+        checking={sepayChecking}
+        onCheck={checkSepayStatus}
+        onRetry={() => { setSepayOpen(false); payViaSepay(); }}
+        onViewPolicy={async () => { setSepayOpen(false); await load(); }}
+        onViewPayments={() => { setSepayOpen(false); navigate('/thanh-toan'); }}
+      />
+
       <PaymentModal
         open={payOpen}
         onClose={() => setPayOpen(false)}
@@ -451,11 +499,115 @@ export function PolicyDetailPage() {
   );
 }
 
+// ---------------------------------------------------------------- SePay modal
+// Modal thanh toán chuyển khoản SePay: hiển thị QR do backend trả sẵn
+// (qrUrl — FE chỉ render <img>, KHÔNG tự build URL QR), ngân hàng, số tài
+// khoản, chủ tài khoản, số tiền, nội dung chuyển khoản (kèm nút copy) và
+// trạng thái chờ. Trạng thái hiển thị lấy từ statusInfo (polling + nút bấm
+// tay ở component cha); CHƯA có PAID/ACTIVE thì không kết luận thành công.
+function SepayPaymentModal({ open, onClose, payment, statusInfo, checking, onCheck, onRetry, onViewPolicy, onViewPayments }) {
+  const toast = useToast();
+  const [copied, setCopied] = useState(null);
+  if (!payment) return null;
+  const status = statusInfo?.status ?? payment.status ?? 'PENDING';
+  const policyStatus = statusInfo?.policyStatus;
+  const isSuccess = status === 'PAID' || policyStatus === 'ACTIVE';
+  const isFailed = status === 'FAILED' || status === 'CANCELLED';
+  const isPending = !isSuccess && !isFailed;
+
+  const copy = async (text, key) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      toast.error('Không sao chép được. Vui lòng sao chép thủ công.');
+    }
+  };
+  const Row = ({ k, v, copyKey }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', padding: '0.4rem 0', borderBottom: '1px solid var(--border-subtle, #e2e8f0)' }}>
+      <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{k}</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600, wordBreak: 'break-all', textAlign: 'right' }}>
+        {v ?? '—'}
+        {copyKey && v && (
+          <button type="button" className="btn btn-sm" onClick={() => copy(v, copyKey)} title="Sao chép">
+            {copied === copyKey ? <Check size={14} color="#1663d9" /> : <Copy size={14} />}
+          </button>
+        )}
+      </span>
+    </div>
+  );
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Thanh toán chuyển khoản (SePay)"
+      footer={
+        <>
+          {isPending && (
+            <button type="button" className="btn btn-primary" onClick={onCheck} disabled={checking}>
+              {checking ? 'Đang kiểm tra…' : 'Kiểm tra trạng thái'}
+            </button>
+          )}
+          {isSuccess && (
+            <button type="button" className="btn btn-primary" onClick={onViewPolicy}>
+              Về trang chi tiết hợp đồng
+            </button>
+          )}
+          {isFailed && (
+            <button type="button" className="btn btn-primary" onClick={onRetry}>
+              Tạo lại thanh toán
+            </button>
+          )}
+          <button type="button" className="btn btn-secondary" onClick={onViewPayments}>
+            Về trang Thanh toán
+          </button>
+        </>
+      }
+    >
+      {isSuccess && (
+        <p style={{ color: '#047857', fontWeight: 600 }}>
+          Thanh toán thành công — hợp đồng đã được kích hoạt.
+        </p>
+      )}
+      {isFailed && (
+        <p style={{ color: '#dc2626', fontWeight: 600 }}>
+          Giao dịch này đã thất bại hoặc đã hủy. Bạn có thể tạo lại thanh toán mới.
+        </p>
+      )}
+      {isPending && (
+        <p style={{ color: '#92400e' }}>
+          Đang chờ xác nhận — nếu đã chuyển khoản, hệ thống thường xác nhận trong vài
+          chục giây, bấm “Kiểm tra trạng thái” để cập nhật. Trạng thái tự cập nhật
+          mỗi ~10 giây khi modal còn mở.
+        </p>
+      )}
+      {payment.qrUrl && (
+        <div style={{ textAlign: 'center', margin: '0.75rem 0' }}>
+          <img src={payment.qrUrl} alt="Mã QR chuyển khoản" style={{ maxWidth: 240, width: '100%' }} />
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            Quét mã bằng app ngân hàng để chuyển khoản đúng số tiền và nội dung.
+          </p>
+        </div>
+      )}
+      <Row k="Ngân hàng" v={payment.bankCode} />
+      <Row k="Số tài khoản" v={payment.accountNumber} copyKey="acc" />
+      <Row k="Chủ tài khoản" v={payment.accountName} />
+      <Row k="Số tiền" v={formatMoney(payment.amount)} />
+      <Row k="Nội dung chuyển khoản" v={payment.transferContent} copyKey="content" />
+      <Row k="Mã giao dịch" v={payment.txnRef} />
+      <Row k="Trạng thái" v={isSuccess ? 'Đã thanh toán' : isFailed ? 'Thất bại / Đã hủy' : 'Đang chờ xác nhận'} />
+    </Modal>
+  );
+}
+
 // ---------------------------------------------------------------- Action bar
 // Nút bấm filter theo role VÀ status (PLAN §1.4/§1.3): FE chỉ ẩn/hiện cho UX,
 // BE vẫn check lại mọi transition. Nút "Kích hoạt trực tiếp" BOUND→ACTIVE của
 // ADMIN nằm trong ActionBar bên dưới, không phải ở trang đối soát riêng.
-function ActionBar({ status, isAdmin, canManage, isPaymentClaimed, canClaim, onClaim, busy, onRequestQuote, onAcceptQuote, onPayGateway, showGatewayPay, onPayNow, onAdminActivate, onEndorse, onDelete }) {
+function ActionBar({ status, isAdmin, canManage, isPaymentClaimed, canClaim, onClaim, busy, onRequestQuote, onAcceptQuote, onPaySepay, showSepayPay, onPayNow, onAdminActivate, onEndorse, onDelete }) {
   const btn = (props, children) => (
     <button type="button" className="btn" disabled={busy} {...props}>{children}</button>
   );
@@ -470,7 +622,7 @@ function ActionBar({ status, isAdmin, canManage, isPaymentClaimed, canClaim, onC
       {status === 'QUOTED' && canManage && (
         <>
           {btn({ className: 'btn btn-primary', onClick: onAcceptQuote }, <><Check size={16} /> Chấp nhận & thanh toán</>)}
-          {showGatewayPay && btn({ className: 'btn btn-primary', onClick: onPayGateway }, <><CreditCard size={16} /> Thanh toán qua VNPay</>)}
+          {showSepayPay && btn({ className: 'btn btn-primary', onClick: onPaySepay }, <><CreditCard size={16} /> Thanh toán chuyển khoản (SePay)</>)}
         </>
       )}
       {status === 'BOUND' && (

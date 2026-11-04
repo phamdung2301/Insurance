@@ -13,6 +13,14 @@ public interface PaymentRepository extends MongoRepository<Payment, String> {
 
     Optional<Payment> findByTxnRef(String txnRef);
 
+    Optional<Payment> findByTransferContent(String transferContent);
+
+    boolean existsByTransferContent(String transferContent);
+
+    Optional<Payment> findByGatewayTransactionNo(String gatewayTransactionNo);
+
+    List<Payment> findByStatus(GatewayPaymentStatus status);
+
     List<Payment> findByPolicyNumberOrderByCreatedAtDesc(String policyNumber);
 
     List<Payment> findByPolicyNumberAndStatus(String policyNumber, GatewayPaymentStatus status);

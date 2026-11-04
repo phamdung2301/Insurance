@@ -16,7 +16,6 @@ import com.dungphd.insuranceass.service.EndorsementService;
 import com.dungphd.insuranceass.service.PaymentService;
 import com.dungphd.insuranceass.service.PolicyService;
 import com.dungphd.insuranceass.service.TransactionLedgerService;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -126,26 +125,26 @@ public class PolicyController {
     }
 
     // ==========================================
-    // Gateway payments (đợt payment — VNPay sandbox)
+    // Gateway payments (đợt payment — SePay chuyển khoản + webhook)
     // Luồng này SONG SONG, không thay thế payment-claim thủ công ở trên.
     // ==========================================
 
     /**
-     * POST /policies/{policyNumber}/payments — tạo payment qua cổng.
+     * POST /policies/{policyNumber}/payments — tạo payment qua cổng SePay.
      * Chỉ policy QUOTED + người gọi là bên cầu (service enforce).
-     * Response data: { paymentUrl, txnRef, amount, status: "PENDING", ... }.
-     * FE redirect trình duyệt sang paymentUrl; trạng thái chỉ đổi khi IPN về.
+     * Response data: { transferContent, qrUrl, bankCode, accountNumber,
+     * accountName, txnRef, amount, status: "PENDING", ... }.
+     * FE hiển thị QR + nội dung chuyển khoản cho khách; trạng thái chỉ đổi
+     * khi webhook SePay "Có tiền vào" về.
      */
     @PostMapping("/{policyNumber}/payments")
     public ResponseEntity<ApiResponse<PaymentResponse>> createPayment(
             @PathVariable String policyNumber,
-            Principal principal,
-            HttpServletRequest request) {
+            Principal principal) {
         String actor = resolveActor(principal);
-        PaymentResponse response = paymentService.createPayment(
-                policyNumber, actor, request != null ? request.getRemoteAddr() : null);
+        PaymentResponse response = paymentService.createPayment(policyNumber, actor);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(response, "Đã tạo giao dịch thanh toán qua VNPay."));
+                .body(ApiResponse.success(response, "Đã tạo giao dịch thanh toán qua SePay."));
     }
 
     /**

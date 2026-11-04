@@ -93,26 +93,29 @@ export const policyService = {
   claimPayment: (policyNumber) =>
     api.post(`/policies/${encodeURIComponent(policyNumber)}/payment-claim`),
   /**
-   * Thanh toán qua cổng VNPay (đợt payment — SONG SONG, không thay thế
+   * Thanh toán chuyển khoản qua SePay (đợt payment — SONG SONG, không thay thế
    * claimPayment thủ công ở trên). Backend envelope { success, message, data }
    * đã được interceptor bóc 1 lớp (response.data) nên caller phải unwrap thêm
    * `.data` — đúng pattern getPolicyByNumber (xem PolicyDetailPage).
-   * POST trả 201 + data { paymentUrl, txnRef, amount, status: 'PENDING', ... };
-   * FE redirect trình duyệt sang paymentUrl, trạng thái chỉ đổi khi IPN về.
+   * POST trả 201 + data { amount, provider: 'SEPAY', txnRef,
+   * status: 'PENDING', transferContent, bankCode, accountNumber, accountName,
+   * qrUrl }; KHÔNG redirect sang cổng — FE hiển thị QR + thông tin chuyển
+   * khoản để khách tự chuyển khoản bằng app ngân hàng. Trạng thái chỉ đổi
+   * khi SePay gửi xác nhận về backend. Lỗi: 404 không tồn tại, 403 không
+   * phải bên cầu, 409 không QUOTED, 400 giá deal lệch, 503 cổng chưa cấu hình.
    */
-  createGatewayPayment: (policyNumber) =>
+  createSepayPayment: (policyNumber) =>
     api.post(`/policies/${encodeURIComponent(policyNumber)}/payments`),
-  /** Lịch sử payment qua cổng của 1 policy — mới nhất trước, KHÔNG có paymentUrl. */
-  listGatewayPayments: (policyNumber) =>
+  /** Lịch sử payment qua cổng của 1 policy — mới nhất trước, kèm transferContent. */
+  listPayments: (policyNumber) =>
     api.get(`/policies/${encodeURIComponent(policyNumber)}/payments`),
   /**
-   * Tra cứu kết quả return — CHỈ ĐỌC, không đổi trạng thái. params là toàn bộ
-   * tham số vnp_* trên return URL (ít nhất vnp_TxnRef); gửi kèm chữ ký để
-   * backend verify (thiếu chữ ký → signatureValid=false, trạng thái vẫn lấy
-   * từ backend; chữ ký kèm theo mà sai → 403). KHÔNG tự kết luận thành công
-   * từ vnp_ResponseCode trên URL.
+   * Tra cứu trạng thái payment theo txnRef — CHỈ ĐỌC, không đổi trạng thái.
+   * GET /payments/status?txnRef=... trả { txnRef, status, policyStatus,
+   * amount, provider }. Caller KHÔNG tự kết luận thành công khi chưa có
+   * trạng thái PAID (hoặc policyStatus ACTIVE) từ backend.
    */
-  lookupGatewayReturn: (params) => api.get('/payments/vnpay-return', { params }),
+  getPaymentStatus: (txnRef) => api.get('/payments/status', { params: { txnRef } }),
   /** Yêu cầu điều chỉnh (endorsement) — backend: POST /policies/{n}/endorsements */
   endorse: (policyNumber, payload) => api.post(`/policies/${encodeURIComponent(policyNumber)}/endorsements`, payload),
   getHistory: (policyNumber) => api.get(`/policies/${encodeURIComponent(policyNumber)}/history`),

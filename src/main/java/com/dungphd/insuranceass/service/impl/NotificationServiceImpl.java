@@ -131,7 +131,7 @@ public class NotificationServiceImpl implements NotificationService {
             }
             String link = "/hop-dong/" + policy.getPolicyNumber();
             StringBuilder msg = new StringBuilder("Hợp đồng " + policy.getPolicyNumber()
-                    + " đã thanh toán thành công qua cổng VNPay và chuyển sang trạng thái ACTIVE.");
+                    + " đã thanh toán thành công qua cổng SePay và chuyển sang trạng thái ACTIVE.");
             if (payment != null) {
                 if (payment.getAmount() != null) {
                     msg.append(" Số tiền đã trả: ").append(formatVnd(payment.getAmount())).append(" VND.");

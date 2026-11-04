@@ -24,7 +24,7 @@ public class Notification {
     public static final String TYPE_POLICY_ACTIVATED = "POLICY_ACTIVATED";
     public static final String TYPE_ENDORSEMENT_APPLIED = "ENDORSEMENT_APPLIED";
     public static final String TYPE_RENEWAL_REMINDER = "RENEWAL_REMINDER";
-    /** Đợt payment: IPN thành công, policy QUOTED → ACTIVE qua cổng VNPay. */
+    /** Đợt payment: webhook SePay thành công, policy QUOTED → ACTIVE qua cổng SePay. */
     public static final String TYPE_PAYMENT_SUCCEEDED = "PAYMENT_SUCCEEDED";
     /** Đợt payment: khách tạo yêu cầu endorsement (cả nhánh apply và pending). */
     public static final String TYPE_ENDORSEMENT_REQUESTED = "ENDORSEMENT_REQUESTED";

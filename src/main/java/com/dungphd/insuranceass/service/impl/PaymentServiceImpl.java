@@ -17,6 +17,8 @@ import com.dungphd.insuranceass.service.PaymentGateway;
 import com.dungphd.insuranceass.service.PaymentService;
 import com.dungphd.insuranceass.service.PermissionService;
 import com.dungphd.insuranceass.service.TransactionLedgerService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -27,36 +29,42 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
- * Thanh toán qua cổng VNPay sandbox.
+ * Thanh toán qua cổng SePay (chuyển khoản + webhook "Có tiền vào").
  *
  * <p>QUYẾT ĐỊNH ĐÃ CHỐT (ghi rõ để parent quyết sau, không tự thêm logic):
  * <ul>
- *   <li>Luồng cổng đi QUOTED → ACTIVE trực tiếp bằng guard IPN riêng trong
- *       {@link #handleIpn}, KHÔNG tái dùng {@code transitionStatus} và KHÔNG
- *       sửa {@code PolicyStatus.ALLOWED_TRANSITIONS} — vì mở map chung sẽ mở
+ *   <li>Luồng cổng đi QUOTED → ACTIVE trực tiếp bằng guard webhook riêng
+ *       trong {@link #handleSepayWebhook}, KHÔNG tái dùng
+ *       {@code transitionStatus} và KHÔNG sửa
+ *       {@code PolicyStatus.ALLOWED_TRANSITIONS} — vì mở map chung sẽ mở
  *       luôn đường QUOTED → ACTIVE cho endpoint status-transitions của user.</li>
  *   <li>Luồng cổng BỎ QUA cả hai hook hoa hồng của luồng thủ công
  *       ({@code createForBound} / {@code markEarned} trong transitionStatus):
  *       cổng nhảy thẳng QUOTED → ACTIVE nên không đi qua BOUND. Đây là quyết
  *       định CỐ TÌNH TẠM THỜI trong đợt này (theo brief: ghi rõ, không tự thêm
  *       logic hoa hồng khi chưa rõ) — parent quyết sau có gọi bù hay không.</li>
- *   <li>Policy sau IPN thành công: {@code paymentStatus = CONFIRMED} (thống nhất
+ *   <li>Policy sau webhook thành công: {@code paymentStatus = CONFIRMED} (thống nhất
  *       "đã xác nhận thu tiền" như nhánh BOUND → ACTIVE) nhưng KHÔNG set
  *       {@code paymentClaimedAt} — field đó là marker riêng của luồng thủ công
- *       "Tôi đã chuyển khoản" (brief §1.2: "Luồng cổng mới không dùng field
+ *       "Tôi đã chuyển khoản" (brief: "Luồng cổng mới không dùng field
  *       này"). Policy không có field paymentId/paidAt riêng; mã giao dịch và
  *       thời điểm trả nằm trên bản ghi {@link Payment} (gatewayTransactionNo,
  *       paidAt).</li>
- *   <li>Negotiation còn mở khi IPN ACTIVE: không tự đóng trong đợt này
+ *   <li>Negotiation còn mở khi webhook ACTIVE: không tự đóng trong đợt này
  *       (transition BOUND đóng OPEN/PENDING_CONFIRMATION, nhưng luồng cổng
  *       chưa có quy định tương đương — ghi rõ để parent quyết; policy đã
  *       ACTIVE thì không còn đi tiếp luồng thương lượng).</li>
+ *   <li>Webhook là nguồn sự thật duy nhất đổi trạng thái. SePay retry tối đa
+ *       7 lần trong 5h nếu không nhận 200/201 + {@code {"success": true}},
+ *       nên chỉ lỗi xác thực mới trả 401; mọi lỗi dữ liệu trả 200 success +
+ *       log (retry cũng vô ích), payment giữ PENDING để đối soát tay khi
+ *       sai tiền hoặc policy không còn QUOTED.</li>
  * </ul>
  */
 @Slf4j
@@ -64,8 +72,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class PaymentServiceImpl implements PaymentService {
 
-    private static final DateTimeFormatter VNPAY_PAY_DATE =
-            DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+    private static final int TRANSFER_CONTENT_MAX_ATTEMPTS = 10;
 
     private final PolicyRepository policyRepository;
     private final PaymentRepository paymentRepository;
@@ -73,9 +80,11 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentGateway paymentGateway;
     private final NotificationService notificationService;
     private final TransactionLedgerService transactionLedgerService;
+    /** Parser webhook tự tạo (không inject bean: app không expose ObjectMapper bean). */
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
-    public PaymentResponse createPayment(String policyNumber, String principal, String clientIp) {
+    public PaymentResponse createPayment(String policyNumber, String principal) {
         Policy policy = findPolicy(policyNumber);
         if (principal == null || principal.isBlank()
                 || !permissionService.isDemandSide(policy, principal)) {
@@ -95,13 +104,13 @@ public class PaymentServiceImpl implements PaymentService {
         }
         if (!paymentGateway.isConfigured()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Cổng thanh toán chưa được cấu hình (thiếu VNPAY_TMN_CODE hoặc VNPAY_HASH_SECRET).");
+                    "Cổng thanh toán SePay chưa được cấu hình (thiếu SEPAY_BANK_CODE hoặc SEPAY_ACCOUNT_NUMBER).");
         }
         long amountVnd = Math.round(policy.getTotalPremium());
 
         // Supersede: payment PENDING cũ của cùng policy bị hủy khi tạo payment mới,
-        // để tại một thời điểm chỉ có một payment chờ IPN. IPN của payment đã
-        // CANCELLED sẽ bị từ chối ở handleIpn (RspCode 02), không kích hoạt policy.
+        // để tại một thời điểm chỉ có một payment chờ webhook. Webhook của payment đã
+        // CANCELLED sẽ bị bỏ qua ở handleSepayWebhook (trạng thái cuối), không kích hoạt policy.
         for (Payment old : paymentRepository.findByPolicyNumberAndStatus(
                 policy.getPolicyNumber(), GatewayPaymentStatus.PENDING)) {
             old.setStatus(GatewayPaymentStatus.CANCELLED);
@@ -110,26 +119,27 @@ public class PaymentServiceImpl implements PaymentService {
         }
 
         String txnRef = buildTxnRef(policy.getPolicyNumber());
+        String transferContent = generateUniqueTransferContent();
         Payment payment = Payment.builder()
                 .policyNumber(policy.getPolicyNumber())
                 .amount(policy.getTotalPremium())
-                .provider("VNPAY")
+                .provider("SEPAY")
                 .txnRef(txnRef)
+                .transferContent(transferContent)
                 .status(GatewayPaymentStatus.PENDING)
                 .createdBy(principal.trim())
                 .createdAt(Instant.now())
                 .updatedAt(Instant.now())
                 .build();
         Payment saved = paymentRepository.save(payment);
-        String paymentUrl;
+        String qrUrl;
         try {
-            paymentUrl = paymentGateway.buildPaymentUrl(
-                    txnRef, amountVnd, "Thanh toan hop dong " + policy.getPolicyNumber(), clientIp);
+            qrUrl = paymentGateway.buildQrUrl(amountVnd, transferContent);
         } catch (IllegalStateException e) {
             // Cấu hình đổi giữa chừng (hiếm): payment đã lưu PENDING, báo 503 rõ ràng.
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
         }
-        return toResponse(saved, paymentUrl, null, null);
+        return toCreateResponse(saved, qrUrl);
     }
 
     @Override
@@ -141,92 +151,112 @@ public class PaymentServiceImpl implements PaymentService {
         checkReadScope(policy, principal);
         return paymentRepository.findByPolicyNumberOrderByCreatedAtDesc(policy.getPolicyNumber())
                 .stream()
-                .map(p -> toResponse(p, null, policy.getStatus() != null ? policy.getStatus().name() : null, null))
+                .map(p -> toResponse(p, p.getTransferContent(),
+                        policy.getStatus() != null ? policy.getStatus().name() : null))
                 .toList();
     }
 
     @Override
-    public PaymentResponse lookupReturn(String txnRef, Map<String, String> vnpParams, String principal) {
+    public PaymentResponse lookupStatus(String txnRef, String principal) {
         if (txnRef == null || txnRef.isBlank()) {
-            throw new BadRequestException("Thiếu mã giao dịch (vnp_TxnRef).");
+            throw new BadRequestException("Thiếu mã giao dịch (txnRef).");
         }
         Payment payment = paymentRepository.findByTxnRef(txnRef)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy giao dịch thanh toán: " + txnRef));
         Policy policy = findPolicy(payment.getPolicyNumber());
         checkReadScope(policy, principal);
-        boolean signatureValid = false;
-        if (vnpParams != null && vnpParams.containsKey("vnp_SecureHash")) {
-            PaymentGateway.VerificationResult result = paymentGateway.verifySignature(vnpParams);
-            if (!result.valid()) {
-                // Chống giả mạo hiển thị: chữ ký kèm theo mà sai thì không trả dữ liệu.
-                throw new ForbiddenException("Chữ ký VNPay không hợp lệ.");
-            }
-            signatureValid = true;
-        }
-        return toResponse(payment, null,
-                policy.getStatus() != null ? policy.getStatus().name() : null, signatureValid);
+        // CHỈ ĐỌC: không đổi Payment, không đổi Policy, không gửi mail.
+        return PaymentResponse.builder()
+                .txnRef(payment.getTxnRef())
+                .status(payment.getStatus() != null ? payment.getStatus().name() : null)
+                .policyStatus(policy.getStatus() != null ? policy.getStatus().name() : null)
+                .amount(payment.getAmount())
+                .provider(payment.getProvider())
+                .build();
     }
 
     @Override
-    public Map<String, String> handleIpn(Map<String, String> vnpParams) {
-        String txnRef = vnpParams != null ? vnpParams.get("vnp_TxnRef") : null;
-        if (txnRef == null || txnRef.isBlank()) {
-            return rsp("01", "Order not found");
-        }
-        // 1. Verify chữ ký TRƯỚC mọi xử lý trạng thái. Không log chữ ký/secret.
-        PaymentGateway.VerificationResult verified = paymentGateway.verifySignature(vnpParams);
+    public WebhookResult handleSepayWebhook(byte[] rawBody, String signatureHeader, String timestampHeader) {
+        // 1. Verify HMAC-SHA256 trên RAW BODY TRƯỚC mọi xử lý trạng thái.
+        // Không log chữ ký/secret. Chỉ lỗi xác thực mới trả 401.
+        PaymentGateway.VerificationResult verified =
+                paymentGateway.verifyWebhookSignature(timestampHeader, rawBody, signatureHeader);
         if (!verified.valid()) {
-            log.warn("VNPay IPN rejected: invalid signature for txnRef {}", txnRef);
-            return rsp("97", "Invalid signature");
+            log.warn("SePay webhook rejected: authentication failed ({})", verified.reason());
+            return WebhookResult.unauthorized();
         }
-        // 2. TxnRef phải tồn tại, không tạo payment/policy mới từ IPN.
-        Payment payment = paymentRepository.findByTxnRef(txnRef).orElse(null);
+        // 2. Parse JSON — parse lỗi là lỗi dữ liệu → 200 success + log, retry vô ích.
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(rawBody);
+        } catch (Exception e) {
+            log.warn("SePay webhook ignored: unparseable body: {}", e.getMessage());
+            return WebhookResult.ok();
+        }
+        // 3. Chỉ xử lý tiền vào; tiền ra ("out") và loại khác → bỏ qua, 200 success.
+        String transferType = textField(root, "transferType");
+        if (!"in".equalsIgnoreCase(transferType)) {
+            log.info("SePay webhook ignored: transferType={} (only 'in' is processed)", transferType);
+            return WebhookResult.ok();
+        }
+        // 4. Tìm payment theo transferContent trong content/code. Không khớp →
+        // 200 success + log, KHÔNG tạo payment/policy mới từ webhook.
+        Payment payment = findPaymentForWebhook(root);
         if (payment == null) {
-            log.warn("VNPay IPN rejected: unknown txnRef {}", txnRef);
-            return rsp("01", "Order not found");
+            log.info("SePay webhook ignored: no payment matches content/code (sepayId={}, code={})",
+                    textField(root, "id"), textField(root, "code"));
+            return WebhookResult.ok();
         }
-        // 3. Idempotent: đã PAID thì trả success, không chuyển đổi lại, không gửi mail lại.
-        if (payment.getStatus() == GatewayPaymentStatus.PAID) {
-            return rsp("00", "Confirm Success");
+        // 5. Khớp tài khoản nhận (chỉ khi SEPAY_ACCOUNT_NUMBER có set): lệch →
+        // 200 success + warn, không đổi trạng thái.
+        String configuredAccount = paymentGateway.getAccountNumber();
+        String webhookAccount = textField(root, "accountNumber");
+        if (configuredAccount != null && !configuredAccount.isBlank()
+                && webhookAccount != null && !webhookAccount.equals(configuredAccount)) {
+            log.warn("SePay webhook held: account mismatch for txnRef {} (webhook={}, expected={})",
+                    payment.getTxnRef(), webhookAccount, configuredAccount);
+            return WebhookResult.ok();
         }
-        // Payment đã ở trạng thái cuối khác (FAILED/CANCELLED, vd bị supersede) → không xử lý nữa.
-        if (payment.getStatus() != GatewayPaymentStatus.PENDING) {
-            return rsp("02", "Order already processed");
-        }
-        // 4. Khớp số tiền: VNPay amount (x100) so với amount đã khóa lúc tạo payment.
-        Long ipnAmountVnd = paymentGateway.parseMinorAmountToVnd(vnpParams.get("vnp_Amount"));
+        // 6. Khớp số tiền: transferAmount (VND nguyên) so với amount đã khóa lúc tạo.
+        Long webhookAmount = longField(root, "transferAmount");
         long expectedVnd = Math.round(payment.getAmount() != null ? payment.getAmount() : 0.0);
-        if (ipnAmountVnd == null || ipnAmountVnd != expectedVnd) {
-            // Giữ PENDING để FINANCE đối soát tay — không tự ACTIVE, không tự FAILED hủy bằng chứng.
-            log.warn("VNPay IPN rejected: amount mismatch for txnRef {} (ipn={}, expected={})",
-                    txnRef, vnpParams.get("vnp_Amount"), expectedVnd);
-            return rsp("04", "Invalid amount");
+        if (webhookAmount == null || webhookAmount != expectedVnd) {
+            // Giữ PENDING để đối soát tay — không tự ACTIVE, không tự FAILED hủy bằng chứng.
+            log.warn("SePay webhook held: amount mismatch for txnRef {} (webhook={}, expected={})",
+                    payment.getTxnRef(), webhookAmount, expectedVnd);
+            return WebhookResult.ok();
         }
-        // 5. Response code VNPay: khác "00" = thất bại/hủy → policy giữ QUOTED, không gửi mail thành công.
-        String responseCode = vnpParams.get("vnp_ResponseCode");
-        if (!"00".equals(responseCode)) {
-            payment.setStatus("24".equals(responseCode)
-                    ? GatewayPaymentStatus.CANCELLED : GatewayPaymentStatus.FAILED);
-            payment.setGatewayTransactionNo(vnpParams.get("vnp_TransactionNo"));
-            payment.setUpdatedAt(Instant.now());
-            paymentRepository.save(payment);
-            return rsp("00", "Confirm Success");
+        // 7. Idempotent: SePay id đã xử lý (trên payment này hoặc payment khác),
+        // hoặc payment đã ở trạng thái cuối → 200 success, không chuyển đổi lại, không gửi mail lại.
+        String sepayId = textField(root, "id");
+        if (sepayId != null && !sepayId.isBlank()) {
+            boolean alreadyProcessed = sepayId.equals(payment.getGatewayTransactionNo())
+                    || paymentRepository.findByGatewayTransactionNo(sepayId).isPresent();
+            if (alreadyProcessed) {
+                log.info("SePay webhook duplicate ignored: sepayId={} already processed", sepayId);
+                return WebhookResult.ok();
+            }
         }
-        // 6. Guard QUOTED → ACTIVE riêng cho IPN (không qua transitionStatus).
+        if (payment.getStatus() != GatewayPaymentStatus.PENDING) {
+            log.info("SePay webhook ignored: payment {} already in terminal status {}",
+                    payment.getTxnRef(), payment.getStatus());
+            return WebhookResult.ok();
+        }
+        // 8. Guard QUOTED → ACTIVE riêng cho webhook (không qua transitionStatus).
         Policy policy = policyRepository.findByPolicyNumber(payment.getPolicyNumber())
                 .or(() -> policyRepository.findById(payment.getPolicyNumber()))
                 .orElse(null);
         if (policy == null) {
-            log.warn("VNPay IPN: policy not found for txnRef {}", txnRef);
-            return rsp("01", "Order not found");
+            log.warn("SePay webhook: policy not found for txnRef {}", payment.getTxnRef());
+            return WebhookResult.ok();
         }
         if (policy.getStatus() != PolicyStatus.QUOTED) {
             // Tiền đã về nhưng policy không còn QUOTED (đã ACTIVE qua luồng khác
             // hoặc đã CANCELLED): không chuyển đổi lại, giữ payment PENDING để
             // đối soát tay, không tự hoàn tiền trong đợt này.
-            log.warn("VNPay IPN held for manual review: policy {} not QUOTED (status={}) for txnRef {}",
-                    policy.getPolicyNumber(), policy.getStatus(), txnRef);
-            return rsp("99", "Policy not in QUOTED state");
+            log.warn("SePay webhook held for manual review: policy {} not QUOTED (status={}) for txnRef {}",
+                    policy.getPolicyNumber(), policy.getStatus(), payment.getTxnRef());
+            return WebhookResult.ok();
         }
         Instant now = Instant.now();
         Instant effective = policy.getEffectiveDate() != null ? policy.getEffectiveDate() : now;
@@ -240,28 +270,56 @@ public class PaymentServiceImpl implements PaymentService {
         Policy savedPolicy = policyRepository.save(policy);
 
         payment.setStatus(GatewayPaymentStatus.PAID);
-        payment.setGatewayTransactionNo(vnpParams.get("vnp_TransactionNo"));
-        payment.setPaidAt(parsePayDate(vnpParams.get("vnp_PayDate"), now));
+        payment.setGatewayTransactionNo(sepayId);
+        payment.setPaidAt(parseTransactionDate(textField(root, "transactionDate"), now));
         payment.setUpdatedAt(now);
         Payment savedPayment = paymentRepository.save(payment);
 
         try {
             transactionLedgerService.recordTransaction(
                     savedPolicy.getPolicyNumber(), savedPolicy.getVersion(),
-                    TransactionType.STATUS_TRANSITION, "VNPAY-IPN",
-                    "Thanh toan qua VNPay thanh cong (txnRef=" + txnRef + "), hop dong QUOTED -> ACTIVE");
+                    TransactionType.STATUS_TRANSITION, "SEPAY-WEBHOOK",
+                    "Thanh toan qua SePay thanh cong (txnRef=" + payment.getTxnRef()
+                            + "), hop dong QUOTED -> ACTIVE");
         } catch (Exception e) {
-            log.warn("Failed to record ledger for VNPay IPN txnRef {}: {}", txnRef, e.getMessage());
+            log.warn("Failed to record ledger for SePay txnRef {}: {}", payment.getTxnRef(), e.getMessage());
         }
         // Mail + in-app: failure-isolated bên trong NotificationService, và chỉ
-        // gọi ở nhánh IPN thành công này (không gắn vào luồng thủ công cũ).
+        // gọi ở nhánh webhook thành công này (không gắn vào luồng thủ công cũ).
         // Hoa hồng createForBound/markEarned CỐ TÌNH không gọi ở đây (xem class javadoc).
         try {
             notificationService.notifyPaymentSucceeded(savedPolicy, savedPayment);
         } catch (Exception e) {
-            log.warn("Failed to send payment-succeeded notification for txnRef {}: {}", txnRef, e.getMessage());
+            log.warn("Failed to send payment-succeeded notification for txnRef {}: {}",
+                    payment.getTxnRef(), e.getMessage());
         }
-        return rsp("00", "Confirm Success");
+        return WebhookResult.ok();
+    }
+
+    /**
+     * Tìm payment cho webhook: (a) khớp đúng field {@code code} của SePay
+     * (mọi trạng thái — để webhook trùng của payment đã PAID vẫn short-circuit
+     * ở bước idempotent); (b) nếu không, quét các payment PENDING và kiểm tra
+     * transferContent nằm trong content (khách gõ thêm chữ).
+     */
+    private Payment findPaymentForWebhook(JsonNode root) {
+        String code = textField(root, "code");
+        if (code != null && !code.isBlank()) {
+            Payment byCode = paymentRepository.findByTransferContent(code.trim().toUpperCase()).orElse(null);
+            if (byCode != null) {
+                return byCode;
+            }
+        }
+        String content = textField(root, "content");
+        if (content == null || content.isBlank()) {
+            return null;
+        }
+        for (Payment pending : paymentRepository.findByStatus(GatewayPaymentStatus.PENDING)) {
+            if (paymentGateway.contentMatches(pending.getTransferContent(), content, code)) {
+                return pending;
+            }
+        }
+        return null;
     }
 
     /** ADMIN/UW đọc mọi policy, còn lại chỉ bên cầu — đúng canReadPolicy. */
@@ -289,36 +347,93 @@ public class PaymentServiceImpl implements PaymentService {
         return clean + "-" + Instant.now().getEpochSecond() + "-" + suffix;
     }
 
-    private static Instant parsePayDate(String vnpPayDate, Instant fallback) {
-        if (vnpPayDate == null || vnpPayDate.isBlank()) {
+    /** Sinh transferContent + kiểm tra duy nhất qua repository (cộng unique index). */
+    private String generateUniqueTransferContent() {
+        for (int i = 0; i < TRANSFER_CONTENT_MAX_ATTEMPTS; i++) {
+            String candidate = paymentGateway.generateTransferContent();
+            if (!paymentRepository.existsByTransferContent(candidate)) {
+                return candidate;
+            }
+        }
+        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "Không sinh được nội dung chuyển khoản duy nhất, vui lòng thử lại.");
+    }
+
+    private static String textField(JsonNode root, String field) {
+        if (root == null || !root.has(field) || root.get(field).isNull()) {
+            return null;
+        }
+        return root.get(field).asText();
+    }
+
+    private static Long longField(JsonNode root, String field) {
+        if (root == null || !root.has(field) || !root.get(field).isNumber()) {
+            return null;
+        }
+        return root.get(field).asLong();
+    }
+
+    /**
+     * Parse transactionDate của SePay, thử lần lượt: Instant ISO, LocalDateTime
+     * ISO, "yyyy-MM-dd HH:mm:ss" (giờ VN, UTC+7). Parse lỗi → fallback now.
+     */
+    private static Instant parseTransactionDate(String transactionDate, Instant fallback) {
+        if (transactionDate == null || transactionDate.isBlank()) {
             return fallback;
+        }
+        String value = transactionDate.trim();
+        try {
+            return Instant.parse(value);
+        } catch (DateTimeParseException ignored) {
+            // Thử các dạng LocalDateTime tiếp theo.
         }
         try {
-            return LocalDateTime.parse(vnpPayDate.trim(), VNPAY_PAY_DATE)
+            return LocalDateTime.parse(value, DateTimeFormatter.ISO_LOCAL_DATE_TIME)
                     .atOffset(ZoneOffset.ofHours(7)).toInstant();
-        } catch (Exception e) {
+        } catch (DateTimeParseException ignored) {
+            // Thử dạng "yyyy-MM-dd HH:mm:ss" tiếp theo.
+        }
+        try {
+            return LocalDateTime.parse(value, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                    .atOffset(ZoneOffset.ofHours(7)).toInstant();
+        } catch (DateTimeParseException e) {
             return fallback;
         }
     }
 
-    private static Map<String, String> rsp(String code, String message) {
-        return Map.of("RspCode", code, "Message", message);
-    }
-
-    private static PaymentResponse toResponse(Payment p, String paymentUrl, String policyStatus, Boolean signatureValid) {
+    private PaymentResponse toCreateResponse(Payment p, String qrUrl) {
+        String accountName = paymentGateway.getAccountName();
         return PaymentResponse.builder()
                 .id(p.getId())
                 .policyNumber(p.getPolicyNumber())
                 .amount(p.getAmount())
                 .provider(p.getProvider())
                 .txnRef(p.getTxnRef())
+                .transferContent(p.getTransferContent())
                 .status(p.getStatus() != null ? p.getStatus().name() : null)
                 .gatewayTransactionNo(p.getGatewayTransactionNo())
                 .paidAt(p.getPaidAt())
                 .createdAt(p.getCreatedAt())
-                .paymentUrl(paymentUrl)
+                .bankCode(paymentGateway.getBankCode())
+                .accountNumber(paymentGateway.getAccountNumber())
+                .accountName(accountName != null && !accountName.isBlank() ? accountName : null)
+                .qrUrl(qrUrl)
+                .build();
+    }
+
+    private static PaymentResponse toResponse(Payment p, String transferContent, String policyStatus) {
+        return PaymentResponse.builder()
+                .id(p.getId())
+                .policyNumber(p.getPolicyNumber())
+                .amount(p.getAmount())
+                .provider(p.getProvider())
+                .txnRef(p.getTxnRef())
+                .transferContent(transferContent)
+                .status(p.getStatus() != null ? p.getStatus().name() : null)
+                .gatewayTransactionNo(p.getGatewayTransactionNo())
+                .paidAt(p.getPaidAt())
+                .createdAt(p.getCreatedAt())
                 .policyStatus(policyStatus)
-                .signatureValid(signatureValid)
                 .build();
     }
 }

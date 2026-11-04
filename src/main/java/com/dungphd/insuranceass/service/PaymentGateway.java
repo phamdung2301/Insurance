@@ -1,14 +1,18 @@
 package com.dungphd.insuranceass.service;
 
-import java.util.Map;
-
 /**
- * Abstraction cổng thanh toán (ANALYSIS §5 quyết định 1): business logic
- * chỉ phụ thuộc interface này, đổi cổng sau này không sửa PaymentService.
+ * Abstraction cổng thanh toán: business logic chỉ phụ thuộc interface này,
+ * đổi cổng sau này không sửa PaymentService.
+ *
+ * <p>Impl hiện tại là SePay: SePay KHÔNG có API tạo đơn — backend tự sinh
+ * nội dung chuyển khoản (transferContent) + QR VietQR, còn SePay chỉ báo
+ * "có tiền vào" qua webhook. Vì vậy interface này không còn buildPaymentUrl
+ * kiểu redirect như cổng cũ, mà là: sinh mã chuyển khoản, build QR, và
+ * verify webhook HMAC-SHA256 trên RAW BODY.
  */
 public interface PaymentGateway {
 
-    /** Kết quả verify tham số IPN/return: hợp lệ hay không + lý do. */
+    /** Kết quả verify webhook: hợp lệ hay không + lý do. */
     record VerificationResult(boolean valid, String reason) {
         public static VerificationResult ok() {
             return new VerificationResult(true, "OK");
@@ -19,30 +23,52 @@ public interface PaymentGateway {
         }
     }
 
-    /** true khi đã có đủ credential để tạo payment (tmnCode + hashSecret). */
+    /** true khi đã có đủ cấu hình để tạo payment (bankCode + accountNumber). */
     boolean isConfigured();
 
     /**
-     * Tạo URL thanh toán cho FE redirect khách sang cổng.
+     * Sinh nội dung chuyển khoản duy nhất cho một payment, dạng
+     * {@code INS} + 10 ký tự [A-Z0-9] (chữ/số không dấu, khớp được trong
+     * nội dung khách gõ). Tính duy nhất tuyệt đối do service kiểm tra
+     * qua repository + unique index trước khi lưu.
+     */
+    String generateTransferContent();
+
+    /**
+     * Build QR VietQR cho khách quét chuyển khoản.
+     * Format: {@code https://vietqr.app/img?acc={acc}&bank={bank}&amount={amount}&des={content}&template=compact}
+     * (+ {@code holder} khi có accountName cấu hình).
      *
-     * @param txnRef     mã giao dịch riêng của hệ thống (vnp_TxnRef)
-     * @param amountVnd  số tiền VND (số nguyên; VNPay nhận amount x100 ở tầng impl)
-     * @param orderInfo  mô tả đơn hàng (vnp_OrderInfo)
-     * @param clientIp   IP trình duyệt khách (vnp_IpAddr)
-     * @throws IllegalStateException khi cổng chưa được cấu hình (thiếu credential)
+     * @throws IllegalStateException khi cổng chưa được cấu hình (thiếu bank/acc)
      */
-    String buildPaymentUrl(String txnRef, long amountVnd, String orderInfo, String clientIp);
+    String buildQrUrl(long amountVnd, String transferContent);
 
     /**
-     * Verify chữ ký của tham số VNPay gửi về (IPN hoặc return URL).
-     * Không throw cho chữ ký sai — trả về {@link VerificationResult} để
-     * caller quyết định mã RspCode/HTTP status, và không bao giờ log secret.
+     * Verify webhook SePay bằng HMAC-SHA256 DUY NHẤT (không API Key/OAuth2/no-auth).
+     * Chuỗi ký: {@code {timestamp}.{raw_body}} (RAW BODY gốc, không serialize lại),
+     * header {@code X-SePay-Signature: sha256={hex}} + {@code X-SePay-Timestamp}
+     * (unix giây). Verify fail khi: thiếu secret cấu hình (fail-closed),
+     * thiếu/sai chữ ký, timestamp không parse được hoặc lệch quá ±300s
+     * (chống replay). So sánh constant-time, không bao giờ log secret.
+     * Không throw cho chữ ký sai — trả {@link VerificationResult} để caller
+     * quyết định HTTP status (401 cho lỗi xác thực).
      */
-    VerificationResult verifySignature(Map<String, String> params);
+    VerificationResult verifyWebhookSignature(String timestamp, byte[] rawBody, String signatureHeader);
 
     /**
-     * Đổi vnp_Amount (đơn vị nhỏ = VND x100) sang VND.
-     * Trả null khi không parse được số.
+     * Kiểm tra transferContent có khớp webhook không: khớp field {@code code}
+     * của SePay (bằng đúng, không phân biệt hoa/thường), HOẶC transferContent
+     * nằm trong content webhook sau khi uppercase + bỏ khoảng trắng (khách
+     * có thể gõ thêm chữ, vd "SEVN63DC8E5C chuyen tien").
      */
-    Long parseMinorAmountToVnd(String vnpAmount);
+    boolean contentMatches(String transferContent, String webhookContent, String sepayCode);
+
+    /** Mã ngân hàng cấu hình (code/bin/short_name/alias, vd VCB). */
+    String getBankCode();
+
+    /** Số tài khoản nhận tiền cấu hình. */
+    String getAccountNumber();
+
+    /** Tên chủ tài khoản cấu hình (có thể rỗng → QR không kèm holder). */
+    String getAccountName();
 }

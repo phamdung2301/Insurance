@@ -5,17 +5,15 @@ import { formatMoney } from '../utils/format';
 import { useToast } from '../context/ToastContext';
 
 /**
- * Trang kết quả thanh toán qua cổng VNPay — CHỈ TRA CỨU + HIỂN THỊ.
+ * Trang kết quả thanh toán chuyển khoản SePay — CHỈ TRA CỨU + HIỂN THỊ.
  *
- * Luồng: VNPay redirect về đây (xem VNPAY_RETURN_URL — backend mặc định để
- * trống, xem báo cáo FE) kèm các tham số vnp_* trên query string. Trang đọc
- * vnp_TxnRef và gửi TOÀN BỘ tham số vnp_* về GET /payments/vnpay-return để
- * backend verify chữ ký; trạng thái hiển thị lấy từ backend (payment.status
- * + policyStatus), KHÔNG tự kết luận thành công từ vnp_ResponseCode trên URL.
- * Trang này không gọi bất kỳ API nào đổi trạng thái — trạng thái chỉ đổi khi
- * IPN từ VNPay về backend.
+ * Luồng: trang chỉ đọc `txnRef` từ query string rồi gọi
+ * GET /payments/status?txnRef=...; trạng thái hiển thị lấy từ backend
+ * (payment.status + policyStatus), KHÔNG tự kết luận thành công từ URL.
+ * Trang này không gọi bất kỳ API nào đổi trạng thái — trạng thái chỉ đổi
+ * khi SePay gửi xác nhận về backend.
  *
- * Không có vnp_TxnRef → hiển thị lỗi rõ ràng, không gọi API mù.
+ * Không có txnRef → hiển thị lỗi rõ ràng, không gọi API mù.
  */
 export function PaymentResultPage() {
   const [searchParams] = useSearchParams();
@@ -25,33 +23,29 @@ export function PaymentResultPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const txnRef = searchParams.get('vnp_TxnRef');
+  const txnRef = searchParams.get('txnRef');
 
   const load = useCallback(async () => {
     if (!txnRef) {
-      setError('Không tìm thấy mã giao dịch (vnp_TxnRef) trên đường dẫn quay về từ cổng thanh toán.');
+      setError('Không tìm thấy mã giao dịch (txnRef) trên đường dẫn. Vui lòng mở lại từ trang chi tiết hợp đồng hoặc trang Thanh toán.');
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      // Gửi toàn bộ tham số vnp_* (kèm chữ ký nếu có) để backend verify.
-      const params = Object.fromEntries(searchParams.entries());
-      const res = await policyService.lookupGatewayReturn(params);
+      const res = await policyService.getPaymentStatus(txnRef);
       setPayment(res?.data ?? res ?? null);
     } catch (err) {
       if (err.status === 404) {
         setError(`Không tìm thấy giao dịch thanh toán với mã ${txnRef}.`);
-      } else if (err.status === 403) {
-        setError('Chữ ký xác thực không hợp lệ hoặc bạn không có quyền xem giao dịch này.');
       } else {
         setError(err.message || 'Không tra cứu được kết quả thanh toán.');
       }
     } finally {
       setLoading(false);
     }
-  }, [txnRef, searchParams, toast]);
+  }, [txnRef, toast]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -106,33 +100,28 @@ export function PaymentResultPage() {
           <dd>{formatMoney(payment.amount)}</dd>
           <dt>Mã giao dịch</dt>
           <dd>{payment.txnRef ?? txnRef ?? '—'}</dd>
+          <dt>Nhà cung cấp</dt>
+          <dd>{payment.provider ?? 'SEPAY'}</dd>
           <dt>Trạng thái thanh toán</dt>
           <dd>{status ?? '—'}</dd>
           {policyStatus && (<><dt>Trạng thái hợp đồng</dt><dd>{policyStatus}</dd></>)}
         </dl>
         {isSuccess && (
           <p style={{ marginTop: '0.75rem' }}>
-            Hợp đồng đã được kích hoạt. Kết quả trên lấy từ hệ thống sau khi cổng
-            thanh toán xác nhận, không dựa vào mã trên đường dẫn.
+            Hợp đồng đã được kích hoạt. Kết quả trên lấy từ hệ thống sau khi
+            SePay xác nhận, không dựa vào tham số trên đường dẫn.
           </p>
         )}
         {isPending && (
           <p style={{ marginTop: '0.75rem' }}>
-            Hệ thống chưa nhận được xác nhận cuối cùng từ cổng thanh toán. Vui lòng
-            chờ ít phút rồi bấm “Kiểm tra lại” — trạng thái chỉ đổi khi cổng gửi
-            xác nhận về hệ thống.
+            Đang chờ xác nhận — nếu đã chuyển khoản, hệ thống thường xác nhận
+            trong vài chục giây, bấm “Kiểm tra lại” để cập nhật.
           </p>
         )}
         {isFailed && (
           <p style={{ marginTop: '0.75rem' }}>
             Giao dịch này không thành công. Bạn có thể tạo giao dịch mới từ trang
             chi tiết hợp đồng.
-          </p>
-        )}
-        {payment.signatureValid === false && (
-          <p style={{ marginTop: '0.75rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-            Lưu ý: đường dẫn quay về không kèm chữ ký xác thực — trạng thái trên
-            vẫn lấy từ hệ thống, không tin tham số trên đường dẫn.
           </p>
         )}
       </div>

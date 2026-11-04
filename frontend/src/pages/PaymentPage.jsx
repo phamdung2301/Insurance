@@ -29,8 +29,9 @@ export function PaymentPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(null);
-  // Lịch sử thanh toán qua cổng VNPay, gộp theo từng policy (mới nhất trước
-  // trong mỗi policy — backend đã sort). Không chạm tới bảng invoice ở trên.
+  // Lịch sử thanh toán chuyển khoản qua cổng SePay, gộp theo từng policy
+  // (mới nhất trước trong mỗi policy — backend đã sort). Không chạm tới
+  // bảng invoice ở trên.
   const [gatewayPayments, setGatewayPayments] = useState([]);
   const [gatewayLoading, setGatewayLoading] = useState(false);
 
@@ -57,7 +58,7 @@ export function PaymentPage() {
             policyNumbers = [];
           }
         }
-        const results = await Promise.allSettled(policyNumbers.map((n) => policyService.listGatewayPayments(n)));
+        const results = await Promise.allSettled(policyNumbers.map((n) => policyService.listPayments(n)));
         const merged = results.flatMap((r, i) => {
           if (r.status !== 'fulfilled') return [];
           const data = r.value?.data ?? r.value ?? [];
@@ -146,12 +147,12 @@ export function PaymentPage() {
       )}
 
       <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '2rem' }}>
-        <Wallet size={22} /> Lịch sử thanh toán qua VNPay
+        <Wallet size={22} /> Lịch sử thanh toán qua cổng (SePay)
       </h2>
       {gatewayLoading && <p style={{ color: 'var(--text-muted)' }}>Đang tải lịch sử thanh toán qua cổng…</p>}
       {!gatewayLoading && gatewayPayments.length === 0 && (
         <div className="card" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
-          Chưa có giao dịch thanh toán qua cổng VNPay.
+          Chưa có giao dịch thanh toán qua cổng.
         </div>
       )}
       {!gatewayLoading && gatewayPayments.length > 0 && (
@@ -163,6 +164,7 @@ export function PaymentPage() {
               <th>Số tiền</th>
               <th>Nhà cung cấp</th>
               <th>Mã giao dịch</th>
+              <th>Nội dung chuyển khoản</th>
               <th>Trạng thái</th>
             </tr>
           </thead>
@@ -174,6 +176,7 @@ export function PaymentPage() {
                 <td>{formatMoney(p.amount)}</td>
                 <td>{p.provider ?? '—'}</td>
                 <td>{p.txnRef ?? '—'}</td>
+                <td>{p.transferContent ?? '—'}</td>
                 <td>{GATEWAY_STATUS_LABEL[p.status] ?? p.status ?? '—'}</td>
               </tr>
             ))}

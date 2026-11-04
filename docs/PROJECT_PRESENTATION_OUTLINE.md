@@ -159,6 +159,6 @@
   * Bộ sưu tập API Postman Collection v2.1.0 đầy đủ 26 endpoints.
   * Tài liệu Hướng dẫn Vận hành & Bàn giao Hệ thống chi tiết (`USER_GUIDE_AND_HANDOVER.md`).
 * **Hướng Phát triển Tương lai**:
-  * Tích hợp cổng thanh toán trực tuyến (VNPay, Momo, Stripe).
+  * Tích hợp cổng thanh toán trực tuyến (SePay, Momo, Stripe).
   * Ứng dụng AI OCR tự động trích xuất thông tin giấy tờ xe/nhà đất khi tạo hợp đồng.
 * **Lời Cảm Ơn & Mời Đặt Câu Hỏi (Q&A)**.

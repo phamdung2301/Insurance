@@ -7,11 +7,11 @@ package com.dungphd.insuranceass.model;
  * để tránh làm nhiễu marker đối soát thủ công (DESIGN-BRIEF §1.2, §7).
  */
 public enum GatewayPaymentStatus {
-    /** Đã tạo payment, đang chờ VNPay gọi IPN. */
+    /** Đã tạo payment, đang chờ webhook SePay báo tiền vào. */
     PENDING,
-    /** IPN verify thành công, tiền đã về, policy đã sang ACTIVE. */
+    /** Webhook verify thành công, tiền đã về, policy đã sang ACTIVE. */
     PAID,
-    /** VNPay báo giao dịch thất bại (response code != "00"). */
+    /** Giao dịch thất bại/hủy (vd bị supersede bởi payment mới). */
     FAILED,
     /** Bị supersede bởi một payment mới của cùng policy, hoặc khách hủy. */
     CANCELLED
