@@ -1,5 +1,6 @@
 package com.dungphd.insuranceass.service;
 
+import com.dungphd.insuranceass.context.TenantContext;
 import com.dungphd.insuranceass.dto.request.PolicySearchCriteria;
 import com.dungphd.insuranceass.exception.ForbiddenException;
 import com.dungphd.insuranceass.model.Policy;
@@ -64,6 +65,28 @@ public class PermissionService {
 
     public boolean hasAgentRole() {
         return hasRole(Role.ROLE_AGENT.name());
+    }
+
+    /**
+     * Tenant của request hiện tại — SaaS Phase 1 helper, để service dùng từ Phase 2.
+     * Đọc từ {@link TenantContext} do {@code JwtAuthenticationFilter} resolve.
+     * {@code null} = caller không thuộc tenant nào HOẶC ADMIN/UW bypass — Phase 1
+     * KHÔNG dùng giá trị này để quyết quyền nào (mọi check scope vẫn chạy đúng
+     * như cũ); Phase 2 phải kết hợp với role trước khi fail-closed, vì null
+     * không tự nó có nghĩa là "bị cấm".
+     */
+    public String currentTenantId() {
+        return TenantContext.getTenantId();
+    }
+
+    /**
+     * Policy có thuộc tenant của caller hiện tại không (so sánh Agent.id thuần túy).
+     * Helper cho Phase 2; Phase 1 chưa có check nào gọi hàm này để quyết quyền.
+     */
+    public boolean isTenantMember(Policy policy) {
+        String tenantId = currentTenantId();
+        return policy != null && tenantId != null
+                && tenantId.equals(policy.getAgentId());
     }
 
     private static boolean emailEquals(String a, String b) {
