@@ -1,9 +1,12 @@
 package com.dungphd.insuranceass.service.impl;
 
+import com.dungphd.insuranceass.dto.request.EndorsementRequest;
 import com.dungphd.insuranceass.exception.ForbiddenException;
 import com.dungphd.insuranceass.exception.ResourceNotFoundException;
+import com.dungphd.insuranceass.model.Claim;
 import com.dungphd.insuranceass.model.NegotiationRole;
 import com.dungphd.insuranceass.model.Notification;
+import com.dungphd.insuranceass.model.Payment;
 import com.dungphd.insuranceass.model.Policy;
 import com.dungphd.insuranceass.model.Role;
 import com.dungphd.insuranceass.model.User;
@@ -13,6 +16,7 @@ import com.dungphd.insuranceass.service.MailService;
 import com.dungphd.insuranceass.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -29,6 +33,16 @@ public class NotificationServiceImpl implements NotificationService {
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
     private final MailService mailService;
+
+    /**
+     * Link tuyệt đối trong mail = FRONTEND_URL + link tương đối. @Value để
+     * default rỗng (khác với application.properties vốn default
+     * http://localhost:5173 khi chạy app thật): khi field rỗng/null (vd unit
+     * test không chạy Spring, hoặc env chưa set ở tầng khác) thì mail chỉ ghi
+     * số hợp đồng, không hardcode domain prod, không đoán domain.
+     */
+    @Value("${app.frontend-url:}")
+    private String frontendUrl;
 
     @Override
     public void notifyNewOffer(Policy policy, NegotiationRole offerRole, String actorEmail) {
@@ -109,6 +123,186 @@ public class NotificationServiceImpl implements NotificationService {
         }
     }
 
+    @Override
+    public void notifyPaymentSucceeded(Policy policy, Payment payment) {
+        try {
+            if (policy == null || policy.getPolicyNumber() == null) {
+                return;
+            }
+            String link = "/hop-dong/" + policy.getPolicyNumber();
+            StringBuilder msg = new StringBuilder("Hợp đồng " + policy.getPolicyNumber()
+                    + " đã thanh toán thành công qua cổng VNPay và chuyển sang trạng thái ACTIVE.");
+            if (payment != null) {
+                if (payment.getAmount() != null) {
+                    msg.append(" Số tiền đã trả: ").append(formatVnd(payment.getAmount())).append(" VND.");
+                }
+                if (payment.getTxnRef() != null) {
+                    msg.append(" Mã giao dịch: ").append(payment.getTxnRef()).append(".");
+                }
+            }
+            if (policy.getEffectiveDate() != null) {
+                msg.append(" Ngày hiệu lực: ").append(policy.getEffectiveDate()).append(".");
+            }
+            if (policy.getExpirationDate() != null) {
+                msg.append(" Ngày hết hạn: ").append(policy.getExpirationDate()).append(".");
+            }
+            msg.append(" Quý khách dùng số hợp đồng ").append(policy.getPolicyNumber()).append(" để tra cứu.");
+            notifyMany(policyRecipients(policy, null),
+                    Notification.TYPE_PAYMENT_SUCCEEDED,
+                    "Thanh toán thành công — hợp đồng đã kích hoạt",
+                    msg.toString(),
+                    link,
+                    absoluteMailLink(link, policy.getPolicyNumber()));
+        } catch (Exception e) {
+            log.warn("Failed to create PAYMENT_SUCCEEDED notification for policy {}: {}",
+                    policy != null ? policy.getPolicyNumber() : null, e.getMessage());
+        }
+    }
+
+    @Override
+    public void notifyEndorsementRequested(Policy policy, EndorsementRequest request, String actorEmail,
+                                           String pendingId, Double premiumChangePct,
+                                           Double oldPremium, Double projectedPremium,
+                                           boolean appliedImmediately) {
+        try {
+            if (policy == null || policy.getPolicyNumber() == null) {
+                return;
+            }
+            String link = "/hop-dong/" + policy.getPolicyNumber();
+            StringBuilder msg = new StringBuilder("Hợp đồng " + policy.getPolicyNumber()
+                    + " vừa có yêu cầu điều chỉnh mới");
+            if (actorEmail != null && !actorEmail.isBlank()) {
+                msg.append(" từ ").append(actorEmail);
+            }
+            msg.append(".");
+            if (request != null && request.getReason() != null && !request.getReason().isBlank()) {
+                msg.append(" Lý do: ").append(request.getReason()).append(".");
+                if (request.getDescription() != null && !request.getDescription().isBlank()) {
+                    msg.append(" ").append(request.getDescription());
+                }
+            }
+            if (appliedImmediately) {
+                msg.append(" Yêu cầu đã được áp dụng ngay.");
+            } else {
+                msg.append(" Yêu cầu đang chờ thẩm định viên duyệt.");
+                if (pendingId != null) {
+                    msg.append(" Mã chờ duyệt: ").append(pendingId).append(".");
+                }
+                if (premiumChangePct != null) {
+                    msg.append(" Mức thay đổi phí dự kiến: ")
+                            .append(String.format("%.1f%%", premiumChangePct * 100));
+                    if (oldPremium != null && projectedPremium != null) {
+                        msg.append(" (").append(formatVnd(oldPremium)).append(" → ")
+                                .append(formatVnd(projectedPremium)).append(" VND)");
+                    }
+                    msg.append(".");
+                }
+            }
+            // Người nhận = bên cầu (xác nhận đã nhận yêu cầu) + tất cả UW
+            // (có việc cần xử lý), hợp nhất loại trùng, loại trừ actor ở phía UW
+            // (policyRecipients đã loại actor; phía UW lọc ở dưới).
+            List<String> recipients = new java.util.ArrayList<>(policyRecipients(policy, null));
+            java.util.Set<String> seenLower = new java.util.LinkedHashSet<>();
+            for (String r : recipients) {
+                seenLower.add(r.trim().toLowerCase());
+            }
+            for (String uw : underwriterRecipients(actorEmail)) {
+                if (seenLower.add(uw.trim().toLowerCase())) {
+                    recipients.add(uw);
+                }
+            }
+            notifyMany(recipients,
+                    Notification.TYPE_ENDORSEMENT_REQUESTED,
+                    "Đã nhận yêu cầu điều chỉnh hợp đồng",
+                    msg.toString(),
+                    link,
+                    absoluteMailLink(link, policy.getPolicyNumber()));
+        } catch (Exception e) {
+            log.warn("Failed to create ENDORSEMENT_REQUESTED notification for policy {}: {}",
+                    policy != null ? policy.getPolicyNumber() : null, e.getMessage());
+        }
+    }
+
+    @Override
+    public void notifyClaimApproved(Claim claim, Policy policy) {
+        try {
+            if (claim == null || claim.getId() == null) {
+                return;
+            }
+            String link = "/claims/" + claim.getId();
+            StringBuilder msg = new StringBuilder("Yêu cầu bồi thường " + claim.getId()
+                    + " cho hợp đồng " + claim.getPolicyNumber() + " đã được chấp thuận.");
+            if (claim.getClaimedAmount() != null) {
+                msg.append(" Số tiền yêu cầu: ").append(formatVnd(claim.getClaimedAmount())).append(" VND.");
+            }
+            if (claim.getApprovedAmount() != null) {
+                msg.append(" Số tiền được duyệt: ").append(formatVnd(claim.getApprovedAmount())).append(" VND.");
+            }
+            if (claim.getHandlerNote() != null && !claim.getHandlerNote().isBlank()) {
+                msg.append(" Ghi chú xử lý: ").append(claim.getHandlerNote());
+            }
+            msg.append(" Bước tiếp theo: hồ sơ đang chờ chi trả (chưa phải đã chi trả).");
+            List<String> recipients;
+            if (policy != null && policy.getPolicyNumber() != null) {
+                recipients = policyRecipients(policy, null);
+            } else if (claim.getClaimantEmail() != null && !claim.getClaimantEmail().isBlank()) {
+                recipients = List.of(claim.getClaimantEmail().trim());
+            } else {
+                return;
+            }
+            notifyMany(recipients,
+                    Notification.TYPE_CLAIM_APPROVED,
+                    "Yêu cầu bồi thường đã được chấp thuận",
+                    msg.toString(),
+                    link,
+                    absoluteMailLink(link, claim.getPolicyNumber()));
+        } catch (Exception e) {
+            log.warn("Failed to create CLAIM_APPROVED notification for claim {}: {}",
+                    claim != null ? claim.getId() : null, e.getMessage());
+        }
+    }
+
+    /** Tất cả user ROLE_UNDERWRITER (pattern của notifyNewOffer nhánh phe cầu), loại trừ actor. */
+    private List<String> underwriterRecipients(String actorEmail) {
+        List<String> underwriters = new ArrayList<>();
+        try {
+            for (User user : userRepository.findAll()) {
+                if (user != null && user.getRoles() != null
+                        && user.getRoles().contains(Role.ROLE_UNDERWRITER.name())
+                        && user.getEmail() != null && !user.getEmail().isBlank()
+                        && !emailEquals(user.getEmail(), actorEmail)) {
+                    underwriters.add(user.getEmail());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to resolve underwriter recipients: {}", e.getMessage());
+        }
+        return underwriters;
+    }
+
+    /**
+     * Link tuyệt đối cho mail, hoặc chuỗi chỉ ghi số hợp đồng khi
+     * FRONTEND_URL chưa set (không hardcode domain prod).
+     */
+    private String absoluteMailLink(String relativeLink, String policyNumber) {
+        if (frontendUrl != null && !frontendUrl.isBlank()) {
+            String base = frontendUrl.trim();
+            while (base.endsWith("/")) {
+                base = base.substring(0, base.length() - 1);
+            }
+            return base + relativeLink;
+        }
+        return "Hợp đồng " + policyNumber;
+    }
+
+    private static String formatVnd(Double amount) {
+        if (amount == null) {
+            return "";
+        }
+        long vnd = Math.round(amount);
+        return String.format("%,d", vnd).replace(',', '.');
+    }
+
     /**
      * Gửi cho từng recipient, mỗi recipient try/catch riêng: một recipient lỗi
      * không chặn các recipient khác, và không bao giờ throw ra caller.
@@ -116,6 +310,16 @@ public class NotificationServiceImpl implements NotificationService {
      * vẫn bọc thêm try/catch).
      */
     private void notifyMany(List<String> recipients, String type, String title, String message, String link) {
+        notifyMany(recipients, type, title, message, link, link);
+    }
+
+    /**
+     * Biến thể: in-app notification giữ link tương đối, còn mail dùng link
+     * tuyệt đối (mailLink) — hoặc chuỗi ghi số hợp đồng khi FRONTEND_URL
+     * chưa set. Các method notify* cũ vẫn dùng overload 5 tham số nên hành
+     * vi cũ không đổi.
+     */
+    private void notifyMany(List<String> recipients, String type, String title, String message, String link, String mailLink) {
         if (recipients == null) {
             return;
         }
@@ -139,7 +343,7 @@ public class NotificationServiceImpl implements NotificationService {
             }
             try {
                 if (mailService != null) {
-                    mailService.sendNotificationEmail(recipient, title, message, link);
+                    mailService.sendNotificationEmail(recipient, title, message, mailLink);
                 }
             } catch (Exception e) {
                 log.warn("Failed to send notification email to {}: {}", recipient, e.getMessage());

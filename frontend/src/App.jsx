@@ -25,6 +25,7 @@ import { AdminUserPage } from './pages/AdminUserPage';
 import { AgentCustomerPage } from './pages/AgentCustomerPage';
 import { AgentCommissionPage } from './pages/AgentCommissionPage';
 import { PaymentPage } from './pages/PaymentPage';
+import { PaymentResultPage } from './pages/PaymentResultPage';
 import { UnderwriterQueuePage } from './pages/UnderwriterQueuePage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { AdminAuditLogPage } from './pages/AdminAuditLogPage';
@@ -54,6 +55,7 @@ const TITLES = {
   '/admin/audit-logs': 'Nhật ký quản trị',
   '/agent/hoa-hong': 'Hoa hồng của tôi',
   '/thanh-toan': 'Thanh toán của tôi',
+  '/thanh-toan/ket-qua': 'Kết quả thanh toán',
   '/so-sanh-goi': 'So sánh gói',
   '/cho-duyet': 'Chờ duyệt endorsement',
   '/admin/phan-quyen': 'Ma trận phân quyền',
@@ -123,6 +125,7 @@ function AnimatedRoutes() {
         {page('/agent/khach-hang', <AgentCustomerPage />, ['ROLE_AGENT', 'ROLE_ADMIN'])}
         {page('/agent/hoa-hong', <AgentCommissionPage />, ['ROLE_AGENT', 'ROLE_ADMIN'])}
         {page('/thanh-toan', <PaymentPage />)}
+        {page('/thanh-toan/ket-qua', <PaymentResultPage />)}
         {page('/so-sanh-goi', <ComparePackagesPage />)}
         {page('/cho-duyet', <PendingEndorsementsPage />)}
         {page('/admin/phan-quyen', <PermissionMatrixPage />, ['ROLE_ADMIN'])}

@@ -1,7 +1,10 @@
 package com.dungphd.insuranceass.service;
 
+import com.dungphd.insuranceass.dto.request.EndorsementRequest;
+import com.dungphd.insuranceass.model.Claim;
 import com.dungphd.insuranceass.model.NegotiationRole;
 import com.dungphd.insuranceass.model.Notification;
+import com.dungphd.insuranceass.model.Payment;
 import com.dungphd.insuranceass.model.Policy;
 
 import java.util.List;
@@ -32,6 +35,34 @@ public interface NotificationService {
 
     /** Sau khi endorsement apply thành công: chủ policy + assignedAgentEmail. */
     void notifyEndorsementApplied(Policy policy);
+
+    /**
+     * Đợt payment — IPN thành công, policy vừa QUOTED → ACTIVE qua cổng.
+     * Người nhận: bên cầu (insured + assignedAgentEmail). Đây là mail "thông
+     * tin đơn hàng" (số tiền, mã giao dịch, ngày hiệu lực/hết hạn). CỐ TÌNH
+     * không gọi thêm notifyPolicyActivated ở nhánh IPN để tránh gửi trùng
+     * 2 notification cùng nội dung kích hoạt cho cùng người nhận.
+     */
+    void notifyPaymentSucceeded(Policy policy, Payment payment);
+
+    /**
+     * Đợt payment — khách tạo yêu cầu endorsement. Người nhận: bên cầu
+     * (xác nhận đã nhận yêu cầu) + tất cả ROLE_UNDERWRITER (có việc cần xử
+     * lý). Các tham số pending chỉ có ở nhánh pending (&gt; 20%):
+     * pendingId/premiumChangePct/oldPremium/projectedPremium; nhánh apply
+     * trực tiếp truyền null cho các tham số đó và appliedImmediately = true.
+     */
+    void notifyEndorsementRequested(Policy policy, EndorsementRequest request, String actorEmail,
+                                    String pendingId, Double premiumChangePct,
+                                    Double oldPremium, Double projectedPremium,
+                                    boolean appliedImmediately);
+
+    /**
+     * Đợt payment — claim được approve (chỉ bước approveClaim).
+     * Người nhận: policyRecipients(policy) nếu tra được policy, nếu không
+     * fallback về claim.claimantEmail duy nhất.
+     */
+    void notifyClaimApproved(Claim claim, Policy policy);
 
     /**
      * Nhac tai tuc (dot 3B): hop dong ACTIVE sap het han trong {@code daysBefore}

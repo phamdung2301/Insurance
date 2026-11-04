@@ -121,6 +121,36 @@ export function PolicyDetailPage() {
     if (!window.confirm('Kích hoạt trực tiếp hợp đồng này mà không qua thanh toán?')) return;
     await doTransition('ACTIVE', 'Hợp đồng đã được kích hoạt.');
   };
+  const payViaGateway = async () => {
+    // Thanh toán qua cổng VNPay (song song với luồng chuyển khoản tay):
+    // chỉ tạo payment khi QUOTED, rồi redirect trình duyệt sang paymentUrl.
+    // Trạng thái chỉ đổi khi IPN từ VNPay về — không tự kết luận từ đây.
+    setBusy(true);
+    try {
+      const res = await policyService.createGatewayPayment(policyNumber);
+      const data = res?.data ?? res ?? {};
+      if (data.paymentUrl) {
+        window.location.href = data.paymentUrl;
+        return;
+      }
+      toast.error('Không nhận được đường dẫn thanh toán từ cổng. Vui lòng thử lại.');
+    } catch (err) {
+      if (err.status === 403) {
+        // Interceptor đã thay message 403 bằng câu chung về quyền admin nên
+        // hiển thị câu riêng cho đúng luật bên cầu của endpoint này.
+        toast.error('Bạn không có quyền tạo thanh toán cho hợp đồng này (chỉ người được bảo hiểm hoặc đại lý được giao mới được thanh toán qua cổng).');
+      } else if (err.status === 409) {
+        toast.error(`${err.message || 'Hợp đồng không còn ở trạng thái QUOTED.'} Đang tải lại hợp đồng…`);
+        await load();
+      } else {
+        // 400 (giá deal lệch) / 503 (cổng chưa cấu hình): hiện message backend
+        // trả về; còn lại (kể cả lỗi mạng): message chung của interceptor.
+        toast.error(err.message || 'Không tạo được giao dịch thanh toán. Vui lòng thử lại.');
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
   const deletePolicy = async () => {
     setBusy(true);
     try {
@@ -249,6 +279,12 @@ export function PolicyDetailPage() {
   // (được giao) và ADMIN; UNDERWRITER xem chi tiết ở chế độ đọc.
   const canManage = hasAnyRole(['ROLE_CUSTOMER', 'ROLE_AGENT', 'ROLE_ADMIN']);
   const isInsured = !policy.insured?.email || (user?.email && policy.insured.email.toLowerCase() === user.email.toLowerCase());
+  // Nút VNPay chỉ bên cầu thấy: isInsured (biến hiện có, lỏng khi thiếu
+  // insured email) hoặc đại lý được giao (pattern isAgent của NegotiationPanel).
+  // FE chỉ ẩn/hiện cho UX — BE (isDemandSide) mới là chốt chặn.
+  const isAssignedAgent = user?.email && policy.assignedAgentEmail
+    && policy.assignedAgentEmail.toLowerCase() === user.email.toLowerCase();
+  const canPayGateway = status === 'QUOTED' && canManage && (isInsured || isAssignedAgent);
   const canClaim = (hasRole('ROLE_CUSTOMER') || hasRole('ROLE_USER')) && isInsured;
   const isAdmin = hasRole('ROLE_ADMIN');
 
@@ -292,6 +328,8 @@ export function PolicyDetailPage() {
         busy={busy}
         onRequestQuote={requestQuote}
         onAcceptQuote={acceptQuote}
+        onPayGateway={payViaGateway}
+        showGatewayPay={canPayGateway}
         onPayNow={() => setPayOpen(true)}
         onAdminActivate={adminActivate}
         onEndorse={() => setEndorseOpen(true)}
@@ -417,7 +455,7 @@ export function PolicyDetailPage() {
 // Nút bấm filter theo role VÀ status (PLAN §1.4/§1.3): FE chỉ ẩn/hiện cho UX,
 // BE vẫn check lại mọi transition. Nút "Kích hoạt trực tiếp" BOUND→ACTIVE của
 // ADMIN nằm trong ActionBar bên dưới, không phải ở trang đối soát riêng.
-function ActionBar({ status, isAdmin, canManage, isPaymentClaimed, canClaim, onClaim, busy, onRequestQuote, onAcceptQuote, onPayNow, onAdminActivate, onEndorse, onDelete }) {
+function ActionBar({ status, isAdmin, canManage, isPaymentClaimed, canClaim, onClaim, busy, onRequestQuote, onAcceptQuote, onPayGateway, showGatewayPay, onPayNow, onAdminActivate, onEndorse, onDelete }) {
   const btn = (props, children) => (
     <button type="button" className="btn" disabled={busy} {...props}>{children}</button>
   );
@@ -429,7 +467,12 @@ function ActionBar({ status, isAdmin, canManage, isPaymentClaimed, canClaim, onC
           {btn({ className: 'btn btn-danger', onClick: onDelete }, <><Trash2 size={16} /> Xóa hợp đồng</>)}
         </>
       )}
-      {status === 'QUOTED' && canManage && btn({ className: 'btn btn-primary', onClick: onAcceptQuote }, <><Check size={16} /> Chấp nhận & thanh toán</>)}
+      {status === 'QUOTED' && canManage && (
+        <>
+          {btn({ className: 'btn btn-primary', onClick: onAcceptQuote }, <><Check size={16} /> Chấp nhận & thanh toán</>)}
+          {showGatewayPay && btn({ className: 'btn btn-primary', onClick: onPayGateway }, <><CreditCard size={16} /> Thanh toán qua VNPay</>)}
+        </>
+      )}
       {status === 'BOUND' && (
         <>
           {canManage && !isPaymentClaimed && btn({ className: 'btn btn-primary', onClick: onPayNow }, <><CreditCard size={16} /> Thanh toán ngay</>)}

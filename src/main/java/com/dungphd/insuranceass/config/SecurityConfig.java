@@ -100,6 +100,15 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/auth/**", "/api/auth/**").permitAll()
+                        // Đợt payment — IPN VNPay là server-to-server, không có JWT
+                        // nên phải permitAll ĐÚNG path + ĐÚNG method này, đặt trước
+                        // fallback anyRequest().authenticated() (match đầu thắng).
+                        // Không permitAll cả /payments/**: return URL vẫn cần JWT +
+                        // scope đọc policy. An toàn dựa vào verify chữ ký HMAC
+                        // + khớp số tiền + idempotent trong PaymentServiceImpl.
+                        // VNPay thực tế gọi IPN bằng GET nên permitAll cả GET + POST.
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/payments/vnpay-ipn", "/api/payments/vnpay-ipn").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/payments/vnpay-ipn", "/api/payments/vnpay-ipn").permitAll()
                         // Đợt 1C §3(a): chỉ /actuator/health public (load balancer /
                         // uptime check); mọi actuator khác yêu cầu đăng nhập. Matcher
                         // health PHẢI đứng trước matcher actuator chung (match đầu thắng).

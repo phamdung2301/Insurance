@@ -24,13 +24,19 @@ public class Notification {
     public static final String TYPE_POLICY_ACTIVATED = "POLICY_ACTIVATED";
     public static final String TYPE_ENDORSEMENT_APPLIED = "ENDORSEMENT_APPLIED";
     public static final String TYPE_RENEWAL_REMINDER = "RENEWAL_REMINDER";
+    /** Đợt payment: IPN thành công, policy QUOTED → ACTIVE qua cổng VNPay. */
+    public static final String TYPE_PAYMENT_SUCCEEDED = "PAYMENT_SUCCEEDED";
+    /** Đợt payment: khách tạo yêu cầu endorsement (cả nhánh apply và pending). */
+    public static final String TYPE_ENDORSEMENT_REQUESTED = "ENDORSEMENT_REQUESTED";
+    /** Đợt payment: claim được approve (chỉ bước approve, không các bước khác). */
+    public static final String TYPE_CLAIM_APPROVED = "CLAIM_APPROVED";
 
     @Id
     private String id;
 
     private String recipientEmail;
 
-    /** NEW_OFFER | POLICY_ACTIVATED | ENDORSEMENT_APPLIED (chuỗi, không enum riêng). */
+    /** NEW_OFFER | POLICY_ACTIVATED | ENDORSEMENT_APPLIED | ... (chuỗi, không enum riêng). */
     private String type;
 
     private String title;

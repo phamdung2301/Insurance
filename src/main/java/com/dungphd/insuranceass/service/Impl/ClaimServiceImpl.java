@@ -45,6 +45,10 @@ public class ClaimServiceImpl implements ClaimService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private AdminAuditLogRepository auditLogRepository;
 
+    /** Đợt payment — optional như EndorsementServiceImpl: test cũ không có mock này vẫn chạy (null-check). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.dungphd.insuranceass.service.NotificationService notificationService;
+
     private static final long MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
     private static final long MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50MB
     private static final int MAX_PHOTOS_PER_CLAIM = 10;
@@ -519,6 +523,22 @@ public class ClaimServiceImpl implements ClaimService {
         Claim saved = claimRepository.save(claim);
         log.info("Claim {} approved by {} with amount {}", claimId, principal, request.getApprovedAmount());
         recordAudit(principal, "APPROVE_CLAIM", "ClaimId: " + claimId + ", amount: " + request.getApprovedAmount());
+        // Đợt payment — mail + in-app "claim được approve", CHỈ ở bước approve
+        // này (không gắn ở create/review/reject/pay). Đặt sau save thành công;
+        // NotificationService failure-isolated, bọc thêm try/catch để lookup
+        // policy không bao giờ phá approve. Người nhận: policyRecipients nếu
+        // tra được policy, fallback claimantEmail (xử lý trong impl).
+        if (notificationService != null) {
+            try {
+                com.dungphd.insuranceass.model.Policy policy = policyRepository
+                        .findByPolicyNumber(saved.getPolicyNumber())
+                        .or(() -> policyRepository.findById(saved.getPolicyNumber()))
+                        .orElse(null);
+                notificationService.notifyClaimApproved(saved, policy);
+            } catch (Exception e) {
+                log.warn("Failed to send claim-approved notification for claim {}: {}", claimId, e.getMessage());
+            }
+        }
         return mapToResponse(saved);
     }
 

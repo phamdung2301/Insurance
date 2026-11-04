@@ -108,6 +108,15 @@ public class EndorsementServiceImpl implements EndorsementService {
                 if (pendingEndorsementRepository != null) {
                     pending = pendingEndorsementRepository.save(pending);
                 }
+                // Đợt payment — mail "tạo yêu cầu" nhánh pending (> 20%):
+                // PHẢI gửi TRƯỚC khi ném PendingEndorsementException (→ HTTP 202),
+                // nếu không nhánh này không bao giờ có mail. NotificationService
+                // failure-isolated nên không cần try/catch thêm ở đây.
+                // Chỉ khi !bypassThreshold (nhánh checker-approve không gửi lại).
+                if (notificationService != null) {
+                    notificationService.notifyEndorsementRequested(policy, request, actor,
+                            pending.getId(), premiumChangePct, oldPremium, projectedPremium, false);
+                }
                 log.info("Endorsement on policy {} exceeds threshold (pct={}, old={}, projected={}) -> pending {}",
                         policy.getPolicyNumber(), premiumChangePct, oldPremium, projectedPremium, pending.getId());
                 throw new PendingEndorsementException(pending.getId(), policy.getPolicyNumber(), premiumChangePct);
@@ -147,6 +156,13 @@ public class EndorsementServiceImpl implements EndorsementService {
         // NotificationService failure-isolated nên không cần try/catch thêm ở đây.
         if (notificationService != null) {
             notificationService.notifyEndorsementApplied(savedPolicy);
+            // Đợt payment — mail "tạo yêu cầu" nhánh apply trực tiếp (≤ 20%).
+            // Nhánh checker-approve (bypassThreshold == true) KHÔNG gửi lại
+            // mail "tạo yêu cầu" — yêu cầu đó đã có mail từ lúc khách tạo.
+            if (!bypassThreshold) {
+                notificationService.notifyEndorsementRequested(savedPolicy, request, actor,
+                        null, null, null, null, true);
+            }
         }
 
         // 4. Record transaction in Ledger

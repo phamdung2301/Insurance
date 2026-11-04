@@ -7,13 +7,16 @@ import com.dungphd.insuranceass.dto.request.StatusTransitionRequest;
 import com.dungphd.insuranceass.dto.request.UpdatePolicyRequest;
 import com.dungphd.insuranceass.dto.response.ApiResponse;
 import com.dungphd.insuranceass.dto.response.PageResponse;
+import com.dungphd.insuranceass.dto.response.PaymentResponse;
 import com.dungphd.insuranceass.dto.response.PolicyResponse;
 import com.dungphd.insuranceass.model.Policy;
 import com.dungphd.insuranceass.model.PolicyTransaction;
 import com.dungphd.insuranceass.model.PolicyVersion;
 import com.dungphd.insuranceass.service.EndorsementService;
+import com.dungphd.insuranceass.service.PaymentService;
 import com.dungphd.insuranceass.service.PolicyService;
 import com.dungphd.insuranceass.service.TransactionLedgerService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -32,6 +35,7 @@ public class PolicyController {
     private final PolicyService policyService;
     private final EndorsementService endorsementService;
     private final TransactionLedgerService transactionLedgerService;
+    private final PaymentService paymentService;
 
     // ==========================================
     // Dynamic Search, Filter, Page & Sort (P02, P03)
@@ -119,6 +123,42 @@ public class PolicyController {
         String actor = resolveActor(principal);
         PolicyResponse response = policyService.claimPayment(policyNumber, actor);
         return ResponseEntity.ok(ApiResponse.success(response, "Đã ghi nhận khai báo chuyển khoản, chờ đối soát."));
+    }
+
+    // ==========================================
+    // Gateway payments (đợt payment — VNPay sandbox)
+    // Luồng này SONG SONG, không thay thế payment-claim thủ công ở trên.
+    // ==========================================
+
+    /**
+     * POST /policies/{policyNumber}/payments — tạo payment qua cổng.
+     * Chỉ policy QUOTED + người gọi là bên cầu (service enforce).
+     * Response data: { paymentUrl, txnRef, amount, status: "PENDING", ... }.
+     * FE redirect trình duyệt sang paymentUrl; trạng thái chỉ đổi khi IPN về.
+     */
+    @PostMapping("/{policyNumber}/payments")
+    public ResponseEntity<ApiResponse<PaymentResponse>> createPayment(
+            @PathVariable String policyNumber,
+            Principal principal,
+            HttpServletRequest request) {
+        String actor = resolveActor(principal);
+        PaymentResponse response = paymentService.createPayment(
+                policyNumber, actor, request != null ? request.getRemoteAddr() : null);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(response, "Đã tạo giao dịch thanh toán qua VNPay."));
+    }
+
+    /**
+     * GET /policies/{policyNumber}/payments — lịch sử payment của policy.
+     * Scope: ADMIN/UNDERWRITER đọc mọi policy, còn lại chỉ bên cầu.
+     */
+    @GetMapping("/{policyNumber}/payments")
+    public ResponseEntity<ApiResponse<List<PaymentResponse>>> listPayments(
+            @PathVariable String policyNumber,
+            Principal principal) {
+        String actor = resolveActor(principal);
+        List<PaymentResponse> response = paymentService.listPayments(policyNumber, actor);
+        return ResponseEntity.ok(ApiResponse.success(response, "Payment history retrieved successfully"));
     }
 
     // ==========================================

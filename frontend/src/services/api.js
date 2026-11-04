@@ -92,6 +92,27 @@ export const policyService = {
    */
   claimPayment: (policyNumber) =>
     api.post(`/policies/${encodeURIComponent(policyNumber)}/payment-claim`),
+  /**
+   * Thanh toán qua cổng VNPay (đợt payment — SONG SONG, không thay thế
+   * claimPayment thủ công ở trên). Backend envelope { success, message, data }
+   * đã được interceptor bóc 1 lớp (response.data) nên caller phải unwrap thêm
+   * `.data` — đúng pattern getPolicyByNumber (xem PolicyDetailPage).
+   * POST trả 201 + data { paymentUrl, txnRef, amount, status: 'PENDING', ... };
+   * FE redirect trình duyệt sang paymentUrl, trạng thái chỉ đổi khi IPN về.
+   */
+  createGatewayPayment: (policyNumber) =>
+    api.post(`/policies/${encodeURIComponent(policyNumber)}/payments`),
+  /** Lịch sử payment qua cổng của 1 policy — mới nhất trước, KHÔNG có paymentUrl. */
+  listGatewayPayments: (policyNumber) =>
+    api.get(`/policies/${encodeURIComponent(policyNumber)}/payments`),
+  /**
+   * Tra cứu kết quả return — CHỈ ĐỌC, không đổi trạng thái. params là toàn bộ
+   * tham số vnp_* trên return URL (ít nhất vnp_TxnRef); gửi kèm chữ ký để
+   * backend verify (thiếu chữ ký → signatureValid=false, trạng thái vẫn lấy
+   * từ backend; chữ ký kèm theo mà sai → 403). KHÔNG tự kết luận thành công
+   * từ vnp_ResponseCode trên URL.
+   */
+  lookupGatewayReturn: (params) => api.get('/payments/vnpay-return', { params }),
   /** Yêu cầu điều chỉnh (endorsement) — backend: POST /policies/{n}/endorsements */
   endorse: (policyNumber, payload) => api.post(`/policies/${encodeURIComponent(policyNumber)}/endorsements`, payload),
   getHistory: (policyNumber) => api.get(`/policies/${encodeURIComponent(policyNumber)}/history`),
