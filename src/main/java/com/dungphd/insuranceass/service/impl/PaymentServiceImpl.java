@@ -17,12 +17,14 @@ import com.dungphd.insuranceass.service.PaymentGateway;
 import com.dungphd.insuranceass.service.PaymentService;
 import com.dungphd.insuranceass.service.PermissionService;
 import com.dungphd.insuranceass.service.TransactionLedgerService;
+import com.dungphd.insuranceass.service.TransactionSideEffects;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -175,7 +177,18 @@ public class PaymentServiceImpl implements PaymentService {
                 .build();
     }
 
+    /**
+     * Track 2 — transaction thật THAY THẾ bù trừ cũ (xem comment ở bước 8):
+     * policy-save + payment-save cùng commit hoặc cùng rollback; exception
+     * runtime lan ra ngoài để proxy rollback, không nuốt thành success.
+     * Method này chỉ được gọi từ PaymentController (qua Spring proxy) nên
+     * annotation có tác dụng; không có self-invocation trong bean này.
+     * Yêu cầu replica set (xem MongoConfig + docs/TRANSACTION-RUNBOOK.md):
+     * trên standalone, ngay cả các bước guard đọc DB trong method này cũng
+     * fail — đó là hệ quả đã biết, không phải bug.
+     */
     @Override
+    @Transactional
     public WebhookResult handleSepayWebhook(byte[] rawBody, String signatureHeader, String timestampHeader) {
         // 1. Verify HMAC-SHA256 trên RAW BODY TRƯỚC mọi xử lý trạng thái.
         // Không log chữ ký/secret. Chỉ lỗi xác thực mới trả 401.
@@ -258,24 +271,17 @@ public class PaymentServiceImpl implements PaymentService {
                     policy.getPolicyNumber(), policy.getStatus(), payment.getTxnRef());
             return WebhookResult.ok();
         }
-        // Đợt transaction/ACID — bù trừ (compensation) cho cặp ghi policy+payment:
-        // MongoDB multi-document transaction chỉ chạy trên replica set (xem
-        // RESEARCH-TRANSACTION-ACID.md §2), còn local dev mặc định là standalone
-        // nên KHÔNG gắn @Transactional ở đây. Thay vào đó: chụp trạng thái gốc
-        // của policy trước khi đổi; nếu bước save payment fail sau khi policy đã
-        // ACTIVE thì khôi phục policy về QUOTED rồi throw lại lỗi gốc để
-        // controller trả 500 → SePay retry (tối đa 7 lần/5h) có thể thành công,
-        // vì state đã sạch (policy QUOTED, payment PENDING, chưa ghi sepayId nên
-        // không bị chặn bởi nhánh idempotent). Không có bù trừ này, policy
-        // ACTIVE + payment PENDING sẽ kẹt ở nhánh "held for manual review" ở
-        // mọi lần retry sau (policy không còn QUOTED). Ledger + notification
-        // sau đây vốn đã failure-isolated nên không cần bù trừ thêm.
+        // Track 2 — TRANSACTION THAY THẾ BÙ TRỪ (đợt transaction/ACID cũ đã
+        // XÓA ở đây, không giữ cả hai — lý do: bù trừ chạy BÊN TRONG một
+        // transaction sắp rollback thì chính save bù trừ cũng bị rollback
+        // theo, nên giữ nó lại vừa vô tác dụng vừa gây nhầm lẫn): hai save
+        // dưới đây cùng một transaction. Nếu payment-save fail, exception
+        // runtime lan ra ngoài → proxy rollback cả policy-save (policy ở
+        // lại QUOTED, payment ở lại PENDING, chưa ghi sepayId) → controller
+        // trả 500 → SePay retry (tối đa 7 lần/5h) có thể thành công, đúng
+        // như bù trừ cũ từng đạt được nhưng không còn cửa sổ lệch state
+        // nào giữa chừng. Không nuốt exception thành success ở đây.
         Instant now = Instant.now();
-        PolicyStatus originalStatus = policy.getStatus();
-        PaymentStatus originalPaymentStatus = policy.getPaymentStatus();
-        Instant originalEffectiveDate = policy.getEffectiveDate();
-        Instant originalExpirationDate = policy.getExpirationDate();
-        Instant originalUpdatedAt = policy.getUpdatedAt();
         Instant effective = policy.getEffectiveDate() != null ? policy.getEffectiveDate() : now;
         policy.setStatus(PolicyStatus.ACTIVE);
         policy.setEffectiveDate(effective);
@@ -290,46 +296,21 @@ public class PaymentServiceImpl implements PaymentService {
         payment.setGatewayTransactionNo(sepayId);
         payment.setPaidAt(parseTransactionDate(textField(root, "transactionDate"), now));
         payment.setUpdatedAt(now);
-        Payment savedPayment;
-        try {
-            savedPayment = paymentRepository.save(payment);
-        } catch (RuntimeException paymentSaveFailure) {
-            try {
-                savedPolicy.setStatus(originalStatus);
-                savedPolicy.setPaymentStatus(originalPaymentStatus);
-                savedPolicy.setEffectiveDate(originalEffectiveDate);
-                savedPolicy.setExpirationDate(originalExpirationDate);
-                savedPolicy.setUpdatedAt(originalUpdatedAt);
-                policyRepository.save(savedPolicy);
-                log.warn("SePay webhook compensated: policy {} restored to {} after payment save failed for txnRef {}",
-                        savedPolicy.getPolicyNumber(), originalStatus, payment.getTxnRef());
-            } catch (RuntimeException compensationFailure) {
-                // Bù trừ cũng fail: state lệch ACTIVE+PENDING còn lại, phải đối
-                // soát tay — không giấu bằng 200, throw lỗi gốc để SePay retry.
-                log.error("SePay webhook compensation FAILED for txnRef {} (policy {} left ACTIVE with payment PENDING, manual reconciliation required): {}",
-                        payment.getTxnRef(), savedPolicy.getPolicyNumber(), compensationFailure.getMessage());
-            }
-            throw paymentSaveFailure;
-        }
+        Payment savedPayment = paymentRepository.save(payment);
 
-        try {
-            transactionLedgerService.recordTransaction(
-                    savedPolicy.getPolicyNumber(), savedPolicy.getVersion(),
-                    TransactionType.STATUS_TRANSITION, "SEPAY-WEBHOOK",
-                    "Thanh toan qua SePay thanh cong (txnRef=" + payment.getTxnRef()
-                            + "), hop dong QUOTED -> ACTIVE");
-        } catch (Exception e) {
-            log.warn("Failed to record ledger for SePay txnRef {}: {}", payment.getTxnRef(), e.getMessage());
-        }
-        // Mail + in-app: failure-isolated bên trong NotificationService, và chỉ
-        // gọi ở nhánh webhook thành công này (không gắn vào luồng thủ công cũ).
+        // Ledger + mail CHỈ chạy SAU KHI commit (TransactionSideEffects):
+        // mail gửi trong transaction rồi rollback sẽ thành mail "thành công"
+        // cho một DB đã rollback — không được phép. Ledger ở đây cũng là
+        // best-effort sau commit (không fail request), giữ đúng tinh thần
+        // đợt §6.4. Trong unit test mock (không có transaction active),
+        // afterCommit chạy ngay lập tức nên test cũ vẫn thấy ledger/mail.
         // Hoa hồng createForBound/markEarned CỐ TÌNH không gọi ở đây (xem class javadoc).
-        try {
-            notificationService.notifyPaymentSucceeded(savedPolicy, savedPayment);
-        } catch (Exception e) {
-            log.warn("Failed to send payment-succeeded notification for txnRef {}: {}",
-                    payment.getTxnRef(), e.getMessage());
-        }
+        TransactionSideEffects.afterCommit(() -> transactionLedgerService.recordTransaction(
+                savedPolicy.getPolicyNumber(), savedPolicy.getVersion(),
+                TransactionType.STATUS_TRANSITION, "SEPAY-WEBHOOK",
+                "Thanh toan qua SePay thanh cong (txnRef=" + payment.getTxnRef()
+                        + "), hop dong QUOTED -> ACTIVE"));
+        TransactionSideEffects.afterCommit(() -> notificationService.notifyPaymentSucceeded(savedPolicy, savedPayment));
         return WebhookResult.ok();
     }
 

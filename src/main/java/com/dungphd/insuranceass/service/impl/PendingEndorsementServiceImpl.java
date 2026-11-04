@@ -1,6 +1,5 @@
 package com.dungphd.insuranceass.service.impl;
 
-import com.dungphd.insuranceass.exception.BadRequestException;
 import com.dungphd.insuranceass.exception.ForbiddenException;
 import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.PendingEndorsement;
@@ -15,7 +14,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -28,6 +26,13 @@ public class PendingEndorsementServiceImpl implements PendingEndorsementService 
     private final PolicyRepository policyRepository;
     private final EndorsementService endorsementService;
     private final PermissionService permissionService;
+    /**
+     * Track 2 — bean nội bộ giữ CAS claim + transaction apply (xem
+     * PendingEndorsementApproval). Không thể gộp vào bean này: approve()
+     * gọi method @Transactional của chính mình sẽ là self-invocation, không
+     * qua proxy → không có transaction; và claim phải chạy ngoài tx.
+     */
+    private final PendingEndorsementApproval approval;
 
     @Override
     public List<PendingEndorsement> listPendingForCurrentUser() {
@@ -53,37 +58,61 @@ public class PendingEndorsementServiceImpl implements PendingEndorsementService 
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Track 2 — approve qua CAS + transaction (THAY THẾ đường load →
+     * requireStillPending → apply → save cũ, đường cũ có 2 lỗ: apply xong
+     * mà pending-save fail thì duyệt lại apply trùng, và 2 checker cùng
+     * load PENDING thì cùng apply):
+     * <ol>
+     *   <li>Kiểm tra tồn tại trước (chỉ để phân biệt 404 với "đã xử lý":
+     *       read này không quyết định đúng/sai, CAS phía sau mới quyết).</li>
+     *   <li>CAS claim PENDING→APPROVING (nguyên tử, ngoài transaction):
+     *       chỉ một checker thắng; người thua nhận BadRequest rõ ràng và
+     *       không bao giờ apply.</li>
+     *   <li>Apply + pending→APPROVED trong MỘT transaction (bean khác, qua
+     *       proxy): fail ở bước nào cũng rollback toàn bộ.</li>
+     *   <li>Transaction fail → release claim về PENDING (ngoài tx, sau
+     *       rollback) để checker duyệt lại được; release fail cũng không
+     *       được che lỗi gốc (chỉ log warn).</li>
+     * </ol>
+     * Method này KHÔNG gắn {@code @Transactional}: nó là orchestrator —
+     * claim và release bắt buộc chạy ngoài transaction, còn transaction
+     * thật nằm ở {@code PendingEndorsementApproval.applyAndMarkApproved}.
+     * Apply đúng luồng applyEndorsement hiện có, BYPASS ngưỡng (không rơi
+     * lại vào pending). Actor ghi ledger/snapshot = người duyệt.
+     */
     @Override
     public PendingEndorsement approve(String pendingId, String actor) {
         checkCheckerRole();
-        PendingEndorsement pending = loadPendingOrThrow(pendingId);
-        requireStillPending(pending);
-        Policy policy = findPolicy(pending.getPolicyNumber());
-        if (policy == null) {
-            throw new ResourceNotFoundException("Policy not found with number or ID: " + pending.getPolicyNumber());
+        loadPendingOrThrow(pendingId);
+        PendingEndorsement claimed = approval.claimForApproval(pendingId);
+        try {
+            PendingEndorsement saved = approval.applyAndMarkApproved(claimed, resolveActor(actor));
+            log.info("Pending endorsement {} approved by {}", pendingId, saved.getApprovedBy());
+            return saved;
+        } catch (RuntimeException applyFailure) {
+            try {
+                approval.releaseClaim(pendingId);
+            } catch (RuntimeException releaseFailure) {
+                log.warn("Pending endorsement {} claim release failed after apply failure (may need operator reset): {}",
+                        pendingId, releaseFailure.getMessage());
+            }
+            throw applyFailure;
         }
-        // Apply đúng luồng applyEndorsement hiện có, BYPASS ngưỡng (không rơi
-        // lại vào pending). Actor ghi ledger/snapshot = người duyệt.
-        endorsementService.applyEndorsementBypassingThreshold(
-                policy.getPolicyNumber(), pending.getRequest(), resolveActor(actor));
-        pending.setStatus(PendingEndorsementStatus.APPROVED);
-        pending.setApprovedBy(resolveActor(actor));
-        pending.setApprovedAt(Instant.now());
-        PendingEndorsement saved = pendingEndorsementRepository.save(pending);
-        log.info("Pending endorsement {} approved by {}", pendingId, saved.getApprovedBy());
-        return saved;
     }
 
+    /**
+     * Track 2 — reject nguyên tử bằng một lần findAndModify PENDING→REJECTED
+     * (xem PendingEndorsementApproval): không còn đường load → check →
+     * save nên không thể ghi đè kết quả approve của checker khác (approve
+     * thắng claim trước thì reject nhận BadRequest, và ngược lại). Policy
+     * KHÔNG đổi: chỉ đánh dấu REJECTED, không gọi apply.
+     */
     @Override
     public PendingEndorsement reject(String pendingId, String actor) {
         checkCheckerRole();
-        PendingEndorsement pending = loadPendingOrThrow(pendingId);
-        requireStillPending(pending);
-        // Policy KHÔNG đổi: chỉ đánh dấu REJECTED, không gọi apply.
-        pending.setStatus(PendingEndorsementStatus.REJECTED);
-        pending.setRejectedBy(resolveActor(actor));
-        pending.setRejectedAt(Instant.now());
-        PendingEndorsement saved = pendingEndorsementRepository.save(pending);
+        loadPendingOrThrow(pendingId);
+        PendingEndorsement saved = approval.rejectIfStillPending(pendingId, resolveActor(actor));
         log.info("Pending endorsement {} rejected by {}", pendingId, saved.getRejectedBy());
         return saved;
     }
@@ -103,13 +132,6 @@ public class PendingEndorsementServiceImpl implements PendingEndorsementService 
     private PendingEndorsement loadPendingOrThrow(String pendingId) {
         return pendingEndorsementRepository.findById(pendingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Pending endorsement not found: " + pendingId));
-    }
-
-    private void requireStillPending(PendingEndorsement pending) {
-        if (pending.getStatus() != PendingEndorsementStatus.PENDING) {
-            throw new BadRequestException("Pending endorsement này đã được xử lý (trạng thái hiện tại: "
-                    + pending.getStatus() + "), không thể xử lý lần 2.");
-        }
     }
 
     private Policy findPolicy(String policyNumber) {
