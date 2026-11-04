@@ -215,10 +215,14 @@ class EndorsementServiceImplTest {
     }
 
     @Test
-    void applyEndorsement_PolicySaveFails_DeletesSnapshotAndThrows() {
-        // Đợt transaction/ACID: snapshot đã lưu nhưng policy-save fail thì
-        // snapshot phải bị xóa bù trừ (không để version mồ côi), lỗi gốc phải
-        // throw (không chạy notification/ledger vì chưa có gì commit).
+    void applyEndorsement_PolicySaveFails_ThrowsWithoutSnapshotDelete() {
+        // Track 2 — THAY THẾ test bù trừ cũ (hành vi cũ đã bị thay thế có
+        // chủ đích): delete snapshot bù trừ đã bị XÓA, transaction sẽ
+        // rollback snapshot-save thay cho nó. Ở tầng mock, @Transactional vô
+        // tác dụng nên test này chỉ chứng minh: lỗi gốc lan ra (trigger
+        // rollback ở production), KHÔNG có delete bù trừ, không ledger.
+        // Rollback thật được chứng minh bằng integration test trên replica
+        // set (TransactionRollbackIntegrationTest), không phải bằng mock.
         when(policyRepository.findByPolicyNumber("POL-ACTIVE-01")).thenReturn(Optional.of(activePolicy));
         when(policyRepository.save(any(Policy.class)))
                 .thenThrow(new RuntimeException("simulated DB failure on policy save"));
@@ -247,8 +251,8 @@ class EndorsementServiceImplTest {
 
         verify(policyVersionRepository).save(argThat(v ->
                 v.getVersion().equals(1) && v.getPolicyNumber().equals("POL-ACTIVE-01")));
-        verify(policyVersionRepository).delete(argThat(v ->
-                v.getVersion().equals(1) && v.getPolicyNumber().equals("POL-ACTIVE-01")));
+        // Không còn delete bù trừ: snapshot-save sẽ bị transaction rollback.
+        verify(policyVersionRepository, never()).delete(any());
         verify(transactionLedgerService, never()).recordTransaction(any(), any(), any(), any(), any());
     }
 

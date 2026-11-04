@@ -338,14 +338,18 @@ class NegotiationServiceImplTest {
     }
 
     @Test
-    @DisplayName("Confirm: policy-save fail -> negotiation hoàn về PENDING_CONFIRMATION để confirm lại được (bù trừ ACID)")
-    void confirmNegotiation_PolicySaveFails_RestoresPendingConfirmation() {
+    @DisplayName("Confirm: policy-save fail -> throw, không save hoàn tác; transaction rollback negotiation về PENDING_CONFIRMATION (Track 2)")
+    void confirmNegotiation_PolicySaveFails_ThrowsWithoutRestoreSave() {
+        // Track 2 — THAY THẾ test bù trừ cũ (hành vi cũ đã bị thay thế có
+        // chủ đích): save hoàn về PENDING_CONFIRMATION đã bị XÓA,
+        // transaction sẽ rollback negotiation-save thay cho nó. Ở tầng mock,
+        // @Transactional vô tác dụng nên test này chỉ chứng minh: lỗi gốc
+        // lan ra, negotiation chỉ save 1 lần ACCEPTED (không còn lần save
+        // hoàn tác). Rollback thật được chứng minh bằng integration test
+        // trên replica set (TransactionRollbackIntegrationTest).
         openNegotiation.setStatus(NegotiationStatus.PENDING_CONFIRMATION);
         openNegotiation.setAcceptedPremium(8_500_000.0);
         when(negotiationRepository.findByIdAndPolicyNumber("neg-1", policyNumber)).thenReturn(Optional.of(openNegotiation));
-        // negotiationRepository.save trả về cùng instance nên snapshot status
-        // tại thời điểm mỗi lần save để chứng minh thứ tự ACCEPTED rồi hoàn
-        // về PENDING_CONFIRMATION.
         List<NegotiationStatus> savedStatuses = new ArrayList<>();
         when(negotiationRepository.save(any(PriceNegotiation.class))).thenAnswer(inv -> {
             savedStatuses.add(inv.getArgument(0, PriceNegotiation.class).getStatus());
@@ -357,10 +361,8 @@ class NegotiationServiceImplTest {
         assertThrows(RuntimeException.class,
                 () -> negotiationService.confirmNegotiation(policyNumber, "neg-1", customerEmail));
 
-        assertEquals(List.of(NegotiationStatus.ACCEPTED, NegotiationStatus.PENDING_CONFIRMATION), savedStatuses);
-        assertEquals(NegotiationStatus.PENDING_CONFIRMATION, openNegotiation.getStatus());
-        assertNull(openNegotiation.getClosedBy());
-        assertNull(openNegotiation.getClosedAt());
+        assertEquals(List.of(NegotiationStatus.ACCEPTED), savedStatuses);
+        verify(negotiationRepository, times(1)).save(any(PriceNegotiation.class));
     }
 
     @Test
