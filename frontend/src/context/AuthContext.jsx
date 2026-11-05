@@ -113,9 +113,17 @@ export const AuthProvider = ({ children }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Trang đích sau đăng nhập theo role: ADMIN → dashboard quản trị,
+  // FINANCE → trang tiền (báo cáo thống kê tiền), còn lại → portal khách.
+  const landingFor = (roles) => {
+    if (hasRoleIn(roles, 'ROLE_ADMIN')) return '/admin';
+    if (hasRoleIn(roles, 'ROLE_FINANCE')) return '/admin/reports';
+    return '/hop-dong-cua-toi';
+  };
+
   const loginWithToken = useCallback((tok, usr) => {
     persist(tok, usr);
-    navigate(hasRoleIn(usr?.roles ?? rolesFromToken(tok), 'ROLE_ADMIN') ? '/admin' : '/hop-dong-cua-toi', { replace: true });
+    navigate(landingFor(usr?.roles ?? rolesFromToken(tok)), { replace: true });
   }, [navigate]);
 
   const loginOtp = useCallback(async (email, otp) => {
@@ -161,10 +169,11 @@ export const AuthProvider = ({ children }) => {
     [user?.roles],
   );
   const isAdmin = hasRole('ROLE_ADMIN');
+  const isFinance = hasRole('ROLE_FINANCE');
 
   return (
     <AuthContext.Provider value={{
-      user, token, loading, isAuthenticated, isAdmin, hasRole, hasAnyRole,
+      user, token, loading, isAuthenticated, isAdmin, isFinance, hasRole, hasAnyRole,
       loginWithToken, loginOtp, loginPassword, devLogin, logout, refreshProfile,
     }}>
       {children}

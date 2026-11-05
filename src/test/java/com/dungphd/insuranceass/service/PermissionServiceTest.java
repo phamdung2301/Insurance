@@ -177,10 +177,65 @@ class PermissionServiceTest {
                 ownedByCustomer, PolicyStatus.BOUND, PolicyStatus.ACTIVE));
     }
 
+    // ---- FINANCE (PR finance-scope): chỉ các API tiền ----
+
     @Test
-    void financeContext_cannotApproveBoundToActive() {
+    void financeContext_hasFinanceRole() {
         authenticateAs("finance@example.com", "ROLE_FINANCE");
-        assertThrows(ForbiddenException.class, () -> permissionService.checkTransition(
+        assertTrue(permissionService.hasFinanceRole());
+        assertFalse(permissionService.isAdmin());
+        assertFalse(permissionService.isUnderwriter());
+
+        authenticateAs("admin@example.com", "ROLE_ADMIN");
+        assertFalse(permissionService.hasFinanceRole());
+    }
+
+    @Test
+    void financeContext_canApproveBoundToActive_onlyThatTransition() {
+        // Đảo hành vi có chủ đích (PR finance-scope): FINANCE xác nhận
+        // BOUND→ACTIVE sau khi đối soát tiền vào; các transition khác vẫn 403.
+        authenticateAs("finance@example.com", "ROLE_FINANCE");
+        assertDoesNotThrow(() -> permissionService.checkTransition(
                 ownedByCustomer, PolicyStatus.BOUND, PolicyStatus.ACTIVE));
+        assertThrows(ForbiddenException.class, () -> permissionService.checkTransition(
+                ownedByCustomer, PolicyStatus.BOUND, PolicyStatus.DRAFT));
+        assertThrows(ForbiddenException.class, () -> permissionService.checkTransition(
+                ownedByCustomer, PolicyStatus.DRAFT, PolicyStatus.QUOTED));
+        assertThrows(ForbiddenException.class, () -> permissionService.checkTransition(
+                ownedByCustomer, PolicyStatus.ACTIVE, PolicyStatus.CANCELLED));
+    }
+
+    @Test
+    void financeContext_cannotReadOrWritePolicy_butCanReadMoneyContext() {
+        // Trang hợp đồng vẫn đóng với FINANCE (canReadPolicy/checkPolicyWrite
+        // không đổi); chỉ ngữ cảnh tiền qua endpoint tiền mới được đọc.
+        authenticateAs("finance@example.com", "ROLE_FINANCE");
+        assertFalse(permissionService.canReadPolicy(ownedByCustomer));
+        assertThrows(ForbiddenException.class,
+                () -> permissionService.checkPolicyRead(ownedByCustomer));
+        assertThrows(ForbiddenException.class,
+                () -> permissionService.checkPolicyWrite(ownedByCustomer));
+        assertTrue(permissionService.canReadMoneyContext(ownedByCustomer));
+        assertDoesNotThrow(() -> permissionService.checkMoneyRead(ownedByCustomer));
+    }
+
+    @Test
+    void strangerCustomer_cannotReadMoneyContext() {
+        authenticateAs("stranger@example.com", "ROLE_CUSTOMER");
+        assertFalse(permissionService.canReadMoneyContext(ownedByCustomer));
+        assertThrows(ForbiddenException.class,
+                () -> permissionService.checkMoneyRead(ownedByCustomer));
+    }
+
+    @Test
+    void financeSearchScope_seesOnlyOwnInsuredPolicies() {
+        // FINANCE không phải bên cầu của hợp đồng nào nên search ép về
+        // insuredEmail của chính mình → danh sách rỗng (fail-closed theo
+        // scope, không throw, không lộ hợp đồng của người khác).
+        authenticateAs("finance@example.com", "ROLE_FINANCE");
+        PolicySearchCriteria criteria = PolicySearchCriteria.builder().build();
+        permissionService.applySearchScope(criteria);
+        assertEquals("finance@example.com", criteria.getInsuredEmail());
+        assertNull(criteria.getAgentId());
     }
 }

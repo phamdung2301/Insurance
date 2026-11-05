@@ -19,10 +19,12 @@ import java.util.List;
 
 /**
  * Đối soát tài chính (hoàn phí, export CSV).
- * Quyền sở hữu chuyển giao duy nhất cho ADMIN (/admin/finance).
+ * FINANCE + ADMIN. Hai đường dẫn: /finance/** cho FINANCE (matcher
+ * FINANCE+ADMIN trong SecurityConfig) và /admin/finance là alias giữ lại
+ * cho ADMIN (matcher /admin/** = ADMIN-only).
  */
 @RestController
-@RequestMapping({"/admin/finance", "/api/admin/finance"})
+@RequestMapping({"/admin/finance", "/api/admin/finance", "/finance", "/api/finance"})
 @RequiredArgsConstructor
 public class FinanceController {
 

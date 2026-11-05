@@ -14,9 +14,14 @@ export function Sidebar({ open, onClose }) {
   // mục benchmark. Mặc định OFF.
   const benchmarkEnabled = import.meta.env.VITE_ENABLE_BENCHMARK === 'true';
 
+  // Mọi role hiện có trừ FINANCE — kế toán chỉ thấy mục tiền (financeLinks
+  // bên dưới) và mục tài khoản cá nhân, không vào các trang khách/đại lý/
+  // quản trị (BE cũng 403 các API đó; đây chỉ là ẩn menu).
+  const NOT_FINANCE = ['ROLE_CUSTOMER', 'ROLE_USER', 'ROLE_AGENT', 'ROLE_ADMIN', 'ROLE_UNDERWRITER'];
+
   const customerLinks = [
-    { to: '/hop-dong-cua-toi', label: 'Hợp đồng của tôi', icon: <Home size={18} />, end: true },
-    { to: '/mua-bao-hiem', label: 'Mua bảo hiểm', icon: <ShoppingCart size={18} /> },
+    { to: '/hop-dong-cua-toi', label: 'Hợp đồng của tôi', icon: <Home size={18} />, end: true, roles: NOT_FINANCE },
+    { to: '/mua-bao-hiem', label: 'Mua bảo hiểm', icon: <ShoppingCart size={18} />, roles: NOT_FINANCE },
     { to: '/thanh-toan', label: 'Thanh toán', icon: <CreditCard size={18} />, roles: ['ROLE_CUSTOMER'] },
     { to: '/claims', label: 'Bồi thường', icon: <ShieldAlert size={18} /> },
   ];
@@ -40,10 +45,16 @@ export function Sidebar({ open, onClose }) {
     { to: '/agent/khach-hang', label: 'Khách hàng của tôi', icon: <Users size={18} />, roles: ['ROLE_AGENT', 'ROLE_ADMIN'] },
     { to: '/claims', label: 'Bồi thường khách hàng', icon: <ShieldAlert size={18} />, roles: ['ROLE_AGENT'] },
   ];
+  // Kế toán chỉ thấy các trang tiền: báo cáo thống kê tiền (trang /admin/reports
+  // mở cho FINANCE ở App.jsx). Đối soát/hoàn phí chưa có trang FE (xem PR) nên
+  // mục đó chưa có ở đây — FINANCE gọi API /finance/** trực tiếp.
+  const financeLinks = [
+    { to: '/admin/reports', label: 'Báo cáo', icon: <BarChart3 size={18} />, roles: ['ROLE_FINANCE'] },
+  ];
   const accountLinks = [
     { to: '/ho-so', label: 'Hồ sơ cá nhân', icon: <User size={18} /> },
     { to: '/ho-so/lich-su-dang-nhap', label: 'Lịch sử đăng nhập', icon: <History size={18} /> },
-    { to: '/cho-duyet', label: 'Chờ duyệt', icon: <Clock size={18} /> },
+    { to: '/cho-duyet', label: 'Chờ duyệt', icon: <Clock size={18} />, roles: NOT_FINANCE },
   ];
 
   const visible = (links) => links.filter((l) => !l.roles || hasAnyRole(l.roles));
@@ -61,6 +72,7 @@ export function Sidebar({ open, onClose }) {
 
   const shownAdmin = visible(adminLinks);
   const shownAgent = visible(agentLinks);
+  const shownFinance = visible(financeLinks);
 
   return (
     <>
@@ -84,6 +96,13 @@ export function Sidebar({ open, onClose }) {
           <>
             <div className="nav-section">Đại lý</div>
             {renderLinks(agentLinks)}
+          </>
+        )}
+
+        {shownFinance.length > 0 && (
+          <>
+            <div className="nav-section">Kế toán</div>
+            {renderLinks(financeLinks)}
           </>
         )}
 

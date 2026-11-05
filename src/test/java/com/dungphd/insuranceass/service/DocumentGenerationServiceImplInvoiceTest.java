@@ -103,4 +103,14 @@ class DocumentGenerationServiceImplInvoiceTest {
         authenticateAs("admin@example.com", "ROLE_ADMIN");
         assertNotNull(service.generateInvoicePdf("POL-INV-1"));
     }
+
+    @Test
+    void finance_canDownloadInvoice_moneyDocument() {
+        // PR finance-scope: invoice là chứng từ tiền nên FINANCE được tải
+        // qua checkMoneyRead, dù không phải bên cầu.
+        authenticateAs("finance@example.com", "ROLE_FINANCE");
+        byte[] pdf = service.generateInvoicePdf("POL-INV-1");
+        assertNotNull(pdf);
+        assertTrue(pdf.length > 0);
+    }
 }

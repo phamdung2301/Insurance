@@ -124,6 +124,17 @@ public class PermissionService {
         return hasRole(Role.ROLE_UNDERWRITER.name());
     }
 
+    /**
+     * Kế toán (FINANCE): role nền tảng như ADMIN/UW (đứng ngoài tenant)
+     * nhưng chỉ được làm việc với các API tiền. Mọi check tiền dùng helper
+     * này + {@link #checkMoneyRead}; KHÔNG đưa FINANCE vào
+     * {@link #canReadPolicy} (cửa đó mở cả GET /policies lẫn trang chi
+     * tiết hợp đồng — FINANCE không được vào hai cửa đó).
+     */
+    public boolean hasFinanceRole() {
+        return hasRole(Role.ROLE_FINANCE.name());
+    }
+
     public boolean hasCustomerRole() {
         List<String> roles = currentRoles();
         return roles.contains(Role.ROLE_CUSTOMER.name()) || roles.contains(Role.ROLE_USER.name());
@@ -297,6 +308,32 @@ public class PermissionService {
     }
 
     /**
+     * Đọc ngữ cảnh tiền của một policy — CHỈ dùng cho các endpoint tiền
+     * (tra cứu trạng thái payment, lịch sử payment, ledger, invoice):
+     * ADMIN/UW đọc mọi policy như cũ; FINANCE cũng đọc mọi policy nhưng
+     * CHỈ qua các endpoint tiền này (không mở GET /policies hay trang chi
+     * tiết hợp đồng — hai cửa đó vẫn đi {@link #checkPolicyRead}); bên cầu
+     * giữ quyền đọc cũ. FINANCE không bao giờ là bên cầu nên không lọt
+     * qua nhánh cuối.
+     */
+    public boolean canReadMoneyContext(Policy policy) {
+        String principal = currentPrincipal();
+        if (principal == null) {
+            return false;
+        }
+        if (isAdmin() || isUnderwriter() || hasFinanceRole()) {
+            return true;
+        }
+        return canReadPolicy(policy);
+    }
+
+    public void checkMoneyRead(Policy policy) {
+        if (!canReadMoneyContext(policy)) {
+            throw new ForbiddenException("Bạn không có quyền xem thông tin tiền của hợp đồng này.");
+        }
+    }
+
+    /**
      * Ghi (sửa/xóa/location/coverage/endorsement/payment-claim): ADMIN mọi
      * policy; CUSTOMER/AGENT trong phạm vi. UW không ghi. Nhân viên tenant
      * trên policy của tenant mình còn phải qua guard trạng thái
@@ -338,7 +375,8 @@ public class PermissionService {
 
     /**
      * Bảng chuyển trạng thái → role, enforce ở service.
-     * BOUND → ACTIVE chuyển giao duy nhất cho ADMIN.
+     * BOUND → ACTIVE: ADMIN hoặc FINANCE — đây là bước xác nhận đã đối soát
+     * tiền vào (FINANCE chỉ được duy nhất bước này; ADMIN đã return ở trên).
      * Nhân viên tenant đổi trạng thái policy của tenant mình còn phải qua
      * guard trạng thái (SUSPENDED/CLOSED chặn); phía CUSTOMER không bị chặn.
      */
@@ -353,7 +391,7 @@ public class PermissionService {
         boolean demandAllowed = isDemandSide(policy, principal) && (hasCustomerRole() || hasAgentRole());
         boolean allowed;
         if (from == PolicyStatus.BOUND && to == PolicyStatus.ACTIVE) {
-            allowed = false; // Duy nhất ADMIN được duyệt BOUND -> ACTIVE
+            allowed = hasFinanceRole(); // Chỉ FINANCE xác nhận đối soát tiền vào
         } else if (from == PolicyStatus.BOUND && to == PolicyStatus.DRAFT) {
             allowed = false; // chỉ ADMIN (đã return ở trên)
         } else if (from == PolicyStatus.ACTIVE && to == PolicyStatus.EXPIRED) {

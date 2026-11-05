@@ -113,8 +113,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     /**
      * Resolve tenant của caller từ User đã load (SaaS Phase 1).
-     * ADMIN và UNDERWRITER đứng ngoài mọi tenant → null (bypass marker), kể cả
-     * khi document user của họ lỡ có agentId (scope vẫn bypass theo role, PLAN §3.2).
+     * ADMIN, UNDERWRITER và FINANCE đứng ngoài mọi tenant → null (bypass
+     * marker), kể cả khi document user của họ lỡ có agentId (scope vẫn
+     * bypass theo role, PLAN §3.2).
      * Các role còn lại (AGENT, CUSTOMER, ...) → user.agentId (có thể null: user
      * chưa được gán tenant; Phase 1 KHÔNG fail-closed trường hợp này — đó là
      * hành vi Phase 2, cấm làm đợt này).
@@ -126,7 +127,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         List<String> roles = user.getRoles();
         if (roles != null
                 && (roles.contains(Role.ROLE_ADMIN.name())
-                || roles.contains(Role.ROLE_UNDERWRITER.name()))) {
+                || roles.contains(Role.ROLE_UNDERWRITER.name())
+                || roles.contains(Role.ROLE_FINANCE.name()))) {
             return null;
         }
         String agentId = user.getAgentId();

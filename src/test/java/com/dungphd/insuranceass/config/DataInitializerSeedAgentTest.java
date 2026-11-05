@@ -162,4 +162,58 @@ class DataInitializerSeedAgentTest {
                 "user đã có tenant khác thì seed không được save đè");
         assertEquals("tenant-other", alreadyAssigned.getAgentId());
     }
+
+    @Test
+    void seed_financeDemoUser_seededWithFinanceRoleOnly() throws Exception {
+        // PR finance-scope: finance@example.com seed với ROLE_FINANCE
+        // (không còn ROLE_ADMIN) và tên hiển thị "Kế Toán Mẫu".
+        stubCountsNonEmpty();
+        Agent existing = Agent.builder().id("seed-agent-id").code("AGT-SEED").slug("dai-ly-mau").build();
+        when(agentRepository.findByCode("AGT-SEED")).thenReturn(Optional.of(existing));
+        User demoAgent = User.builder().email("agent@example.com")
+                .roles(List.of("ROLE_AGENT")).agentId("seed-agent-id").build();
+        when(userRepository.findByEmail("agent@example.com")).thenReturn(Optional.of(demoAgent));
+
+        initializer().initData().run();
+
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository, atLeastOnce()).save(userCaptor.capture());
+        User finance = userCaptor.getAllValues().stream()
+                .filter(u -> "finance@example.com".equals(u.getEmail()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("finance@example.com không được seed"));
+        assertEquals(List.of("ROLE_FINANCE"), finance.getRoles());
+        assertEquals("Kế Toán Mẫu", finance.getFullName());
+    }
+
+    @Test
+    void seed_financeDemoUser_withOldAdminRole_repairedOnBoot() throws Exception {
+        // PR finance-scope: DB cũ đã seed finance@example.com với ROLE_ADMIN
+        // thì boot sửa một lần thành ROLE_FINANCE + bỏ hậu tố "(Admin)".
+        when(userRepository.count()).thenReturn(1L);
+        when(policyRepository.count()).thenReturn(1L);
+        when(userRepository.findByEmail("customer@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmail("uw@example.com")).thenReturn(Optional.empty());
+        when(passwordEncoder.encode(anyString())).thenReturn("encoded");
+        Agent existing = Agent.builder().id("seed-agent-id").code("AGT-SEED").slug("dai-ly-mau").build();
+        when(agentRepository.findByCode("AGT-SEED")).thenReturn(Optional.of(existing));
+        User demoAgent = User.builder().email("agent@example.com")
+                .roles(List.of("ROLE_AGENT")).agentId("seed-agent-id").build();
+        when(userRepository.findByEmail("agent@example.com")).thenReturn(Optional.of(demoAgent));
+        User oldFinance = User.builder().email("finance@example.com")
+                .fullName("Kế Toán Mẫu (Admin)")
+                .roles(new java.util.ArrayList<>(List.of("ROLE_ADMIN"))).build();
+        when(userRepository.findByEmail("finance@example.com")).thenReturn(Optional.of(oldFinance));
+
+        initializer().initData().run();
+
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository, atLeastOnce()).save(userCaptor.capture());
+        User finance = userCaptor.getAllValues().stream()
+                .filter(u -> "finance@example.com".equals(u.getEmail()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("finance@example.com không được sửa"));
+        assertEquals(List.of("ROLE_FINANCE"), finance.getRoles());
+        assertEquals("Kế Toán Mẫu", finance.getFullName());
+    }
 }

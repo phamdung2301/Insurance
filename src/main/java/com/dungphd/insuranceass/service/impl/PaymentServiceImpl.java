@@ -344,12 +344,15 @@ public class PaymentServiceImpl implements PaymentService {
         return null;
     }
 
-    /** ADMIN/UW đọc mọi policy, còn lại chỉ bên cầu — đúng canReadPolicy. */
+    /** ADMIN/UW/FINANCE đọc mọi policy qua endpoint tiền (tra cứu trạng thái,
+     * lịch sử payment), còn lại chỉ bên cầu — FINANCE không bao giờ là bên
+     * cầu nên không lọt qua nhánh cuối. */
     private void checkReadScope(Policy policy, String principal) {
         if (principal == null || principal.isBlank()) {
             throw new ForbiddenException("Bạn không có quyền xem hợp đồng này.");
         }
         if (permissionService.isAdmin() || permissionService.isUnderwriter()
+                || permissionService.hasFinanceRole()
                 || permissionService.isDemandSide(policy, principal)) {
             return;
         }
