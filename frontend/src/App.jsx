@@ -136,7 +136,6 @@ function AnimatedRoutes() {
         {page('/agent/khach-hang', <AgentCustomerPage />, ['ROLE_AGENT', 'ROLE_ADMIN'])}
         {page('/thanh-toan', <PaymentPage />, NOT_FINANCE)}
         {page('/thanh-toan/ket-qua', <PaymentResultPage />)}
-        {page('/so-sanh-goi', <ComparePackagesPage />)}
         {page('/cho-duyet', <PendingEndorsementsPage />, NOT_FINANCE)}
         {page('/admin/phan-quyen', <PermissionMatrixPage />, ['ROLE_ADMIN'])}
         {page('/ho-so/lich-su-dang-nhap', <LoginHistoryPage />)}
