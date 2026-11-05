@@ -167,6 +167,7 @@ public class AgentServiceImpl implements AgentService {
         }
         // Chỉ trả field an toàn để hiển thị — KHÔNG id, code, createdBy.
         return PublicAgentResponse.builder()
+                .slug(agent.getSlug())
                 .displayName(agent.getDisplayName())
                 .contactName(agent.getContactName())
                 .contactEmail(agent.getContactEmail())
@@ -174,6 +175,28 @@ public class AgentServiceImpl implements AgentService {
                 .address(agent.getAddress())
                 .status(agent.getStatus())
                 .build();
+    }
+
+    @Override
+    public List<PublicAgentResponse> listPublicActive() {
+        // Picker chọn đại lý: CHỈ ACTIVE (SUSPENDED/CLOSED là link chết nên
+        // không cho chọn — khách bấm vào cũng chỉ gặp trang link chết).
+        // Agent chưa có slug vẫn lọt vào list query nhưng không có link để
+        // mở — lọc bỏ để nút bấm nào cũng mở được đúng storefront.
+        // Mapping field giống hệt resolvePublicBySlug (không id, không code).
+        return agentRepository.findByStatusOrderByCodeAsc(AgentStatus.ACTIVE)
+                .stream()
+                .filter(a -> a.getSlug() != null && !a.getSlug().isBlank())
+                .map(a -> PublicAgentResponse.builder()
+                        .slug(a.getSlug())
+                        .displayName(a.getDisplayName())
+                        .contactName(a.getContactName())
+                        .contactEmail(a.getContactEmail())
+                        .phone(a.getPhone())
+                        .address(a.getAddress())
+                        .status(a.getStatus())
+                        .build())
+                .toList();
     }
 
     /**

@@ -3,6 +3,7 @@ package com.dungphd.insuranceass.service;
 import com.dungphd.insuranceass.dto.request.AgentCreateRequest;
 import com.dungphd.insuranceass.dto.request.AgentUpdateRequest;
 import com.dungphd.insuranceass.dto.response.AgentResponse;
+import com.dungphd.insuranceass.dto.response.PublicAgentResponse;
 import com.dungphd.insuranceass.exception.BadRequestException;
 import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.Agent;
@@ -48,6 +49,26 @@ class AgentServiceImplTest {
                 .contactEmail("a@example.com")
                 .status(AgentStatus.ACTIVE)
                 .build();
+    }
+
+    @Test
+    void listPublicActive_returnsActiveWithSlug_onlyPublicFields() {
+        Agent active = agent("agent-1", "AGT-0001");
+        active.setSlug("dai-ly-a");
+        Agent noSlug = agent("agent-3", "AGT-0003");
+        // Query repo đã lọc theo status; service lọc thêm agent chưa có slug
+        // (không có link để mở storefront thì nút bấm vô nghĩa).
+        when(agentRepository.findByStatusOrderByCodeAsc(AgentStatus.ACTIVE))
+                .thenReturn(List.of(active, noSlug));
+
+        List<PublicAgentResponse> result = agentService.listPublicActive();
+
+        assertEquals(1, result.size());
+        assertEquals("dai-ly-a", result.get(0).getSlug());
+        assertEquals("Đại Lý A", result.get(0).getDisplayName());
+        assertEquals("a@example.com", result.get(0).getContactEmail());
+        assertEquals(AgentStatus.ACTIVE, result.get(0).getStatus());
+        verify(agentRepository).findByStatusOrderByCodeAsc(AgentStatus.ACTIVE);
     }
 
     @Test

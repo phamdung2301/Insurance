@@ -38,7 +38,7 @@ function StaticShield() {
 
 const BENEFITS = [
   { icon: Users, title: 'Mỗi đại lý một gian hàng riêng', desc: 'Đại lý vận hành và bán hàng qua link riêng của mình, trên cùng một nền tảng chung.' },
-  { icon: Link2, title: 'Khách hàng gắn với đúng đại lý', desc: 'Khách vào qua link đại lý được phục vụ bởi chính đại lý đó — không mua vãng lai, không gán nhầm.' },
+  { icon: Link2, title: 'Khách hàng gắn với đúng đại lý', desc: 'Khách vào qua trang của đại lý sẽ được chính đại lý đó đồng hành suốt quá trình mua và chăm sóc hợp đồng.' },
   { icon: CreditCard, title: 'Thanh toán qua nền tảng', desc: `Thanh toán được xử lý qua ${PLATFORM_NAME}, minh bạch trên từng gian hàng đại lý.` },
 ];
 
@@ -49,7 +49,7 @@ const STEPS = [
 ];
 
 const FAQS = [
-  { q: 'Tôi là khách hàng, mua bảo hiểm ở đâu?', a: 'Bạn mua qua link riêng của một đại lý trên nền tảng. Theo quy định hiện tại, khách chưa có link đại lý thì chưa tự mua được — hãy liên hệ quản trị viên để được hướng dẫn.' },
+  { q: 'Tôi là khách hàng, mua bảo hiểm ở đâu?', a: 'Bạn mua qua trang của một đại lý trên nền tảng. Nếu chưa có link đại lý, bạn vẫn có thể bắt đầu tại trang Mua bảo hiểm và chọn một đại lý đồng hành ở đó.' },
   { q: 'Link đại lý báo "không còn hoạt động" thì sao?', a: 'Nghĩa là đại lý đó đã tạm ngưng hoặc ngừng hoạt động và link không còn dùng để mua tiếp được. Bạn vẫn có thể liên hệ quản trị viên qua mục Hỗ trợ để được hướng dẫn.' },
   { q: 'Tôi muốn trở thành đại lý thì đăng ký ở đâu?', a: 'Hiện chưa có form tự đăng ký. Bạn liên hệ quản trị viên qua thông tin ở mục "Trở thành đại lý", quản trị viên xét duyệt và tạo tài khoản cho bạn.' },
   { q: 'Thanh toán được xử lý như thế nào?', a: `Thanh toán được xử lý qua ${PLATFORM_NAME} và hiển thị minh bạch trên gian hàng của đại lý bạn đang mua.` },

@@ -101,11 +101,13 @@ public class SecurityConfig {
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/auth/**", "/api/auth/**").permitAll()
                         // Track C (SaaS Phase 2): storefront đại lý là public —
-                        // khách chưa đăng nhập vẫn xem được. CHỈ GET path resolve
-                        // slug này được permitAll, đặt TRƯỚC fallback
+                        // khách chưa đăng nhập vẫn xem được. CHỈ GET các path
+                        // public này được permitAll, đặt TRƯỚC fallback
                         // anyRequest().authenticated(); không mở /agents/** khác
                         // (list/detail ADMIN vẫn nằm sau matcher /admin/**).
-                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/agents/public/**", "/api/agents/public/**").permitAll()
+                        // Matcher đường dẫn chính xác kèm theo /** để khỏi phụ
+                        // thuộc vào việc /** có khớp base path hay không.
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/agents/public", "/agents/public/**", "/api/agents/public", "/api/agents/public/**").permitAll()
                         // Đợt payment — webhook SePay là server-to-server, không có JWT
                         // nên phải permitAll ĐÚNG path + ĐÚNG method này, đặt trước
                         // fallback anyRequest().authenticated() (match đầu thắng).
