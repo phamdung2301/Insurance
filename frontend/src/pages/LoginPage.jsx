@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Mail, KeyRound, ShieldCheck, Hammer, BadgeCheck, Clock3, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, landingForRole, rolesFromToken } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { authService } from '../services/api';
 import { isValidEmail } from '../utils/format';
@@ -25,7 +25,7 @@ const TRUST_STATS = [
  *  phải: form (a) "Email OTP" | (b) "Mật khẩu" | (c) "Đăng nhập dev"
  */
 export function LoginPage() {
-  const { isAuthenticated, loginWithToken } = useAuth();
+  const { isAuthenticated, user, token, loginWithToken } = useAuth();
   const toast = useToast();
   const [tab, setTab] = useState('otp');
 
@@ -55,7 +55,20 @@ export function LoginPage() {
     toast.success(`Chào mừng ${usr.fullName}!`);
   }, []);
 
-  if (isAuthenticated) return <Navigate to="/hop-dong-cua-toi" replace />;
+  // User đã đăng nhập mở lại /login (vd. bấm "Đăng nhập" ở landing) thì về
+  // đúng trang đích theo role — FINANCE về /admin/reports, KHÔNG về
+  // /hop-dong-cua-toi (trang đó chặn FINANCE, redirect mù sẽ ăn toast
+  // "không có quyền" + redirect vòng thứ hai).
+  if (isAuthenticated) {
+    return (
+      <Navigate
+        to={landingForRole(
+          user?.roles?.length ? user.roles : rolesFromToken(token),
+        )}
+        replace
+      />
+    );
+  }
 
   return (
     <div className="auth-split">

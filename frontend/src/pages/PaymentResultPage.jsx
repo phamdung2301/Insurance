@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { policyService } from '../services/api';
 import { formatMoney } from '../utils/format';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
+import { FINANCE_HOME } from '../utils/finance';
 
 /**
  * Trang kết quả thanh toán chuyển khoản SePay — CHỈ TRA CỨU + HIỂN THỊ.
@@ -19,6 +21,11 @@ export function PaymentResultPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const toast = useToast();
+  // Trang này chỉ tra cứu tiền (GET /payments/status) nên FINANCE được xem
+  // nội dung; nhưng 3 nút dưới dẫn tới trang bị chặn với FINANCE
+  // (/hop-dong/:n, /thanh-toan) nên ẩn hết với FINANCE, thay bằng nút về
+  // trang Báo cáo (workspace tiền của kế toán).
+  const { isFinance } = useAuth();
   const [payment, setPayment] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -66,9 +73,15 @@ export function PaymentResultPage() {
           {error || 'Không tra cứu được kết quả thanh toán.'}
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', flexWrap: 'wrap' }}>
-          <button type="button" className="btn" onClick={() => navigate('/thanh-toan')}>
-            Về trang Thanh toán
-          </button>
+          {isFinance ? (
+            <button type="button" className="btn" onClick={() => navigate(FINANCE_HOME)}>
+              Về trang Báo cáo
+            </button>
+          ) : (
+            <button type="button" className="btn" onClick={() => navigate('/thanh-toan')}>
+              Về trang Thanh toán
+            </button>
+          )}
         </div>
       </div>
     );
@@ -131,27 +144,36 @@ export function PaymentResultPage() {
             Kiểm tra lại
           </button>
         )}
-        {isFailed && payment.policyNumber && (
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => navigate(`/hop-dong/${encodeURIComponent(payment.policyNumber)}`)}
-          >
-            Thử lại
+        {!isFinance && (
+          <>
+            {isFailed && payment.policyNumber && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => navigate(`/hop-dong/${encodeURIComponent(payment.policyNumber)}`)}
+              >
+                Thử lại
+              </button>
+            )}
+            {payment.policyNumber && (
+              <button
+                type="button"
+                className="btn"
+                onClick={() => navigate(`/hop-dong/${encodeURIComponent(payment.policyNumber)}`)}
+              >
+                Xem hợp đồng
+              </button>
+            )}
+            <button type="button" className="btn" onClick={() => navigate('/thanh-toan')}>
+              Về trang Thanh toán
+            </button>
+          </>
+        )}
+        {isFinance && (
+          <button type="button" className="btn" onClick={() => navigate(FINANCE_HOME)}>
+            Về trang Báo cáo
           </button>
         )}
-        {payment.policyNumber && (
-          <button
-            type="button"
-            className="btn"
-            onClick={() => navigate(`/hop-dong/${encodeURIComponent(payment.policyNumber)}`)}
-          >
-            Xem hợp đồng
-          </button>
-        )}
-        <button type="button" className="btn" onClick={() => navigate('/thanh-toan')}>
-          Về trang Thanh toán
-        </button>
       </div>
     </div>
   );

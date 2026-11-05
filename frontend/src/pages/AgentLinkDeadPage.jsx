@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { LogIn, Home, PhoneCall } from 'lucide-react';
 import { AgentPicker } from '../components/AgentPicker';
+import { useAuth } from '../context/AuthContext';
 
 /**
  * Trang exception link chết (SaaS Phase 2 Track C, quyết định Q4) — KHÁC
@@ -16,6 +17,10 @@ import { AgentPicker } from '../components/AgentPicker';
  *   cho mục đó, không bịa trang hỗ trợ chưa tồn tại.
  */
 export function AgentLinkDeadPage({ agentName }) {
+  // Nút "đăng nhập để xem hợp đồng của tôi" hứa hẹn thứ FINANCE không
+  // được làm, và picker dẫn về luồng mua (chặn FINANCE) nên ẩn cả hai
+  // với FINANCE — chỉ còn "Về trang chủ".
+  const { isFinance } = useAuth();
   return (
     <div className="page-header">
       <h1>Đại lý này không còn hoạt động</h1>
@@ -29,16 +34,18 @@ export function AgentLinkDeadPage({ agentName }) {
         dùng chung trên toàn hệ thống, không phụ thuộc vào đại lý này.
       </p>
       <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '1rem' }}>
-        <Link className="btn-primary" to="/login">
-          <LogIn size={16} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} />
-          Đăng nhập để xem hợp đồng của tôi
-        </Link>
+        {!isFinance && (
+          <Link className="btn-primary" to="/login">
+            <LogIn size={16} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} />
+            Đăng nhập để xem hợp đồng của tôi
+          </Link>
+        )}
         <Link className="btn-secondary" to="/">
           <Home size={16} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} />
           Về trang chủ
         </Link>
       </div>
-      <AgentPicker title="Hoặc chọn một đại lý khác đang hoạt động" />
+      {!isFinance && <AgentPicker title="Hoặc chọn một đại lý khác đang hoạt động" />}
       <p style={{ marginTop: '1rem' }}>
         <PhoneCall size={14} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} />
         Cần hỗ trợ thêm? Vui lòng liên hệ quản trị viên qua mục hỗ trợ trên trang chủ.

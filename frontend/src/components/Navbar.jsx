@@ -4,10 +4,13 @@ import { Bell, ChevronDown, User, KeyRound, LogOut, Menu } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { initials } from '../utils/format';
 import { notificationApi } from '../services/notificationApi';
+import { useToast } from '../context/ToastContext';
+import { isFinanceAllowedLink } from '../utils/finance';
 
 export function Navbar({ title, onMenu }) {
   const { user, isAdmin, isFinance, logout } = useAuth();
   const navigate = useNavigate();
+  const toast = useToast();
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
   // Chuông thông báo (đợt 2B): badge số chưa đọc + dropdown chưa đọc mới nhất.
@@ -63,7 +66,15 @@ export function Navbar({ title, onMenu }) {
     } catch {
       // Đánh dấu lỗi thì vẫn điều hướng; trạng thái sẽ đồng bộ ở lần refresh sau.
     }
-    if (item.link) navigate(item.link);
+    // Link thông báo do backend sinh (hôm nay chỉ /hop-dong/* và /claims/*)
+    // — FINANCE không được mở các trang đó nên không điều hướng mù: chỉ
+    // đánh dấu đã đọc, báo rõ thay vì để route guard đá về kèm toast lỗi.
+    if (!item.link) return;
+    if (isFinance && !isFinanceAllowedLink(item.link)) {
+      toast.info('Bạn không có quyền truy cập trang này.');
+      return;
+    }
+    navigate(item.link);
   };
 
   const displayName = user?.fullName || user?.email || 'Khách';

@@ -5,6 +5,7 @@ import { publicAgentService } from '../services/api';
 import { setAgentRef } from '../utils/agentRef';
 import { PLATFORM_NAME } from '../config/platform';
 import { AgentLinkDeadPage } from './AgentLinkDeadPage';
+import { useAuth } from '../context/AuthContext';
 
 /**
  * Storefront đại lý (SaaS Phase 2 Track C) — route public /a/<slug>.
@@ -22,6 +23,10 @@ import { AgentLinkDeadPage } from './AgentLinkDeadPage';
 export function AgentStorefrontPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
+  // Trang public nhưng user FINANCE đã đăng nhập vẫn mở được: nút mua dẫn
+  // tới /mua-bao-hiem (chặn FINANCE) nên ẩn hẳn với FINANCE — chỉ hiện
+  // thông tin liên hệ của đại lý.
+  const { isFinance } = useAuth();
   const [state, setState] = useState('loading'); // loading | ok | dead | missing | error
   const [agent, setAgent] = useState(null);
 
@@ -98,12 +103,14 @@ export function AgentStorefrontPage() {
             {row.text}
           </p>
         ))}
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '1.25rem' }}>
-          <button type="button" className="btn-primary" onClick={() => navigate('/mua-bao-hiem')}>
-            <ShoppingCart size={16} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} />
-            Mua bảo hiểm qua đại lý này
-          </button>
-        </div>
+        {!isFinance && (
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '1.25rem' }}>
+            <button type="button" className="btn-primary" onClick={() => navigate('/mua-bao-hiem')}>
+              <ShoppingCart size={16} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} />
+              Mua bảo hiểm qua đại lý này
+            </button>
+          </div>
+        )}
         <p style={{ marginTop: '1.25rem' }}>
           Thanh toán được xử lý qua {PLATFORM_NAME}.
         </p>
