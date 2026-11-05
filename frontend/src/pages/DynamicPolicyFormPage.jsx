@@ -69,7 +69,7 @@ export const DynamicPolicyFormPage = () => {
     },
     locations: [
       {
-        locationId: 'LOC-1',
+        locationId: 1,
         locationName: 'Trụ sở chính',
         address: {
           street: '123 Phố Huế, Hoàn Kiếm',
@@ -143,7 +143,7 @@ export const DynamicPolicyFormPage = () => {
           },
           locations: (pol.locations && pol.locations.length > 0)
             ? pol.locations.map((loc, idx) => ({
-                locationId: loc.locationId || `LOC-${idx + 1}`,
+                locationId: Number(loc.locationId) || idx + 1,
                 locationName: loc.locationName || `Địa điểm ${idx + 1}`,
                 address: loc.address || { street: '', city: 'Hà Nội', state: '', postalCode: '', country: 'Việt Nam' },
                 constructionType: loc.constructionType || 'NON_COMBUSTIBLE',
@@ -160,7 +160,7 @@ export const DynamicPolicyFormPage = () => {
               }))
             : [
                 {
-                  locationId: 'LOC-1',
+                  locationId: 1,
                   locationName: 'Trụ sở chính',
                   address: { street: '', city: 'Hà Nội', state: '', postalCode: '', country: 'Việt Nam' },
                   constructionType: 'NON_COMBUSTIBLE',
@@ -201,7 +201,7 @@ export const DynamicPolicyFormPage = () => {
   const handleAddLocation = () => {
     const nextIdx = formData.locations.length + 1;
     const newLocation = {
-      locationId: `LOC-${nextIdx}`,
+      locationId: nextIdx,
       locationName: `Chi nhánh ${nextIdx}`,
       address: {
         street: '',
@@ -401,7 +401,7 @@ export const DynamicPolicyFormPage = () => {
           },
         },
         locations: formData.locations.map((loc, idx) => ({
-          locationId: loc.locationId || `LOC-${idx + 1}`,
+          locationId: Number(loc.locationId) || idx + 1,
           locationName: loc.locationName,
           address: {
             street: loc.address?.street || '',
@@ -857,11 +857,12 @@ export const DynamicPolicyFormPage = () => {
                     <div>
                       <label className="form-label">Mã Địa điểm (ID)</label>
                       <input
-                        type="text"
+                        type="number"
+                        min={1}
                         className="form-control"
                         value={loc.locationId}
-                        onChange={(e) => handleUpdateLocation(idx, 'locationId', e.target.value)}
-                        placeholder="LOC-1"
+                        onChange={(e) => handleUpdateLocation(idx, 'locationId', e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="1"
                       />
                     </div>
 
