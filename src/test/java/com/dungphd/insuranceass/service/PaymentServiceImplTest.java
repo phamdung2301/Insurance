@@ -184,8 +184,25 @@ class PaymentServiceImplTest {
     }
 
     @Test
-    void createPayment_notQuoted_conflict() {
+    void createPayment_bound_returnsQrAndPending() {
         quotedPolicy.setStatus(PolicyStatus.BOUND);
+        when(permissionService.isDemandSide(quotedPolicy, "customer@example.com")).thenReturn(true);
+        when(paymentGateway.isConfigured()).thenReturn(true);
+        when(paymentRepository.findByPolicyNumberAndStatus("POL-1001", GatewayPaymentStatus.PENDING))
+                .thenReturn(List.of());
+        when(paymentGateway.generateTransferContent()).thenReturn("INSABCDEF1234");
+        when(paymentGateway.buildQrUrl(5_000_000L, "INSABCDEF1234"))
+                .thenReturn("https://vietqr.app/img?acc=1234567890&bank=VCB&amount=5000000&des=INSABCDEF1234&template=compact");
+
+        PaymentResponse res = paymentService.createPayment("POL-1001", "customer@example.com");
+        assertEquals("PENDING", res.getStatus());
+        assertEquals("SEPAY", res.getProvider());
+        assertNotNull(res.getTxnRef());
+    }
+
+    @Test
+    void createPayment_draft_conflict() {
+        quotedPolicy.setStatus(PolicyStatus.DRAFT);
         when(permissionService.isDemandSide(quotedPolicy, "customer@example.com")).thenReturn(true);
         ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
                 paymentService.createPayment("POL-1001", "customer@example.com"));

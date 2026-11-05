@@ -13,7 +13,6 @@ import {
 import { isBackendMissing, BACKEND_TODO_HINT } from '../utils/backend';
 import { StatusBadge, LifecycleStepper } from '../components/Status';
 import { Modal } from '../components/Modal';
-import { PaymentModal } from '../components/PaymentModal';
 import { EmptyState, Skeleton } from '../components/ui';
 import { formatMoney, formatDate, formatDateTime } from '../utils/format';
 
@@ -46,7 +45,6 @@ export function PolicyDetailPage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [tab, setTab] = useState('overview');
-  const [payOpen, setPayOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   // Thanh toán chuyển khoản SePay: thông tin tạo payment + trạng thái polling.
   const [sepayOpen, setSepayOpen] = useState(false);
@@ -101,36 +99,21 @@ export function PolicyDetailPage() {
 
   const requestQuote = () => doTransition('QUOTED', 'Đã gửi yêu cầu báo giá.');
   const acceptQuote = async () => {
-    // QUOTED -> BOUND (chấp nhận báo giá) rồi mở modal thanh toán
-    const ok = await doTransition('BOUND', 'Đã chấp nhận báo giá. Vui lòng thanh toán để kích hoạt hợp đồng.');
-    if (ok) setPayOpen(true);
-  };
-  const confirmPayment = async () => {
-    // PLAN §1.6: "Tôi đã chuyển khoản" chỉ ghi nhận đã báo trả (marker
-    // paymentClaimedAt / paymentStatus=CLAIMED), policy GIỮ BOUND và hiển thị
-    // "Đang chờ đối soát". Kích hoạt ACTIVE là bước riêng của ADMIN ở trang
-    // chi tiết hợp đồng (ADMIN giữ nút "Kích hoạt trực tiếp" bên dưới).
-    setBusy(true);
-    try {
-      await policyService.claimPayment(policyNumber);
-      toast.success('Đã ghi nhận khai báo chuyển khoản. Hợp đồng đang chờ quản trị viên xác nhận đã nhận tiền trước khi kích hoạt.');
-      setPayOpen(false);
-      await load();
-    } catch (err) {
-      failToast(err, 'ghi nhận chuyển khoản');
-    } finally {
-      setBusy(false);
-    }
+    // QUOTED -> BOUND (chấp nhận báo giá). Thanh toán thực hiện sau bằng
+    // SePay — nút SePay hiện cả ở BOUND, không còn modal khai báo tay.
+    await doTransition('BOUND', 'Đã chấp nhận báo giá. Vui lòng thanh toán để kích hoạt hợp đồng.');
   };
   const adminActivate = async () => {
     if (!window.confirm('Kích hoạt trực tiếp hợp đồng này mà không qua thanh toán?')) return;
     await doTransition('ACTIVE', 'Hợp đồng đã được kích hoạt.');
   };
   const payViaSepay = async () => {
-    // Thanh toán chuyển khoản qua SePay (song song với luồng chuyển khoản
-    // tay): chỉ tạo payment khi QUOTED, rồi MỞ MODAL hiển thị QR + thông
-    // tin chuyển khoản — KHÔNG redirect sang cổng. Trạng thái chỉ đổi khi
-    // SePay gửi xác nhận về backend — không tự kết luận thành công từ đây.
+    // Thanh toán chuyển khoản qua SePay: tạo payment khi QUOTED hoặc BOUND,
+    // rồi MỞ MODAL hiển thị QR + thông tin chuyển khoản — KHÔNG redirect
+    // sang cổng. Trạng thái chỉ đổi khi SePay gửi xác nhận về backend —
+    // không tự kết luận thành công từ đây. Ở QUOTED webhook kích hoạt
+    // thẳng sang ACTIVE; ở BOUND tiền về thì giữ PENDING để FINANCE xác
+    // nhận BOUND→ACTIVE.
     setBusy(true);
     try {
       const res = await policyService.createSepayPayment(policyNumber);
@@ -148,7 +131,7 @@ export function PolicyDetailPage() {
         // hiển thị câu riêng cho đúng luật bên cầu của endpoint này.
         toast.error('Bạn không có quyền tạo thanh toán cho hợp đồng này (chỉ người được bảo hiểm hoặc đại lý được giao mới được thanh toán qua cổng).');
       } else if (err.status === 409) {
-        toast.error(`${err.message || 'Hợp đồng không còn ở trạng thái QUOTED.'} Đang tải lại hợp đồng…`);
+        toast.error(`${err.message || 'Hợp đồng không còn ở trạng thái cho phép thanh toán.'} Đang tải lại hợp đồng…`);
         await load();
       } else {
         // 400 (giá deal lệch) / 503 (cổng chưa cấu hình): hiện message backend
@@ -187,6 +170,21 @@ export function PolicyDetailPage() {
     const id = setInterval(() => { checkSepayStatus(); }, 10000);
     return () => clearInterval(id);
   }, [sepayOpen, sepayPayment?.txnRef, sepayStatus?.status, sepayStatus?.policyStatus, checkSepayStatus]);
+  // Tự đóng modal khi đã có trạng thái cuối THÀNH CÔNG từ SePay (payment
+  // PAID hoặc policy ACTIVE — bám cả hai vì ở BOUND tiền về thì FINANCE
+  // xác nhận sau, lúc đó policy mới ACTIVE): chờ 2s để kịp đọc dòng kết
+  // quả, rồi đóng + tải lại hợp đồng — không cần bấm nút đóng. Thất bại
+  // thì GIỮ modal để người dùng thấy nút "Tạo lại thanh toán".
+  const sepaySuccess = sepayStatus?.status === 'PAID' || sepayStatus?.policyStatus === 'ACTIVE';
+  useEffect(() => {
+    if (!sepayOpen || !sepaySuccess) return undefined;
+    const t = setTimeout(async () => {
+      setSepayOpen(false);
+      toast.success('Thanh toán thành công — hợp đồng đã được kích hoạt.');
+      await load();
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [sepayOpen, sepaySuccess, load, toast]);
   const deletePolicy = async () => {
     setBusy(true);
     try {
@@ -315,12 +313,13 @@ export function PolicyDetailPage() {
   // (được giao) và ADMIN; UNDERWRITER xem chi tiết ở chế độ đọc.
   const canManage = hasAnyRole(['ROLE_CUSTOMER', 'ROLE_AGENT', 'ROLE_ADMIN']);
   const isInsured = !policy.insured?.email || (user?.email && policy.insured.email.toLowerCase() === user.email.toLowerCase());
-  // Nút SePay chỉ bên cầu thấy: isInsured (biến hiện có, lỏng khi thiếu
-  // insured email) hoặc đại lý được giao (pattern isAgent của NegotiationPanel).
-  // FE chỉ ẩn/hiện cho UX — BE (isDemandSide) mới là chốt chặn.
+  // Nút SePay hiện ở QUOTED và BOUND (cả hai trạng thái đều thanh toán
+  // được): isInsured (biến hiện có, lỏng khi thiếu insured email) hoặc
+  // đại lý được giao (pattern isAgent của NegotiationPanel).
+  // FE chỉ ẩn/hiện cho UX — BE (isDemandSide + guard QUOTED/BOUND) mới là chốt chặn.
   const isAssignedAgent = user?.email && policy.assignedAgentEmail
     && policy.assignedAgentEmail.toLowerCase() === user.email.toLowerCase();
-  const canPaySepay = status === 'QUOTED' && canManage && (isInsured || isAssignedAgent);
+  const canPaySepay = (status === 'QUOTED' || status === 'BOUND') && canManage && (isInsured || isAssignedAgent);
   const canClaim = (hasRole('ROLE_CUSTOMER') || hasRole('ROLE_USER')) && isInsured;
   const isAdmin = hasRole('ROLE_ADMIN');
 
@@ -358,7 +357,6 @@ export function PolicyDetailPage() {
         status={status}
         isAdmin={isAdmin}
         canManage={canManage}
-        isPaymentClaimed={isPaymentClaimed}
         canClaim={canClaim}
         onClaim={() => navigate(`/claims/new?policyNumber=${policy.policyNumber}`)}
         busy={busy}
@@ -366,7 +364,6 @@ export function PolicyDetailPage() {
         onAcceptQuote={acceptQuote}
         onPaySepay={payViaSepay}
         showSepayPay={canPaySepay}
-        onPayNow={() => setPayOpen(true)}
         onAdminActivate={adminActivate}
         onEndorse={() => setEndorseOpen(true)}
         onDelete={() => setDelPolicy(true)}
@@ -488,13 +485,6 @@ export function PolicyDetailPage() {
         onViewPolicy={async () => { setSepayOpen(false); await load(); }}
         onViewPayments={() => { setSepayOpen(false); navigate('/thanh-toan'); }}
       />
-
-      <PaymentModal
-        open={payOpen}
-        onClose={() => setPayOpen(false)}
-        policy={policy}
-        onConfirmed={confirmPayment}
-      />
     </>
   );
 }
@@ -581,7 +571,8 @@ function SepayPaymentModal({ open, onClose, payment, statusInfo, checking, onChe
         <p style={{ color: '#92400e' }}>
           Đang chờ xác nhận — nếu đã chuyển khoản, hệ thống thường xác nhận trong vài
           chục giây, bấm “Kiểm tra trạng thái” để cập nhật. Trạng thái tự cập nhật
-          mỗi ~10 giây khi modal còn mở.
+          mỗi ~10 giây khi modal còn mở. Khi có kết quả, hộp này sẽ tự đóng.
+          {policyStatus === 'BOUND' && ' Hợp đồng đang ở trạng thái BOUND nên sau khi tiền về, kế toán sẽ xác nhận để kích hoạt — hộp này sẽ tự đóng khi hợp đồng được kích hoạt.'}
         </p>
       )}
       {payment.qrUrl && (
@@ -607,7 +598,7 @@ function SepayPaymentModal({ open, onClose, payment, statusInfo, checking, onChe
 // Nút bấm filter theo role VÀ status (PLAN §1.4/§1.3): FE chỉ ẩn/hiện cho UX,
 // BE vẫn check lại mọi transition. Nút "Kích hoạt trực tiếp" BOUND→ACTIVE của
 // ADMIN nằm trong ActionBar bên dưới, không phải ở trang đối soát riêng.
-function ActionBar({ status, isAdmin, canManage, isPaymentClaimed, canClaim, onClaim, busy, onRequestQuote, onAcceptQuote, onPaySepay, showSepayPay, onPayNow, onAdminActivate, onEndorse, onDelete }) {
+function ActionBar({ status, isAdmin, canManage, canClaim, onClaim, busy, onRequestQuote, onAcceptQuote, onPaySepay, showSepayPay, onAdminActivate, onEndorse, onDelete }) {
   const btn = (props, children) => (
     <button type="button" className="btn" disabled={busy} {...props}>{children}</button>
   );
@@ -627,7 +618,7 @@ function ActionBar({ status, isAdmin, canManage, isPaymentClaimed, canClaim, onC
       )}
       {status === 'BOUND' && (
         <>
-          {canManage && !isPaymentClaimed && btn({ className: 'btn btn-primary', onClick: onPayNow }, <><CreditCard size={16} /> Thanh toán ngay</>)}
+          {showSepayPay && btn({ className: 'btn btn-primary', onClick: onPaySepay }, <><CreditCard size={16} /> Thanh toán chuyển khoản (SePay)</>)}
           {isAdmin && btn({ className: 'btn btn-secondary', onClick: onAdminActivate }, <><Zap size={16} /> Kích hoạt trực tiếp</>)}
         </>
       )}

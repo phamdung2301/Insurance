@@ -96,9 +96,13 @@ public class PaymentServiceImpl implements PaymentService {
         // thái chặn (SUSPENDED/CLOSED); khách tạo payment cho hợp đồng của
         // chính mình và webhook SePay không đi qua guard này.
         permissionService.checkTenantWriteForPolicy(policy);
-        if (policy.getStatus() != PolicyStatus.QUOTED) {
+        // Tạo payment khi QUOTED hoặc BOUND — cả hai trạng thái đều thanh
+        // toán được. Khác biệt ở webhook: QUOTED thì kích hoạt thẳng sang
+        // ACTIVE, BOUND thì giữ PENDING để FINANCE xác nhận BOUND→ACTIVE
+        // (xem handleSepayWebhook bước 8, không đổi ở đợt này).
+        if (policy.getStatus() != PolicyStatus.QUOTED && policy.getStatus() != PolicyStatus.BOUND) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Chỉ tạo thanh toán khi hợp đồng ở trạng thái QUOTED. Trạng thái hiện tại: " + policy.getStatus());
+                    "Chỉ tạo thanh toán khi hợp đồng ở trạng thái QUOTED hoặc BOUND. Trạng thái hiện tại: " + policy.getStatus());
         }
         if (policy.getTotalPremium() == null || policy.getTotalPremium() <= 0) {
             throw new BadRequestException("Hợp đồng chưa có tổng phí hợp lệ để thanh toán.");
