@@ -31,6 +31,20 @@ export function hasRoleIn(roles, role) {
   return effectiveRoles(roles).has(normalizeRole(role));
 }
 
+/**
+ * Trang đích sau đăng nhập theo role — dùng chung cho AuthContext
+ * (loginWithToken) và LoginPage (user đã đăng nhập mở lại /login):
+ * ADMIN → dashboard quản trị, FINANCE → trang tiền (báo cáo thống kê
+ * tiền), còn lại → portal khách. Không hardcode '/hop-dong-cua-toi'
+ * cho mọi role: FINANCE bị chặn ở trang đó nên redirect mù sẽ ăn
+ * toast "không có quyền" + redirect vòng thứ hai.
+ */
+export function landingForRole(roles) {
+  if (hasRoleIn(roles, 'ROLE_ADMIN')) return '/admin';
+  if (hasRoleIn(roles, 'ROLE_FINANCE')) return '/admin/reports';
+  return '/hop-dong-cua-toi';
+}
+
 /** Fallback: đọc roles từ claim "roles" trong JWT khi profile chưa có roles. */
 export function rolesFromToken(token) {
   try {
@@ -113,17 +127,9 @@ export const AuthProvider = ({ children }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Trang đích sau đăng nhập theo role: ADMIN → dashboard quản trị,
-  // FINANCE → trang tiền (báo cáo thống kê tiền), còn lại → portal khách.
-  const landingFor = (roles) => {
-    if (hasRoleIn(roles, 'ROLE_ADMIN')) return '/admin';
-    if (hasRoleIn(roles, 'ROLE_FINANCE')) return '/admin/reports';
-    return '/hop-dong-cua-toi';
-  };
-
   const loginWithToken = useCallback((tok, usr) => {
     persist(tok, usr);
-    navigate(landingFor(usr?.roles ?? rolesFromToken(tok)), { replace: true });
+    navigate(landingForRole(usr?.roles ?? rolesFromToken(tok)), { replace: true });
   }, [navigate]);
 
   const loginOtp = useCallback(async (email, otp) => {

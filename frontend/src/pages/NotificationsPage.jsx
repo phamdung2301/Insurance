@@ -4,10 +4,13 @@ import { Bell, Check } from 'lucide-react';
 import { notificationApi } from '../services/notificationApi';
 import { formatDateTime } from '../utils/format';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
+import { isFinanceAllowedLink } from '../utils/finance';
 
 export function NotificationsPage() {
   const navigate = useNavigate();
   const toast = useToast();
+  const { isFinance } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -37,7 +40,14 @@ export function NotificationsPage() {
 
   const handleOpen = async (item) => {
     if (!item.read) await handleMarkAsRead(item.id);
-    if (item.link) navigate(item.link);
+    // Như chuông ở Navbar: link do backend sinh (/hop-dong/*, /claims/*)
+    // bị chặn với FINANCE — không điều hướng mù, chỉ đánh dấu đã đọc.
+    if (!item.link) return;
+    if (isFinance && !isFinanceAllowedLink(item.link)) {
+      toast.info('Bạn không có quyền truy cập trang này.');
+      return;
+    }
+    navigate(item.link);
   };
 
   return (

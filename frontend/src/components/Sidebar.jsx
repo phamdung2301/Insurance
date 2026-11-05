@@ -23,7 +23,7 @@ export function Sidebar({ open, onClose }) {
     { to: '/hop-dong-cua-toi', label: 'Hợp đồng của tôi', icon: <Home size={18} />, end: true, roles: NOT_FINANCE },
     { to: '/mua-bao-hiem', label: 'Mua bảo hiểm', icon: <ShoppingCart size={18} />, roles: NOT_FINANCE },
     { to: '/thanh-toan', label: 'Thanh toán', icon: <CreditCard size={18} />, roles: ['ROLE_CUSTOMER'] },
-    { to: '/claims', label: 'Bồi thường', icon: <ShieldAlert size={18} /> },
+    { to: '/claims', label: 'Bồi thường', icon: <ShieldAlert size={18} />, roles: NOT_FINANCE },
   ];
   // Mỗi mục kèm roles được phép (PLAN §1.4) — filter bằng hasRole, không
   // còn blanket isAdmin cho cả khối menu admin.
@@ -73,6 +73,9 @@ export function Sidebar({ open, onClose }) {
   const shownAdmin = visible(adminLinks);
   const shownAgent = visible(agentLinks);
   const shownFinance = visible(financeLinks);
+  // FINANCE không thấy mục khách nào (toàn bộ customerLinks đều chặn
+  // FINANCE) nên không render cả tiêu đề mục — tránh mục rỗng.
+  const shownCustomer = visible(customerLinks);
 
   return (
     <>
@@ -89,8 +92,12 @@ export function Sidebar({ open, onClose }) {
           </button>
         </div>
 
-        <div className="nav-section">Khách hàng</div>
-        {renderLinks(customerLinks)}
+        {shownCustomer.length > 0 && (
+          <>
+            <div className="nav-section">Khách hàng</div>
+            {renderLinks(customerLinks)}
+          </>
+        )}
 
         {shownAgent.length > 0 && (
           <>
