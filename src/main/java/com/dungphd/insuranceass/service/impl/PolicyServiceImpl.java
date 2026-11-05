@@ -762,9 +762,12 @@ public class PolicyServiceImpl implements PolicyService {
     private String resolveCustomerAgentId(String rawSlug) {
         String slug = AgentSlug.normalize(rawSlug);
         if (slug == null || slug.isBlank()) {
+            // Ngôn ngữ app nói với khách hàng (không "trả bài" quy định):
+            // không nhắc "link đã gửi", không nhắc "không thể tự mua" — chỉ
+            // hướng tới hành động kế tiếp là chọn một đại lý (picker ở trang
+            // mua). Server vẫn là người giữ luật Q3 (không slug = không tạo).
             throw new BadRequestException(
-                    "Bạn cần mua qua link của đại lý. Vui lòng mở link đại lý đã gửi cho bạn rồi mua lại "
-                            + "(không thể tự mua khi chưa có link đại lý).");
+                    "Bạn chưa chọn đại lý đồng hành. Hãy chọn một đại lý để tiếp tục mua bảo hiểm.");
         }
         if (agentRepository == null) {
             return null;

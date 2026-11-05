@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { policyService, publicAgentService, excelService } from '../services/api';
 import { getAgentRef } from '../utils/agentRef';
+import { AgentPicker } from '../components/AgentPicker';
 import { isBackendMissing } from '../utils/backend';
 import { formatMoney, isValidEmail, isValidPhone } from '../utils/format';
 
@@ -97,8 +98,8 @@ export function BuyWizardPage() {
   // SaaS Phase 2 Track C: dấu đại lý từ link /a/<slug> (localStorage
   // 'agentRef'). Banner minh bạch: resolve tên đại lý để khách biết mình mua
   // qua ai (không gắn lén). Resolve lỗi 410/404 → banner cảnh báo (lúc tạo
-  // policy server vẫn báo lỗi rõ ràng); không có agentRef → banner nhắc mở
-  // link đại lý (server sẽ 400 nếu cố tạo — Q3 cấm mua vãng lai).
+  // policy server vẫn báo lỗi rõ ràng); không có agentRef → picker chọn
+  // đại lý (server vẫn 400 nếu cố tạo khi chưa chọn — Q3 cấm mua vãng lai).
   const [agentRef] = useState(() => getAgentRef());
   const [agentBanner, setAgentBanner] = useState(null); // { name } | { dead: true } | null
   useEffect(() => {
@@ -333,18 +334,23 @@ export function BuyWizardPage() {
         <p>Hoàn tất 4 bước để tạo hợp đồng bảo hiểm mới cho bạn.</p>
       </div>
 
-      {/* Track C: banner minh bạch về đại lý — không gắn lén theo link. */}
+      {/* Picker chọn đại lý — khách chưa có link vẫn mua được qua một đại lý
+          mình chọn (Q3 vẫn giữ: mua luôn gắn với một đại lý). Nút bấm mở
+          trang storefront /a/<slug> của đại lý đó, trang này lưu agentRef
+          rồi mới cho mua — không gắn lén, không mua vãng lai. */}
       {!agentRef && (
-        <p className="form-error" style={{ fontSize: '0.95rem' }}>
-          Bạn cần mở link của đại lý trước khi mua — hợp đồng mới bắt buộc gắn với một đại lý.
-          Hãy quay lại link đại lý đã gửi cho bạn rồi bấm “Mua bảo hiểm”.
-        </p>
+        <AgentPicker
+          title="Chọn một đại lý đồng hành để bắt đầu mua bảo hiểm"
+          description="Bạn sẽ tới trang của đại lý đó, rồi bấm “Mua bảo hiểm qua đại lý này” để tiếp tục."
+        />
       )}
       {agentRef && agentBanner?.dead && (
-        <p className="form-error" style={{ fontSize: '0.95rem' }}>
-          Link đại lý bạn đã mở không còn hiệu lực (đại lý đã ngừng hoạt động hoặc link không tồn tại).
-          Bạn chưa thể tạo hợp đồng từ link này — vui lòng liên hệ quản trị viên.
-        </p>
+        <>
+          <p className="form-error" style={{ fontSize: '0.95rem' }}>
+            Trang đại lý bạn vừa mở hiện không còn hoạt động.
+          </p>
+          <AgentPicker title="Chọn một đại lý khác để tiếp tục mua bảo hiểm" />
+        </>
       )}
       {agentRef && agentBanner?.name && (
         <p style={{ fontSize: '0.95rem' }}>

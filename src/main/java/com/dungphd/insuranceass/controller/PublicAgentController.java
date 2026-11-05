@@ -34,4 +34,15 @@ public class PublicAgentController {
         return ResponseEntity.ok(ApiResponse.success(
                 agentService.resolvePublicBySlug(slug), "Thông tin đại lý."));
     }
+
+    /**
+     * Danh sách đại lý đang hoạt động cho picker chọn đại lý ở trang mua
+     * (khách chưa có link). Cùng luật public như resolve slug: permitAll,
+     * chỉ field hiển thị (không id, không code), chỉ ACTIVE.
+     */
+    @GetMapping
+    public ResponseEntity<ApiResponse<java.util.List<PublicAgentResponse>>> listActive() {
+        return ResponseEntity.ok(ApiResponse.success(
+                agentService.listPublicActive(), "Danh sách đại lý."));
+    }
 }

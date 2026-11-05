@@ -28,4 +28,14 @@ public interface AgentService {
      * → AgentLinkInactiveException (410 Gone); chỉ ACTIVE mới trả 200.
      */
     PublicAgentResponse resolvePublicBySlug(String slug);
+
+    /**
+     * Danh sách đại lý đang hoạt động cho picker chọn đại lý (khách chưa có
+     * link vẫn mua được qua một đại lý mình chọn — Q3 vẫn giữ: mua luôn gắn
+     * với một đại lý, picker chỉ giải quyết "khách chưa có link thì tìm đại
+     * lý bằng cách nào"). CHỈ ACTIVE (SUSPENDED/CLOSED là link chết, không
+     * cho chọn); mỗi item vẫn là {@code PublicAgentResponse} — không id,
+     * không code.
+     */
+    java.util.List<PublicAgentResponse> listPublicActive();
 }

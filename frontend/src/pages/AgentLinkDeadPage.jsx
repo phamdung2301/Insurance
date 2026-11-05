@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { LogIn, Home, PhoneCall } from 'lucide-react';
+import { AgentPicker } from '../components/AgentPicker';
 
 /**
  * Trang exception link chết (SaaS Phase 2 Track C, quyết định Q4) — KHÁC
@@ -37,6 +38,7 @@ export function AgentLinkDeadPage({ agentName }) {
           Về trang chủ
         </Link>
       </div>
+      <AgentPicker title="Hoặc chọn một đại lý khác đang hoạt động" />
       <p style={{ marginTop: '1rem' }}>
         <PhoneCall size={14} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} />
         Cần hỗ trợ thêm? Vui lòng liên hệ quản trị viên qua mục hỗ trợ trên trang chủ.

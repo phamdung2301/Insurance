@@ -77,8 +77,12 @@ export const userService = {
 // permitAll — khách chưa đăng nhập vẫn xem được). Trả PublicAgentResponse:
 // displayName + liên hệ + status, KHÔNG id/code nội bộ. Mã lỗi phân biệt:
 // 404 = slug không tồn tại, 410 = đại lý SUSPENDED/CLOSED (link chết).
+// Picker chọn đại lý: GET /agents/public (cùng controller, permitAll) trả
+// danh sách đại lý ACTIVE kèm slug — nút bấm nào cũng mở được đúng
+// storefront /a/<slug> của đại lý đó.
 export const publicAgentService = {
   resolveSlug: (slug) => api.get(`/agents/public/slug/${encodeURIComponent(slug)}`),
+  listActive: () => api.get('/agents/public'),
 };
 
 export const policyService = {

@@ -12,6 +12,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -46,6 +48,22 @@ class PublicAgentControllerTest {
         assertEquals("Đại Lý Mẫu", entity.getBody().getData().getDisplayName());
         assertEquals(AgentStatus.ACTIVE, entity.getBody().getData().getStatus());
         verify(agentService).resolvePublicBySlug("dai-ly-mau");
+    }
+
+    @Test
+    void listActive_returns200_withSlugsForPicker() {
+        when(agentService.listPublicActive()).thenReturn(List.of(
+                PublicAgentResponse.builder().slug("dai-ly-a").displayName("Đại Lý A").status(AgentStatus.ACTIVE).build(),
+                PublicAgentResponse.builder().slug("dai-ly-b").displayName("Đại Lý B").status(AgentStatus.ACTIVE).build()));
+
+        var entity = controller.listActive();
+
+        assertEquals(HttpStatus.OK, entity.getStatusCode());
+        assertTrue(entity.getBody().isSuccess());
+        assertEquals(2, entity.getBody().getData().size());
+        assertEquals("dai-ly-a", entity.getBody().getData().get(0).getSlug());
+        assertEquals("Đại Lý B", entity.getBody().getData().get(1).getDisplayName());
+        verify(agentService).listPublicActive();
     }
 
     @Test
