@@ -28,7 +28,6 @@ import { PaymentResultPage } from './pages/PaymentResultPage';
 import { UnderwriterQueuePage } from './pages/UnderwriterQueuePage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { AdminAuditLogPage } from './pages/AdminAuditLogPage';
-import { ComparePackagesPage } from './pages/ComparePackagesPage';
 import { PendingEndorsementsPage } from './pages/PendingEndorsementsPage';
 import { PermissionMatrixPage } from './pages/PermissionMatrixPage';
 import { LoginHistoryPage } from './pages/LoginHistoryPage';
@@ -56,7 +55,6 @@ const TITLES = {
   '/admin/audit-logs': 'Nhật ký quản trị',
   '/thanh-toan': 'Thanh toán của tôi',
   '/thanh-toan/ket-qua': 'Kết quả thanh toán',
-  '/so-sanh-goi': 'So sánh gói',
   '/cho-duyet': 'Chờ duyệt endorsement',
   '/admin/phan-quyen': 'Ma trận phân quyền',
   '/ho-so/lich-su-dang-nhap': 'Lịch sử đăng nhập',
