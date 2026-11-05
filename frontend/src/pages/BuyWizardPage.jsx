@@ -117,6 +117,24 @@ export function BuyWizardPage() {
     return () => { cancelled = true; };
   }, [agentRef]);
 
+  // Chặn chuyển bước / tạo hợp đồng khi chưa có đại lý hợp lệ — báo NGAY
+  // tại khu vực chọn đại lý (đầu trang, trước bước 1), không đợi tới bước
+  // Xác nhận mới toast lỗi server. agentReady = có agentRef và link chưa
+  // chết; lúc banner đang resolve (chưa rõ sống/chết) thì cho qua, server
+  // là lưới cuối.
+  const agentSectionRef = useRef(null);
+  const [agentError, setAgentError] = useState(null);
+  const agentReady = !!agentRef && !agentBanner?.dead;
+  useEffect(() => { if (agentReady) setAgentError(null); }, [agentReady]);
+  const requireAgent = () => {
+    if (agentReady) { setAgentError(null); return true; }
+    setAgentError(agentBanner?.dead
+      ? 'Trang đại lý bạn vừa mở hiện không còn hoạt động. Hãy chọn một đại lý khác ở phía trên để tiếp tục.'
+      : 'Bạn chưa chọn đại lý đồng hành. Hãy chọn một đại lý ở phía trên để tiếp tục.');
+    agentSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return false;
+  };
+
   const setIns = (k, v) => setInsured((p) => ({ ...p, [k]: v }));
   const setLoc = (i, k, v) => setLocations((p) => p.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
   const setCov = (i, code, k, v) => setLocations((p) =>
@@ -237,7 +255,13 @@ export function BuyWizardPage() {
   };
 
   const dirRef = useRef(1); // hướng chuyển bước: 1 = tới, -1 = lui
-  const next = () => { dirRef.current = 1; if (validateStep(step)) setStep((s) => Math.min(s + 1, 3)); };
+  const next = () => {
+    dirRef.current = 1;
+    // Điều kiện tiên quyết của cả luồng (đại lý) thuộc về bước 1: chưa đủ
+    // thì báo ngay tại khu vực chọn đại lý, không cho đi tiếp.
+    if (step === 0 && !requireAgent()) return;
+    if (validateStep(step)) setStep((s) => Math.min(s + 1, 3));
+  };
   const back = () => { dirRef.current = -1; setStep((s) => Math.max(s - 1, 0)); };
 
   // ---- Payload & submit ---------------------------------------------------
@@ -252,9 +276,10 @@ export function BuyWizardPage() {
   const buildPayload = () => ({
     policyNumber: genPolicyNumber(),
     // Track C: gửi kèm slug đại lý từ agentRef — server resolve + validate
-    // (chỉ ACTIVE), gắn agentId, bỏ qua mọi agentId client gửi. Không có
-    // agentRef thì key bị JSON.stringify lược (undefined) và server trả 400
-    // với message rõ ràng, hiện qua toast ở saveDraft/requestQuote.
+    // (chỉ ACTIVE), gắn agentId, bỏ qua mọi agentId client gửi. Wizard đã
+    // chặn ở bước 1 + kiểm tra lại lúc submit khi chưa có đại lý hợp lệ
+    // (requireAgent), nên server 400 thiếu slug chỉ còn là lưới an toàn
+    // cuối — không phải nơi đầu tiên user biết mình thiếu đại lý.
     agentSlug: agentRef || undefined,
     insured: {
       name: insured.hoTen.trim(),
@@ -296,7 +321,18 @@ export function BuyWizardPage() {
     }
   };
 
+  // Kiểm tra lại đại lý trước khi tạo (link có thể chết giữa chừng sau khi
+  // đã qua bước 1): chưa đủ thì quay về bước 1 + báo tại khu vực chọn đại
+  // lý, không submit rồi mới toast lỗi ở bước Xác nhận.
+  const guardAgentForSubmit = () => {
+    if (requireAgent()) return true;
+    dirRef.current = -1;
+    setStep(0);
+    return false;
+  };
+
   const saveDraft = async () => {
+    if (!guardAgentForSubmit()) return;
     try {
       const n = await doCreate();
       toast.success(`Đã lưu bản nháp hợp đồng ${n}.`);
@@ -307,6 +343,7 @@ export function BuyWizardPage() {
   };
 
   const requestQuote = async () => {
+    if (!guardAgentForSubmit()) return;
     try {
       const n = await doCreate();
       try {
@@ -338,6 +375,7 @@ export function BuyWizardPage() {
           mình chọn (Q3 vẫn giữ: mua luôn gắn với một đại lý). Nút bấm mở
           trang storefront /a/<slug> của đại lý đó, trang này lưu agentRef
           rồi mới cho mua — không gắn lén, không mua vãng lai. */}
+      <div ref={agentSectionRef}>
       {!agentRef && (
         <AgentPicker
           title="Chọn một đại lý đồng hành để bắt đầu mua bảo hiểm"
@@ -357,6 +395,12 @@ export function BuyWizardPage() {
           Bạn đang mua qua đại lý {agentBanner.name}.
         </p>
       )}
+      {agentError && (
+        <p className="form-error" style={{ fontSize: '0.95rem' }}>
+          {agentError}
+        </p>
+      )}
+      </div>
 
       {/* Progress */}
       <div className="wizard-progress" role="list" aria-label="Tiến trình mua bảo hiểm">

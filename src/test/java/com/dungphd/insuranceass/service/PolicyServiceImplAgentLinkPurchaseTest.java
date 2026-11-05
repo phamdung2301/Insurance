@@ -213,4 +213,30 @@ class PolicyServiceImplAgentLinkPurchaseTest {
         assertEquals("tenant-9", savedPolicy().getAgentId());
         verify(agentRepository, never()).findBySlug(anyString());
     }
+
+    @Test
+    void admin_validSlug_resolvedWhenNoAgentId() {
+        // Bug 2026-11-05: ADMIN đi qua wizard/storefront chỉ gửi agentSlug
+        // (agentRef) — nhánh ADMIN cũ bỏ qua slug và đòi agentId → 400 dù
+        // đại lý đã chọn. Thiếu agentId thì resolve slug như CUSTOMER.
+        when(permissionService.isAdmin()).thenReturn(true);
+        policyService.createPolicy(CreatePolicyRequest.builder()
+                .policyNumber("POL-LINK-11").agentSlug("dai-ly-mau").build());
+        assertEquals("agent-1", savedPolicy().getAgentId());
+        verify(agentRepository).findBySlug("dai-ly-mau");
+        // Id resolve từ slug đã được findBySlug validate nên không cần
+        // existsById thêm một lần nữa.
+        verify(agentRepository, never()).existsById(anyString());
+    }
+
+    @Test
+    void admin_suspendedSlug_throws410() {
+        // ADMIN qua slug cũng chịu cùng luật ACTIVE như CUSTOMER.
+        when(permissionService.isAdmin()).thenReturn(true);
+        AgentLinkInactiveException ex = assertThrows(AgentLinkInactiveException.class,
+                () -> policyService.createPolicy(CreatePolicyRequest.builder()
+                        .policyNumber("POL-LINK-12").agentSlug("dai-ly-treo").build()));
+        assertEquals(AgentStatus.SUSPENDED, ex.getStatus());
+        verify(policyRepository, never()).save(any(Policy.class));
+    }
 }
