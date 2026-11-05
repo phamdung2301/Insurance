@@ -278,6 +278,12 @@ public class ClaimServiceImpl implements ClaimService {
         if (principal == null) {
             throw new ForbiddenException("Vui lòng đăng nhập để yêu cầu bồi thường.");
         }
+        // FINANCE chỉ làm việc với các API tiền — không được tạo yêu cầu bồi
+        // thường (đó là việc của bên cầu). ADMIN kiêm FINANCE vẫn được miễn
+        // như mọi gate role khác trong hệ thống.
+        if (permissionService.hasFinanceRole() && !permissionService.isAdmin()) {
+            throw new ForbiddenException("Vai trò Kế toán (FINANCE) chỉ làm việc với các API tiền, không được tạo yêu cầu bồi thường.");
+        }
 
         Policy policy = resolveActivePolicyForClaimant(request.getPolicyNumber(), principal);
 
@@ -616,7 +622,10 @@ public class ClaimServiceImpl implements ClaimService {
 
     @Override
     public ClaimResponse payClaim(String claimId) {
-        checkAdmin();
+        // Chi trả bồi thường là tiền ra: FINANCE thực hiện sau khi ADMIN đã
+        // duyệt số tiền (maker-checker: duyệt ≠ chi trả). Duyệt/từ chối/
+        // review/intake vẫn chỉ ADMIN (hoặc UW theo checkStaff).
+        checkFinanceOrAdmin();
         String principal = permissionService.currentPrincipal();
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy yêu cầu bồi thường: " + claimId));
@@ -645,6 +654,13 @@ public class ClaimServiceImpl implements ClaimService {
     private void checkAdmin() {
         if (!permissionService.isAdmin()) {
             throw new ForbiddenException("Chỉ Quản trị viên (ADMIN) mới có quyền xử lý yêu cầu bồi thường.");
+        }
+    }
+
+    /** Chi trả bồi thường (tiền ra): FINANCE hoặc ADMIN. */
+    private void checkFinanceOrAdmin() {
+        if (!permissionService.isAdmin() && !permissionService.hasFinanceRole()) {
+            throw new ForbiddenException("Chỉ Kế toán (FINANCE) hoặc Quản trị viên (ADMIN) mới được đánh dấu chi trả bồi thường.");
         }
     }
 

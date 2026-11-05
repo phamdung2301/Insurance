@@ -88,8 +88,14 @@ public class DataInitializer {
                 seedDemoUser("agent@example.com", "Password123!", "Đại Lý Mẫu", List.of("ROLE_AGENT"));
                 assignSeedAgentToDemoAgent(seedAgent);
                 seedDemoUser("uw@example.com", "Password123!", "Thẩm Định Viên Mẫu", List.of("ROLE_UNDERWRITER"));
-                seedDemoUser("finance@example.com", "Password123!", "Kế Toán Mẫu (Admin)", List.of("ROLE_ADMIN"));
+                seedDemoUser("finance@example.com", "Password123!", "Kế Toán Mẫu", List.of("ROLE_FINANCE"));
                 // admin@example.com giữ nguyên như seed gốc (ROLE_ADMIN, ROLE_USER).
+
+                // Tài khoản demo kế toán từng seed sai ROLE_ADMIN (trước PR
+                // finance-scope): DB đã có user thì seedDemoUser giữ nguyên
+                // nên phải sửa một lần ở đây — idempotent, chỉ chạm đúng
+                // finance@example.com khi nó vẫn mang ROLE_ADMIN cũ.
+                repairFinanceDemoUser();
 
                 // 2. Seed Sample Policy with Nested Locations
                 if (policyRepository.count() == 0) {
@@ -278,5 +284,35 @@ public class DataInitializer {
                 .build();
         userRepository.save(demo);
         log.info("Seeded demo user {} with roles {}", email, roles);
+    }
+
+    /**
+     * Sửa một lần tài khoản demo kế toán đã seed sai ROLE_ADMIN (trước PR
+     * finance-scope): đổi roles thành [ROLE_FINANCE] và bỏ hậu tố "(Admin)"
+     * trong tên hiển thị. Idempotent — DB mới (seed đúng) hoặc đã sửa rồi
+     * thì không làm gì; không chạm password/enabled/agentId.
+     */
+    private void repairFinanceDemoUser() {
+        try {
+            userRepository.findByEmail("finance@example.com").ifPresent(user -> {
+                List<String> roles = user.getRoles() != null ? new ArrayList<>(user.getRoles()) : new ArrayList<>();
+                boolean needsFix = roles.contains("ROLE_ADMIN") || !roles.contains("ROLE_FINANCE");
+                String fixedName = user.getFullName() != null
+                        ? user.getFullName().replace(" (Admin)", "").trim() : null;
+                boolean nameNeedsFix = fixedName != null && !fixedName.equals(user.getFullName());
+                if (!needsFix && !nameNeedsFix) {
+                    return;
+                }
+                user.setRoles(List.of("ROLE_FINANCE"));
+                if (nameNeedsFix) {
+                    user.setFullName(fixedName);
+                }
+                user.setUpdatedAt(Instant.now());
+                userRepository.save(user);
+                log.info("Repaired demo finance user roles -> [ROLE_FINANCE]");
+            });
+        } catch (Exception e) {
+            log.warn("Could not repair demo finance user: {}", e.getMessage());
+        }
     }
 }

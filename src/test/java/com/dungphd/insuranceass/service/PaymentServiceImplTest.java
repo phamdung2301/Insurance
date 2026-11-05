@@ -430,4 +430,44 @@ class PaymentServiceImplTest {
         assertEquals("POL1001-123-ABCDEF", res.get(0).getTxnRef());
         assertEquals("INSABCDEF1234", res.get(0).getTransferContent());
     }
+
+    // FINANCE (PR finance-scope): được tra cứu trạng thái + lịch sử payment
+    // (ngữ cảnh tiền, chỉ đọc) dù không phải bên cầu; người lạ vẫn 403.
+    @Test
+    void lookupStatus_financeAllowed_despiteNotDemandSide() {
+        when(permissionService.isAdmin()).thenReturn(false);
+        when(permissionService.isUnderwriter()).thenReturn(false);
+        when(permissionService.hasFinanceRole()).thenReturn(true);
+        when(paymentRepository.findByTxnRef("POL1001-123-ABCDEF")).thenReturn(Optional.of(pendingPayment));
+
+        PaymentResponse res = paymentService.lookupStatus("POL1001-123-ABCDEF", "finance@example.com");
+        assertEquals("PENDING", res.getStatus());
+        assertEquals("QUOTED", res.getPolicyStatus());
+        verify(permissionService, never()).isDemandSide(any(), anyString());
+    }
+
+    @Test
+    void listPayments_financeAllowed_despiteNotDemandSide() {
+        when(permissionService.isAdmin()).thenReturn(false);
+        when(permissionService.isUnderwriter()).thenReturn(false);
+        when(permissionService.hasFinanceRole()).thenReturn(true);
+        when(paymentRepository.findByPolicyNumberOrderByCreatedAtDesc("POL-1001"))
+                .thenReturn(List.of(pendingPayment));
+
+        List<PaymentResponse> res = paymentService.listPayments("POL-1001", "finance@example.com");
+        assertEquals(1, res.size());
+        assertEquals("POL1001-123-ABCDEF", res.get(0).getTxnRef());
+    }
+
+    @Test
+    void lookupStatus_strangerNotDemandSide_throws403() {
+        when(permissionService.isAdmin()).thenReturn(false);
+        when(permissionService.isUnderwriter()).thenReturn(false);
+        when(permissionService.hasFinanceRole()).thenReturn(false);
+        when(permissionService.isDemandSide(quotedPolicy, "stranger@example.com")).thenReturn(false);
+        when(paymentRepository.findByTxnRef("POL1001-123-ABCDEF")).thenReturn(Optional.of(pendingPayment));
+
+        assertThrows(ForbiddenException.class,
+                () -> paymentService.lookupStatus("POL1001-123-ABCDEF", "stranger@example.com"));
+    }
 }

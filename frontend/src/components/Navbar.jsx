@@ -6,7 +6,7 @@ import { initials } from '../utils/format';
 import { notificationApi } from '../services/notificationApi';
 
 export function Navbar({ title, onMenu }) {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, isFinance, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
@@ -117,6 +117,7 @@ export function Navbar({ title, onMenu }) {
             {displayName}
           </span>
           {isAdmin && <span className="badge badge-quoted">Quản trị</span>}
+          {isFinance && <span className="badge badge-quoted">Kế toán</span>}
           <ChevronDown size={16} style={{ color: 'var(--text-muted)' }} />
         </button>
         {open && (

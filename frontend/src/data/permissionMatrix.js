@@ -9,25 +9,29 @@
  * nếu không bảng sẽ lại sai sự thật như bản cũ từng sai về FINANCE.
  *
  * Căn cứ code đã đối chiếu trên nhánh feat/rbac-negotiation-v2 (head
- * 57744f98) — không bịa thêm quyền nào:
- * - Role enum (model/Role.java): CHỈ CÒN CUSTOMER / AGENT / UNDERWRITER /
- *   ADMIN (+ ROLE_USER cũ, tương đương CUSTOMER). KHÔNG CÒN ROLE_FINANCE.
- *   Mọi tham chiếu /finance/** và /admin/doi-soat trong bản cũ đều đã sai:
- *   matcher /finance/** đã bị xóa khỏi SecurityConfig, trang /admin/doi-soat
- *   không tồn tại (App.jsx chỉ còn một entry TITLES chết, không có Route).
+ * 57744f98) — không bịa thêm quyền nào, cập nhật ở PR finance-scope:
+ * - Role enum (model/Role.java): CUSTOMER / AGENT / UNDERWRITER / ADMIN /
+ *   FINANCE (+ ROLE_USER cũ, tương đương CUSTOMER). ROLE_FINANCE là role
+ *   nền tảng (đứng ngoài tenant như ADMIN/UW) nhưng CHỈ làm việc với các
+ *   API tiền: đối soát/hoàn phí (GET /finance/**), thống kê tiền
+ *   (GET /reports/**), xác nhận BOUND→ACTIVE, chi trả claim đã duyệt,
+ *   đọc ngữ cảnh tiền (payment history/status, ledger, invoice). Mọi API
+ *   phi-tiền đều 403 với FINANCE.
  * - SecurityConfig (thứ tự match đầu thắng): /underwriter/** UW+ADMIN;
- *   /agent/** AGENT+ADMIN; /admin/** ADMIN; (matcher /excel/** đã gỡ cùng
- *   lúc xóa Excel khỏi BE, xem ghi chú ở nhóm "Báo cáo & công cụ");
- *   /benchmark/** ADMIN; GET /reports/** ADMIN+UW, còn lại /reports/** ADMIN;
+ *   /agent/** AGENT+ADMIN; /finance/** FINANCE+ADMIN; /admin/** ADMIN;
+ *   /benchmark/** ADMIN; GET /reports/** ADMIN+UW+FINANCE, còn lại
+ *   /reports/** ADMIN; POST /policies (tạo hợp đồng) mọi role trừ FINANCE;
  *   /claims/**, /policies/**, /pending-endorsements/** authenticated (scope
  *   và gate do service enforce); /user/** authenticated.
  * - PermissionService: canReadPolicy (ADMIN/UW đọc mọi policy, còn lại chỉ
- *   phe cầu theo quan hệ với policy); checkPolicyWrite (ADMIN hoặc phe cầu
- *   trong phạm vi; UW không ghi); checkNegotiationRead (ADMIN/UW/phe cầu);
+ *   phe cầu theo quan hệ với policy); checkMoneyRead (ADMIN/UW/FINANCE +
+ *   phe cầu — chỉ dùng cho các endpoint tiền, KHÔNG mở trang hợp đồng);
+ *   checkPolicyWrite (ADMIN hoặc phe cầu trong phạm vi; UW không ghi);
+ *   checkNegotiationRead (ADMIN/UW/phe cầu);
  *   checkNegotiationWriteNotAdmin (ADMIN ghi thương lượng luôn 403);
  *   checkTransition (phe cầu: DRAFT→QUOTED, QUOTED→BOUND/DRAFT,
- *   BOUND→CANCELLED, ACTIVE→CANCELLED; BOUND→ACTIVE, BOUND→DRAFT và
- *   ACTIVE→EXPIRED chỉ ADMIN).
+ *   BOUND→CANCELLED, ACTIVE→CANCELLED; BOUND→ACTIVE: ADMIN hoặc FINANCE;
+ *   BOUND→DRAFT và ACTIVE→EXPIRED chỉ ADMIN).
  * - NegotiationServiceImpl (quyền quyết định 2 bước, email match chứ không
  *   phải check role suông): mở thương lượng chỉ phe cầu khi QUOTED; trả giá
  *   theo lượt (phe cầu ↔ UW luân phiên); ACCEPT: giá do UW đưa → chỉ
@@ -35,17 +39,20 @@
  *   phe cầu đưa → chỉ UNDERWRITER được chấp nhận; CONFIRM: giá do UW đưa →
  *   chỉ đúng UW đã đề xuất được xác nhận; giá do phe cầu đưa → chỉ CUSTOMER
  *   được xác nhận, kể cả khi AGENT là người đề xuất (AGENT gọi → 403).
- * - FinanceController nay gắn ở /admin/finance (matcher /admin/** = ADMIN)
- *   và FinanceReconciliationServiceImpl tự enforce chỉ ADMIN:
- *   GET /admin/finance/refunds, GET /admin/finance/reconciliation/export.
+ * - FinanceController gắn ở /finance (matcher /finance/** = FINANCE+ADMIN)
+ *   và alias /admin/finance giữ lại cho ADMIN (matcher /admin/** = ADMIN);
+ *   FinanceReconciliationServiceImpl tự enforce FINANCE+ADMIN:
+ *   GET /finance/refunds, GET /finance/reconciliation/export.
  *   KHÔNG CÓ UI đối soát nào — refunds API chỉ dùng qua API, và BOUND→ACTIVE
- *   do ADMIN duyệt trực tiếp trên hợp đồng.
+ *   do ADMIN hoặc FINANCE duyệt.
  * - ClaimServiceImpl: tạo claim chỉ CUSTOMER cho policy ACTIVE của chính
- *   mình; đọc claim: ADMIN/UW mọi claim, CUSTOMER claim của mình, AGENT
- *   claim của hợp đồng được giao; review/approve/reject/pay claim chỉ ADMIN
- *   (checkAdmin).
+ *   mình (FINANCE tạo claim bị 403); đọc claim: ADMIN/UW mọi claim,
+ *   CUSTOMER claim của mình, AGENT claim của hợp đồng được giao (FINANCE
+ *   không được đọc claim); review/approve/reject claim chỉ ADMIN (checkAdmin);
+ *   pay claim đã duyệt: FINANCE hoặc ADMIN (checkFinanceOrAdmin).
  * - PolicyServiceImpl.createPolicy: UW tạo hợp đồng bị 403 (gate trước
- *   duplicate-check); CUSTOMER bị ép insured về chính mình; AGENT tạo hộ
+ *   duplicate-check); FINANCE tạo hợp đồng bị 403 ngay ở matcher
+ *   POST /policies; CUSTOMER bị ép insured về chính mình; AGENT tạo hộ
  *   khách nhưng assignedAgentEmail luôn là mình.
  * - PolicyNoteServiceImpl: ghi chú nội bộ chỉ UW/ADMIN.
  * - UnderwriterQueueServiceImpl: hàng đợi chỉ UW/ADMIN.
@@ -64,6 +71,7 @@ export const MATRIX_ROLES = [
   { key: 'AGENT', label: 'AGENT' },
   { key: 'UNDERWRITER', label: 'UNDERWRITER' },
   { key: 'ADMIN', label: 'ADMIN' },
+  { key: 'FINANCE', label: 'FINANCE' },
 ];
 
 export const PERMISSION_MATRIX = [
@@ -80,6 +88,7 @@ export const PERMISSION_MATRIX = [
       AGENT: '✅ Chỉ hợp đồng được giao',
       UNDERWRITER: 'allowed',
       ADMIN: 'allowed',
+      FINANCE: 'denied',
     },
   },
   {
@@ -94,6 +103,7 @@ export const PERMISSION_MATRIX = [
       AGENT: '✅ Chỉ hợp đồng được giao',
       UNDERWRITER: 'denied',
       ADMIN: 'allowed',
+      FINANCE: 'denied',
     },
   },
   {
@@ -101,13 +111,14 @@ export const PERMISSION_MATRIX = [
     group: 'Hợp đồng',
     name: 'Tạo hợp đồng',
     description:
-      'POST /policies. CUSTOMER bị ép insured về chính mình; AGENT tạo hộ khách nhưng assignedAgentEmail luôn là mình; UNDERWRITER bị 403.',
-    source: 'PolicyServiceImpl.createPolicy',
+      'POST /policies. CUSTOMER bị ép insured về chính mình; AGENT tạo hộ khách nhưng assignedAgentEmail luôn là mình; UNDERWRITER bị 403 (gate service); FINANCE bị 403 ngay ở matcher POST /policies.',
+    source: 'PolicyServiceImpl.createPolicy + SecurityConfig POST /policies',
     roles: {
       CUSTOMER: '✅ Chỉ cho chính mình',
       AGENT: '✅ Hộ khách, gắn mình làm agent',
       UNDERWRITER: 'denied',
       ADMIN: 'allowed',
+      FINANCE: 'denied',
     },
   },
   {
@@ -122,6 +133,7 @@ export const PERMISSION_MATRIX = [
       AGENT: '✅ Chỉ hợp đồng được giao',
       UNDERWRITER: 'denied',
       ADMIN: 'allowed',
+      FINANCE: 'denied',
     },
   },
   {
@@ -129,13 +141,14 @@ export const PERMISSION_MATRIX = [
     group: 'Hợp đồng',
     name: 'BOUND→ACTIVE (duyệt tiền)',
     description:
-      'Chỉ ADMIN duyệt BOUND→ACTIVE, sau khi đối soát khoản đã khai báo chuyển khoản. Không còn vai trò FINANCE nào thực hiện bước này.',
+      'ADMIN hoặc FINANCE duyệt BOUND→ACTIVE, sau khi đối soát khoản đã khai báo chuyển khoản. FINANCE chỉ được duy nhất bước này trong mọi transition.',
     source: 'PermissionService.checkTransition',
     roles: {
       CUSTOMER: 'denied',
       AGENT: 'denied',
       UNDERWRITER: 'denied',
       ADMIN: 'allowed',
+      FINANCE: 'allowed',
     },
   },
   {
@@ -150,6 +163,7 @@ export const PERMISSION_MATRIX = [
       AGENT: 'denied',
       UNDERWRITER: 'denied',
       ADMIN: 'allowed',
+      FINANCE: 'denied',
     },
   },
   {
@@ -164,6 +178,7 @@ export const PERMISSION_MATRIX = [
       AGENT: '✅ Chỉ hợp đồng được giao',
       UNDERWRITER: 'denied',
       ADMIN: 'allowed',
+      FINANCE: 'denied',
     },
   },
   {
@@ -178,6 +193,7 @@ export const PERMISSION_MATRIX = [
       AGENT: '✅ Chỉ hợp đồng ACTIVE được giao',
       UNDERWRITER: 'denied',
       ADMIN: 'allowed',
+      FINANCE: 'denied',
     },
   },
   {
@@ -192,6 +208,7 @@ export const PERMISSION_MATRIX = [
       AGENT: '✅ Chỉ xem của hợp đồng được giao',
       UNDERWRITER: 'allowed',
       ADMIN: '✅ Chỉ xem, không được duyệt',
+      FINANCE: 'denied',
     },
   },
 
@@ -208,6 +225,7 @@ export const PERMISSION_MATRIX = [
       AGENT: '✅ Chỉ hợp đồng được giao, khi QUOTED',
       UNDERWRITER: 'denied',
       ADMIN: '❌ Có chủ đích — ADMIN không được mở',
+      FINANCE: 'denied',
     },
   },
   {
@@ -222,6 +240,7 @@ export const PERMISSION_MATRIX = [
       AGENT: '✅ Trả giá theo lượt; ❌ không được accept/confirm chốt giá',
       UNDERWRITER: '✅ Trả giá theo lượt; accept giá phe cầu + confirm giá mình đưa',
       ADMIN: '❌ 403 — chỉ được xem (có chủ đích)',
+      FINANCE: 'denied',
     },
   },
   {
@@ -236,6 +255,7 @@ export const PERMISSION_MATRIX = [
       AGENT: '✅ Chỉ hợp đồng được giao',
       UNDERWRITER: 'allowed',
       ADMIN: '✅ Chỉ xem, không được ghi',
+      FINANCE: 'denied',
     },
   },
   {
@@ -250,6 +270,7 @@ export const PERMISSION_MATRIX = [
       AGENT: 'denied',
       UNDERWRITER: 'allowed',
       ADMIN: '✅ Chỉ xem',
+      FINANCE: 'denied',
     },
   },
 
@@ -261,27 +282,44 @@ export const PERMISSION_MATRIX = [
     group: 'Báo cáo & công cụ',
     name: 'Báo cáo tổng hợp',
     description:
-      '4 báo cáo: số hợp đồng theo trạng thái, tổng phí theo trạng thái, top hợp đồng, phí theo tháng hiệu lực. GET mở cho ADMIN + UNDERWRITER (route FE /admin/reports cũng mở cho 2 role này); mọi thao tác không phải GET trên /reports/** chỉ ADMIN.',
-    source: 'SecurityConfig GET /reports/** (ADMIN+UW), /reports/** (ADMIN)',
+      '4 báo cáo: số hợp đồng theo trạng thái, tổng phí theo trạng thái, top hợp đồng, phí theo tháng hiệu lực. GET mở cho ADMIN + UNDERWRITER + FINANCE (route FE /admin/reports cũng mở cho 3 role này); mọi thao tác không phải GET trên /reports/** chỉ ADMIN.',
+    source: 'SecurityConfig GET /reports/** (ADMIN+UW+FINANCE), /reports/** (ADMIN)',
     roles: {
       CUSTOMER: 'denied',
       AGENT: 'denied',
       UNDERWRITER: '✅ Chỉ đọc (GET)',
       ADMIN: 'allowed',
+      FINANCE: '✅ Chỉ đọc (GET)',
     },
   },
   {
     id: 'admin-reconciliation',
     group: 'Báo cáo & công cụ',
-    name: 'Đối soát (hoàn phí, export CSV) — chỉ ADMIN, không có UI',
+    name: 'Đối soát (hoàn phí, export CSV)',
     description:
-      'GET /admin/finance/refunds và GET /admin/finance/reconciliation/export (matcher /admin/** + service tự enforce chỉ ADMIN). KHÔNG CÓ trang đối soát trên FE: route /admin/doi-soat không tồn tại, API chỉ dùng trực tiếp; BOUND→ACTIVE do ADMIN duyệt trên hợp đồng.',
-    source: 'SecurityConfig /admin/** + FinanceController (/admin/finance) + FinanceReconciliationServiceImpl',
+      'GET /finance/refunds và GET /finance/reconciliation/export (matcher /finance/** FINANCE+ADMIN, service tự enforce FINANCE+ADMIN); alias /admin/finance giữ lại cho ADMIN (matcher /admin/**). KHÔNG CÓ trang đối soát trên FE: FINANCE gọi API trực tiếp; BOUND→ACTIVE do ADMIN hoặc FINANCE duyệt.',
+    source: 'SecurityConfig /finance/** + FinanceController (/finance, /admin/finance) + FinanceReconciliationServiceImpl',
     roles: {
       CUSTOMER: 'denied',
       AGENT: 'denied',
       UNDERWRITER: 'denied',
-      ADMIN: '✅ Chỉ ADMIN, qua API (không có UI)',
+      ADMIN: '✅ Qua API (không có UI)',
+      FINANCE: 'allowed',
+    },
+  },
+  {
+    id: 'money-context-read',
+    group: 'Báo cáo & công cụ',
+    name: 'Đọc thông tin tiền của hợp đồng',
+    description:
+      'Lịch sử payment, tra cứu trạng thái payment theo txnRef, ledger giao dịch, invoice PDF (qua checkMoneyRead: ADMIN/UW/FINANCE + bên cầu). Không mở trang chi tiết hay danh sách hợp đồng (hai cửa đó vẫn đi checkPolicyRead — FINANCE 403).',
+    source: 'PermissionService.checkMoneyRead + PaymentServiceImpl.checkReadScope + TransactionLedgerServiceImpl + DocumentGenerationServiceImpl.generateInvoicePdf',
+    roles: {
+      CUSTOMER: '✅ Chỉ hợp đồng của mình',
+      AGENT: '✅ Chỉ hợp đồng được giao',
+      UNDERWRITER: 'allowed',
+      ADMIN: 'allowed',
+      FINANCE: 'allowed',
     },
   },
   {
@@ -296,6 +334,7 @@ export const PERMISSION_MATRIX = [
       AGENT: 'denied',
       UNDERWRITER: 'allowed',
       ADMIN: 'allowed',
+      FINANCE: 'denied',
     },
   },
   {
@@ -310,6 +349,7 @@ export const PERMISSION_MATRIX = [
       AGENT: 'denied',
       UNDERWRITER: 'denied',
       ADMIN: '✅ Khi cờ benchmark bật',
+      FINANCE: 'denied',
     },
   },
 
@@ -319,13 +359,14 @@ export const PERMISSION_MATRIX = [
     group: 'Bồi thường',
     name: 'Yêu cầu / xem / xử lý bồi thường (claim)',
     description:
-      'Tạo claim: chỉ CUSTOMER cho policy ACTIVE của chính mình (kèm tối đa 10 ảnh). Đọc claim: ADMIN/UW mọi claim, CUSTOMER claim của mình, AGENT claim của hợp đồng được giao. Review/approve/reject/pay claim: chỉ ADMIN.',
-    source: 'ClaimServiceImpl (tạo: chính mình + ACTIVE; xử lý: checkAdmin)',
+      'Tạo claim: chỉ CUSTOMER cho policy ACTIVE của chính mình (kèm tối đa 10 ảnh); FINANCE tạo claim bị 403. Đọc claim: ADMIN/UW mọi claim, CUSTOMER claim của mình, AGENT claim của hợp đồng được giao; FINANCE không được đọc claim. Review/approve/reject claim: chỉ ADMIN. Chi trả (pay) claim đã duyệt: FINANCE hoặc ADMIN (maker-checker: duyệt ≠ chi trả).',
+    source: 'ClaimServiceImpl (tạo: chính mình + ACTIVE, FINANCE 403; xử lý: checkAdmin, riêng pay: checkFinanceOrAdmin)',
     roles: {
       CUSTOMER: '✅ Tạo cho policy ACTIVE của mình; đọc claim của mình',
       AGENT: '✅ Chỉ đọc claim của hợp đồng được giao',
       UNDERWRITER: '✅ Chỉ đọc mọi claim, không xử lý',
       ADMIN: 'allowed',
+      FINANCE: '✅ Chỉ chi trả claim đã duyệt (pay)',
     },
   },
   {
@@ -340,6 +381,7 @@ export const PERMISSION_MATRIX = [
       AGENT: 'denied',
       UNDERWRITER: 'denied',
       ADMIN: 'allowed',
+      FINANCE: 'denied',
     },
   },
   {
@@ -354,6 +396,7 @@ export const PERMISSION_MATRIX = [
       AGENT: '✅ Chỉ của chính mình',
       UNDERWRITER: '✅ Chỉ của chính mình',
       ADMIN: '✅ Chỉ của chính mình',
+      FINANCE: '✅ Chỉ của chính mình',
     },
   },
 ];
@@ -363,22 +406,28 @@ export const PERMISSION_MATRIX = [
 // người đọc không tưởng bản cũ còn đúng.
 export const MATRIX_DIFFERENCES = [
   {
+    id: 'diff-finance-scoped',
+    title: 'Vai trò FINANCE trở lại, chỉ cho các API tiền (PR finance-scope)',
+    detail:
+      'ROLE_FINANCE được đưa lại vào Role enum nhưng CHỈ cho các API tiền: GET /finance/refunds + /finance/reconciliation/export (matcher /finance/** FINANCE+ADMIN; alias /admin/finance giữ lại cho ADMIN), GET /reports/** (thống kê tiền), BOUND→ACTIVE (xác nhận đối soát tiền vào), POST /claims/{id}/pay (chi trả claim đã duyệt), và đọc ngữ cảnh tiền (payment history/status, ledger, invoice qua checkMoneyRead). FINANCE 403 mọi API phi-tiền: tạo/sửa/xóa hợp đồng (POST /policies chặn ở matcher), đọc hợp đồng (checkPolicyRead), claim (tạo/đọc/duyệt), thương lượng, endorsement, user/agent/quản trị. FE: sidebar chỉ hiện mục Kế toán (Báo cáo) + tài khoản cá nhân, badge KẾ TOÁN, landing sau đăng nhập là /admin/reports. Chưa có UI đối soát — FINANCE gọi API /finance/** trực tiếp.',
+  },
+  {
     id: 'diff-finance-removed',
     title: 'Vai trò FINANCE đã bị xóa: khỏi bảng, khỏi matcher, khỏi mọi hàng',
     detail:
-      'Role enum hiện tại không còn ROLE_FINANCE (chỉ CUSTOMER/AGENT/UNDERWRITER/ADMIN + ROLE_USER cũ tương đương CUSTOMER). SecurityConfig không còn matcher /finance/**, route FE /admin/reports không còn mở cho FINANCE, và trang /admin/doi-soat không tồn tại (App.jsx chỉ còn entry TITLES chết, không có Route). Mọi hàng, cột và ghi chú FINANCE trong bản cũ đều đã sai và đã bị xóa; người dùng cũ mang role FINANCE (nếu còn trong DB) sẽ rơi vào mọi matcher 403 vì không còn matcher nào nhận role đó.',
+      'LỊCH SỬ (trước PR finance-scope): Role enum không còn ROLE_FINANCE (chỉ CUSTOMER/AGENT/UNDERWRITER/ADMIN + ROLE_USER cũ tương đương CUSTOMER). SecurityConfig không còn matcher /finance/**, route FE /admin/reports không còn mở cho FINANCE, và trang /admin/doi-soat không tồn tại. Mọi hàng, cột và ghi chú FINANCE trong bản cũ đều đã sai và đã bị xóa; người dùng cũ mang role FINANCE (nếu còn trong DB) sẽ rơi vào mọi matcher 403 vì không còn matcher nào nhận role đó. Đã đảo ngược một phần ở PR finance-scope (xem diff-finance-scoped): FINANCE trở lại nhưng chỉ cho các API tiền.',
   },
   {
     id: 'diff-reports-uw-read',
     title: 'Báo cáo tổng hợp: UNDERWRITER được đọc (GET), không phải FINANCE',
     detail:
-      'Bản cũ ghi GET /reports cho ADMIN+FINANCE. Code hiện tại: matcher GET /reports/** cho ADMIN + UNDERWRITER đứng trước matcher chung /reports/** chỉ ADMIN, và route FE /admin/reports mở cho ROLE_ADMIN + ROLE_UNDERWRITER. Hàng Báo cáo đã sửa UNDERWRITER thành "chỉ đọc (GET)".',
+      'Bản cũ ghi GET /reports cho ADMIN+FINANCE. Code trước PR finance-scope: matcher GET /reports/** cho ADMIN + UNDERWRITER đứng trước matcher chung /reports/** chỉ ADMIN, và route FE /admin/reports mở cho ROLE_ADMIN + ROLE_UNDERWRITER. Hàng Báo cáo đã sửa UNDERWRITER thành "chỉ đọc (GET)". Từ PR finance-scope: FINANCE cũng được đọc GET /reports/** (thống kê tiền) — xem diff-finance-scoped.',
   },
   {
     id: 'diff-reconciliation-admin-only-no-ui',
     title: 'Đối soát: chuyển từ FINANCE tại /admin/doi-soat thành ADMIN tại /admin/finance, không có UI',
     detail:
-      'Bản cũ ghi GET /finance/refunds + export cho FINANCE xem tại /admin/doi-soat. Code hiện tại: FinanceController gắn ở /admin/finance (matcher /admin/** = ADMIN) và service tự enforce chỉ ADMIN; không có component/route FE nào cho đối soát. Hàng cũ "Đối soát FINANCE" đổi thành "Đối soát — chỉ ADMIN, không có UI", và BOUND→ACTIVE do ADMIN duyệt trực tiếp (PermissionService.checkTransition).',
+      'Bản cũ ghi GET /finance/refunds + export cho FINANCE xem tại /admin/doi-soat. Code trước PR finance-scope: FinanceController gắn ở /admin/finance (matcher /admin/** = ADMIN) và service tự enforce chỉ ADMIN; không có component/route FE nào cho đối soát. Hàng cũ "Đối soát FINANCE" đổi thành "Đối soát — chỉ ADMIN, không có UI", và BOUND→ACTIVE do ADMIN duyệt trực tiếp (PermissionService.checkTransition). Từ PR finance-scope: đối soát mở lại cho FINANCE tại /finance/** (alias /admin/finance giữ cho ADMIN), BOUND→ACTIVE do ADMIN hoặc FINANCE duyệt — xem diff-finance-scoped.',
   },
   {
     id: 'diff-negotiation-decisive',
@@ -390,7 +439,7 @@ export const MATRIX_DIFFERENCES = [
     id: 'diff-claim-admin',
     title: 'Bồi thường: thêm hàng claim — tạo/xem theo phạm vi, xử lý chỉ ADMIN',
     detail:
-      'Bản cũ không có hàng claim. Code hiện tại (ClaimServiceImpl, head có tính năng claim hợp đồng + tối đa 10 ảnh): tạo chỉ CUSTOMER cho policy ACTIVE của mình; đọc: ADMIN/UW mọi claim, CUSTOMER của mình, AGENT của hợp đồng được giao; review/approve/reject/pay chỉ ADMIN (checkAdmin).',
+      'Bản cũ không có hàng claim. Code hiện tại (ClaimServiceImpl, head có tính năng claim hợp đồng + tối đa 10 ảnh): tạo chỉ CUSTOMER cho policy ACTIVE của mình; đọc: ADMIN/UW mọi claim, CUSTOMER của mình, AGENT của hợp đồng được giao; review/approve/reject chỉ ADMIN (checkAdmin); pay claim đã duyệt: FINANCE hoặc ADMIN (checkFinanceOrAdmin, từ PR finance-scope).',
   },
   {
     id: 'diff-pending-endorsement',

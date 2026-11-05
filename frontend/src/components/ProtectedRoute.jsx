@@ -27,7 +27,10 @@ export function ProtectedRoute({ children, roles }) {
   }
   if (roles && roles.length > 0 && !hasAnyRole(roles)) {
     toast.info('Bạn không có quyền truy cập trang này.');
-    return <Navigate to="/hop-dong-cua-toi" replace />;
+    // Trang đích khi bị từ chối cũng phải là trang user được vào — FINANCE
+    // về trang tiền, còn lại về portal khách (không redirect FINANCE về
+    // /hop-dong-cua-toi vì chính trang đó cũng chặn FINANCE → lặp vô hạn).
+    return <Navigate to={hasAnyRole(['ROLE_FINANCE']) ? '/admin/reports' : '/hop-dong-cua-toi'} replace />;
   }
   return children;
 }

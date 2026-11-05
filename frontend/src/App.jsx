@@ -99,6 +99,11 @@ const page = (path, el, roles) => (
 // app.benchmark.enabled ở BenchmarkController + matcher ADMIN ở BE.
 const BENCHMARK_ENABLED = import.meta.env.VITE_ENABLE_BENCHMARK === 'true';
 
+// Mọi role hiện có trừ FINANCE — kế toán không vào các trang phi-tiền
+// (mua/xem hợp đồng, bồi thường, chờ duyệt endorsement, trang thanh toán
+// của khách). BE cũng 403 các API đó; route guard chỉ cho redirect đúng.
+const NOT_FINANCE = ['ROLE_CUSTOMER', 'ROLE_USER', 'ROLE_AGENT', 'ROLE_ADMIN', 'ROLE_UNDERWRITER'];
+
 /** Routes bọc AnimatePresence để chuyển trang mượt */
 function AnimatedRoutes() {
   const location = useLocation();
@@ -114,9 +119,9 @@ function AnimatedRoutes() {
             ProtectedRoute — khách chỉ vào app qua link đại lý /a/<slug> nên
             trang chủ cũ (portal khách) chuyển sang /hop-dong-cua-toi). */}
         <Route path="/" element={withErrorBoundary(<PlatformLandingPage />, 'Trang nền tảng')} />
-        {page('/hop-dong-cua-toi', <CustomerPortalPage />)}
-        {page('/mua-bao-hiem', <BuyWizardPage />)}
-        {page('/hop-dong/:policyNumber', <PolicyDetailPage />)}
+        {page('/hop-dong-cua-toi', <CustomerPortalPage />, NOT_FINANCE)}
+        {page('/mua-bao-hiem', <BuyWizardPage />, NOT_FINANCE)}
+        {page('/hop-dong/:policyNumber', <PolicyDetailPage />, NOT_FINANCE)}
         {page('/ho-so', <ProfilePage />)}
         {page('/doi-mat-khau', <ChangePasswordPage />)}
         {page('/thong-bao', <NotificationsPage />)}
@@ -127,19 +132,19 @@ function AnimatedRoutes() {
           ? page('/admin/benchmark', <BenchmarkPage />, ['ROLE_ADMIN'])
           : <Route path="/admin/benchmark" element={<Navigate to="/admin" replace />} />}
         {page('/admin/index-audit', <IndexAuditPage />, ['ROLE_ADMIN'])}
-        {page('/admin/reports', <ReportsPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER'])}
+        {page('/admin/reports', <ReportsPage />, ['ROLE_ADMIN', 'ROLE_UNDERWRITER', 'ROLE_FINANCE'])}
         {page('/admin/thuong-luong', <UnderwriterQueuePage />, ['ROLE_UNDERWRITER', 'ROLE_ADMIN'])}
         {page('/admin/audit-logs', <AdminAuditLogPage />, ['ROLE_ADMIN'])}
         {page('/agent/khach-hang', <AgentCustomerPage />, ['ROLE_AGENT', 'ROLE_ADMIN'])}
-        {page('/thanh-toan', <PaymentPage />)}
+        {page('/thanh-toan', <PaymentPage />, NOT_FINANCE)}
         {page('/thanh-toan/ket-qua', <PaymentResultPage />)}
         {page('/so-sanh-goi', <ComparePackagesPage />)}
-        {page('/cho-duyet', <PendingEndorsementsPage />)}
+        {page('/cho-duyet', <PendingEndorsementsPage />, NOT_FINANCE)}
         {page('/admin/phan-quyen', <PermissionMatrixPage />, ['ROLE_ADMIN'])}
         {page('/ho-so/lich-su-dang-nhap', <LoginHistoryPage />)}
-        {page('/claims', <ClaimsPage />)}
+        {page('/claims', <ClaimsPage />, NOT_FINANCE)}
         {page('/claims/new', <CreateClaimPage />, ['ROLE_CUSTOMER', 'ROLE_USER'])}
-        {page('/claims/:id', <ClaimDetailPage />)}
+        {page('/claims/:id', <ClaimDetailPage />, NOT_FINANCE)}
         {import.meta.env.DEV && (
           <Route path="/dev/api-tester" element={<DevTester />} />
         )}

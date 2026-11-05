@@ -481,6 +481,33 @@ class ClaimServiceImplTest {
         assertThrows(ForbiddenException.class, () -> claimService.payClaim("claim-1"));
     }
 
+    // 18b. FINANCE (PR finance-scope): được chi trả claim đã duyệt (tiền ra,
+    // maker-checker: duyệt ≠ chi trả) nhưng không được duyệt/từ chối/review
+    // hay tạo claim mới.
+    @Test
+    void finance_canPayApprovedClaim_butCannotApproveOrCreate() {
+        sampleClaim.setStatus(ClaimStatus.APPROVED);
+        sampleClaim.setApprovedAmount(1800000.0);
+        when(permissionService.isAdmin()).thenReturn(false);
+        when(permissionService.hasFinanceRole()).thenReturn(true);
+        when(permissionService.currentPrincipal()).thenReturn("finance@example.com");
+        when(claimRepository.findById("claim-1")).thenReturn(Optional.of(sampleClaim));
+        when(claimRepository.save(any(Claim.class))).thenAnswer(i -> i.getArgument(0));
+
+        ClaimResponse paidResp = claimService.payClaim("claim-1");
+        assertEquals(ClaimStatus.PAID, paidResp.getStatus());
+
+        assertThrows(ForbiddenException.class,
+                () -> claimService.approveClaim("claim-1", new ApproveClaimRequest()));
+        assertThrows(ForbiddenException.class, () -> claimService.reviewClaim("claim-1"));
+        assertThrows(ForbiddenException.class,
+                () -> claimService.rejectClaim("claim-1", new RejectClaimRequest()));
+        CreateClaimRequest req = CreateClaimRequest.builder()
+                .policyNumber("POL-1001").claimedAmount(1000000.0)
+                .damageDescription("Tai nạn làm vỡ kính chiếu hậu").build();
+        assertThrows(ForbiddenException.class, () -> claimService.createClaim(req, List.of()));
+    }
+
     // 19. Từ chối không có lý do -> 400 Bad Request
     @Test
     void reject_missingReason_throws400() {

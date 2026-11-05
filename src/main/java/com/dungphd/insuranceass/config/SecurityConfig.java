@@ -129,10 +129,18 @@ public class SecurityConfig {
                         // Nối ở merge đợt 3 (tăng cường, service vẫn enforce lại):
                         // /agent/** chỉ AGENT + ADMIN (trước đây rơi vào anyRequest).
                         .requestMatchers("/agent/**", "/api/agent/**").hasAnyRole("AGENT", "ADMIN")
+                        // FINANCE: chỉ các API tiền dưới /finance/** (đối soát,
+                        // hoàn phí — FinanceController). /admin/** vẫn ADMIN-only
+                        // nên FINANCE không vào được bất kỳ endpoint /admin/**
+                        // nào khác (kể cả alias /admin/finance của controller
+                        // này — FINANCE đi /finance, ADMIN đi cả hai).
+                        .requestMatchers("/finance/**", "/api/finance/**").hasAnyRole("FINANCE", "ADMIN")
                         .requestMatchers("/admin/**", "/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/benchmark/**", "/api/benchmark/**").hasRole("ADMIN")
-                        // GET báo cáo: ADMIN + UNDERWRITER được đọc.
-                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/reports/**", "/api/reports/**").hasAnyRole("ADMIN", "UNDERWRITER")
+                        // GET báo cáo: ADMIN + UNDERWRITER + FINANCE được đọc
+                        // (4 endpoint đều là thống kê tiền: tổng phí theo trạng
+                        // thái/tháng, top hợp đồng, đếm theo trạng thái).
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/reports/**", "/api/reports/**").hasAnyRole("ADMIN", "UNDERWRITER", "FINANCE")
                         .requestMatchers("/reports/**", "/api/reports/**").hasRole("ADMIN")
                         // Tiếp nhận bồi thường: chỉ UNDERWRITER + ADMIN (lớp matcher,
                         // service intakeClaim enforce lại). Đặt TRƯỚC matcher /claims/**
@@ -147,6 +155,16 @@ public class SecurityConfig {
                         // tự enforce (UW-only); chặn role ở matcher sẽ phá scope
                         // "ADMIN xem, FINANCE 403, customer/agent theo phạm vi".
                         .requestMatchers("/pending-endorsements/**", "/api/pending-endorsements/**").authenticated()
+                        // FINANCE không tạo hợp đồng: chặn ngay ở matcher (chỉ
+                        // POST /policies chính xác — các POST con như
+                        // /status-transitions vẫn đi matcher generic bên dưới
+                        // để FINANCE xác nhận BOUND→ACTIVE được). Danh sách
+                        // là mọi role hiện có trừ FINANCE (kể cả ROLE_USER cũ
+                        // tương đương CUSTOMER); service gate đợt 1C trong
+                        // PolicyServiceImpl.createPolicy là chốt thứ hai và
+                        // nên bổ sung FINANCE ở đó khi branch khác xong.
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/policies", "/api/policies")
+                                .hasAnyRole("ADMIN", "CUSTOMER", "USER", "AGENT", "UNDERWRITER")
                         .requestMatchers("/policies/**", "/api/policies/**").authenticated()
                         .requestMatchers("/endorsements", "/api/endorsements").authenticated()
                         .requestMatchers("/history", "/api/history").authenticated()

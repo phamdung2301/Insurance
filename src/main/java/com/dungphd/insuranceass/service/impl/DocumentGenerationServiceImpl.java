@@ -141,8 +141,11 @@ public class DocumentGenerationServiceImpl implements DocumentGenerationService 
                 .or(() -> policyRepository.findById(policyNumber))
                 .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
 
+        // Invoice là chứng từ tiền: FINANCE được tải qua checkMoneyRead
+        // (ADMIN/UW/FINANCE + bên cầu). Certificate/summary giữ nguyên
+        // checkPolicyRead (FINANCE 403) — chúng không phải chứng từ tiền.
         if (permissionService != null) {
-            permissionService.checkPolicyRead(policy);
+            permissionService.checkMoneyRead(policy);
         }
 
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {

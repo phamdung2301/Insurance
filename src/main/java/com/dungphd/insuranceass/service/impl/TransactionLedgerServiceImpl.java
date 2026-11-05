@@ -54,11 +54,13 @@ public class TransactionLedgerServiceImpl implements TransactionLedgerService {
         }
         // Chặn cả 2 cửa history (path param qua PolicyController và query param qua
         // EndorsementController) ở tầng service (PLAN §1.4). Policy không tồn tại thì
-        // giữ hành vi cũ (trả rỗng, không lộ gì thêm).
+        // giữ hành vi cũ (trả rỗng, không lộ gì thêm). Ledger là dấu vết tiền nên
+        // FINANCE được đọc qua checkMoneyRead (ADMIN/UW/FINANCE + bên cầu);
+        // các cửa đọc policy khác vẫn dùng checkPolicyRead (FINANCE 403).
         if (permissionService != null && policyRepository != null) {
             policyRepository.findByPolicyNumber(policyNumber.trim())
                     .or(() -> policyRepository.findById(policyNumber.trim()))
-                    .ifPresent(permissionService::checkPolicyRead);
+                    .ifPresent(permissionService::checkMoneyRead);
         }
         return transactionRepository.findByPolicyNumberOrderByTimestampDesc(policyNumber.trim());
     }

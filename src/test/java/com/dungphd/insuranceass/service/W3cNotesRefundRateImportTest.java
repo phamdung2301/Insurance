@@ -184,8 +184,14 @@ class W3cNotesRefundRateImportTest {
         when(policyRepository.findByStatus(any())).thenReturn(List.of());
         assertNotNull(financeService.exportReconciliationCsv(null, null));
 
+        // Đảo hành vi có chủ đích (PR finance-scope): FINANCE được đối soát
+        // như ADMIN; các role còn lại vẫn 403.
+        authenticateAs("fin@x.vn", "ROLE_FINANCE");
+        assertNotNull(financeService.listRefunds());
+        assertNotNull(financeService.exportReconciliationCsv(null, null));
+
         for (String[] creds : new String[][]{
-                {"cus@x.vn", "ROLE_CUSTOMER"}, {"uw@x.vn", "ROLE_UNDERWRITER"}, {"ag@x.vn", "ROLE_AGENT"}, {"fin@x.vn", "ROLE_FINANCE"}}) {
+                {"cus@x.vn", "ROLE_CUSTOMER"}, {"uw@x.vn", "ROLE_UNDERWRITER"}, {"ag@x.vn", "ROLE_AGENT"}}) {
             authenticateAs(creds[0], creds[1]);
             assertThrows(ForbiddenException.class, () -> financeService.listRefunds());
             assertThrows(ForbiddenException.class, () -> financeService.exportReconciliationCsv(null, null));

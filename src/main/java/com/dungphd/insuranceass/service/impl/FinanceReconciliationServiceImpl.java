@@ -27,21 +27,21 @@ public class FinanceReconciliationServiceImpl implements FinanceReconciliationSe
     private final PolicyRepository policyRepository;
     private final PermissionService permissionService;
 
-    private void checkAdmin() {
-        if (!permissionService.isAdmin()) {
-            throw new ForbiddenException("Chỉ ADMIN mới được xem dữ liệu đối soát.");
+    private void checkFinanceOrAdmin() {
+        if (!permissionService.isAdmin() && !permissionService.hasFinanceRole()) {
+            throw new ForbiddenException("Chỉ Kế toán (FINANCE) hoặc Quản trị viên (ADMIN) mới được xem dữ liệu đối soát.");
         }
     }
 
     @Override
     public List<RefundRecord> listRefunds() {
-        checkAdmin();
+        checkFinanceOrAdmin();
         return refundRecordRepository.findAllByOrderByCreatedAtDesc();
     }
 
     @Override
     public String exportReconciliationCsv(LocalDate from, LocalDate to) {
-        checkAdmin();
+        checkFinanceOrAdmin();
         // Khoảng ngày bao cả 2 đầu: [from 00:00 UTC, to+1 ngày 00:00 UTC).
         Instant fromInstant = from != null ? from.atStartOfDay(ZoneOffset.UTC).toInstant() : null;
         Instant toExclusive = to != null ? to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant() : null;
