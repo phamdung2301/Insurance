@@ -12,8 +12,9 @@ public interface BenchmarkService {
     Map<String, Object> generateTestPolicies(int targetCount);
 
     /**
-     * FR-BENCH-02, FR-BENCH-03: Execute benchmark for 3 critical queries, extracting execution metrics:
+     * FR-BENCH-02, FR-BENCH-03: Execute benchmark for 4 critical queries, extracting execution metrics:
      * winningPlan, totalDocsExamined, totalKeysExamined, nReturned, executionTimeMillis.
+     * Query 4 is the SaaS tenant-scoped list (agentId + status).
      */
     BenchmarkReportDto runBenchmarkSuite();
 
