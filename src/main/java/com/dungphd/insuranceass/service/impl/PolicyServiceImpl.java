@@ -157,10 +157,14 @@ public class PolicyServiceImpl implements PolicyService {
         //   từ context thắng, agentSlug gửi kèm (nếu có) bị bỏ qua; agent
         //   chưa gán tenant → fail-closed 403, tenant SUSPENDED/CLOSED → 403
         //   theo guard trạng thái (checkTenantWriteForStaff).
-        // - ADMIN tạo hộ: BẮT BUỘC ghi agentId hợp lệ từ request (tồn tại,
-        //   nếu không → 400); thiếu agentId → 400. Đây là thay đổi so với
-        //   Phase 1/Track B (trước đây ADMIN được để trống → null, policy
-        //   unassigned lặng). agentSlug của ADMIN (nếu gửi) bị bỏ qua.
+        // - ADMIN tạo hộ: agentId tường minh (nếu có) thắng — validate tồn
+        //   tại, nếu không → 400; thiếu agentId thì resolve agentSlug như
+        //   CUSTOMER (wizard/storefront chỉ gửi slug qua agentRef — ADMIN
+        //   đi qua wizard cũng vậy, không có field agentId để gửi). Thiếu
+        //   cả hai → 400 hướng tới hành động chọn đại lý. Đây là thay đổi
+        //   so với Phase 1/Track B (trước đây ADMIN được để trống → null,
+        //   policy unassigned lặng); và là fix cho bug wizard ADMIN chọn
+        //   đại lý rồi mà submit vẫn 400 vì nhánh ADMIN cũ bỏ qua slug.
         // - Role khác (không ADMIN/CUSTOMER/AGENT, vd FINANCE): giữ hành vi cũ
         //   (agentId null) — không phải luồng mua, không thuộc ma trận Track C.
         // Khi permissionService == null (gọi nội bộ/test unit cũ không set
@@ -173,12 +177,21 @@ public class PolicyServiceImpl implements PolicyService {
             if (permissionService.isAdmin()) {
                 agentId = request.getAgentId() != null && !request.getAgentId().isBlank()
                         ? request.getAgentId().trim() : null;
-                if (agentId == null) {
-                    throw new BadRequestException(
-                            "ADMIN tạo hợp đồng phải chọn đại lý (agentId là bắt buộc, không được để trống).");
-                }
-                if (agentRepository != null && !agentRepository.existsById(agentId)) {
-                    throw new BadRequestException("Đại lý không tồn tại với id: " + agentId);
+                if (agentId != null) {
+                    // agentId tường minh (tooling/admin API): chỉ cần kiểm
+                    // tra tồn tại; slug gửi kèm (nếu có) bị bỏ qua.
+                    if (agentRepository != null && !agentRepository.existsById(agentId)) {
+                        throw new BadRequestException(
+                                "Đại lý đã chọn không còn tồn tại. Hãy chọn một đại lý khác.");
+                    }
+                } else {
+                    // Wizard/storefront chỉ gửi agentSlug (agentRef): resolve
+                    // như CUSTOMER (chỉ ACTIVE; không tồn tại → 404,
+                    // SUSPENDED/CLOSED → 410; thiếu cả hai → 400 hướng tới
+                    // hành động chọn đại lý, trong resolveCustomerAgentId).
+                    // Id resolve từ slug đã được findBySlug validate nên
+                    // không cần existsById thêm một lần nữa.
+                    agentId = resolveCustomerAgentId(request.getAgentSlug());
                 }
             } else if (permissionService.hasCustomerRole()) {
                 agentId = resolveCustomerAgentId(request.getAgentSlug());
@@ -750,7 +763,10 @@ public class PolicyServiceImpl implements PolicyService {
     }
 
     /**
-     * Resolve tenant cho CUSTOMER tự mua qua link đại lý (Track C).
+     * Resolve tenant từ agentSlug cho CUSTOMER tự mua qua link đại lý
+     * (Track C) — và cho ADMIN tạo hộ qua wizard/storefront khi request
+     * không có agentId tường minh (wizard chỉ gửi slug, xem khối agentId
+     * ở createPolicy).
      * Thiếu agentSlug → 400 với message rõ ràng (FE hiện toast, không lặng);
      * slug không tồn tại → 404; slug SUSPENDED/CLOSED → 410 Gone
      * (AgentLinkInactiveException, phân biệt với 404 như storefront resolve).
