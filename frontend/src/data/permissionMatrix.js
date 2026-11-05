@@ -49,7 +49,6 @@
  *   khách nhưng assignedAgentEmail luôn là mình.
  * - PolicyNoteServiceImpl: ghi chú nội bộ chỉ UW/ADMIN.
  * - UnderwriterQueueServiceImpl: hàng đợi chỉ UW/ADMIN.
- * - CommissionServiceImpl.resolveScope: AGENT chỉ của mình, ADMIN toàn bộ.
  * - PendingEndorsementServiceImpl: danh sách chờ duyệt UW/ADMIN xem theo
  *   phạm vi; duyệt/từ chối chỉ UNDERWRITER (ADMIN chỉ xem).
  *
@@ -283,20 +282,6 @@ export const PERMISSION_MATRIX = [
       AGENT: 'denied',
       UNDERWRITER: 'denied',
       ADMIN: '✅ Chỉ ADMIN, qua API (không có UI)',
-    },
-  },
-  {
-    id: 'agent-commissions',
-    group: 'Báo cáo & công cụ',
-    name: 'Hoa hồng + phễu bán hàng của agent',
-    description:
-      'GET /agent/commissions và /agent/commissions/funnel. AGENT chỉ thấy của chính mình; ADMIN thấy toàn bộ.',
-    source: 'SecurityConfig /agent/** + CommissionServiceImpl.resolveScope',
-    roles: {
-      CUSTOMER: 'denied',
-      AGENT: '✅ Chỉ của chính mình',
-      UNDERWRITER: 'denied',
-      ADMIN: '✅ Toàn bộ agent',
     },
   },
   {

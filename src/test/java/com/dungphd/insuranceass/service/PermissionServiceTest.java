@@ -142,12 +142,32 @@ class PermissionServiceTest {
         assertEquals("owner@example.com", criteria.getInsuredEmail());
     }
 
+    // THAY ĐỔI HÀNH VI CÓ CHỦ ĐÍCH (SaaS Phase 2 Track B — scope cutover):
+    // scope agent không còn ép assignedAgentEmail theo email nữa mà ép
+    // agentId theo tenant; agent chưa gán tenant thì fail-closed 403 thay
+    // vì ép email cũ. Test cũ "forcesOwnAssignedEmail" bị thay bằng hai
+    // test dưới đây.
     @Test
-    void agentSearchScope_forcesOwnAssignedEmail() {
+    void agentSearchScope_forcesOwnTenantId_notEmail() {
+        authenticateAs("agent@example.com", "ROLE_AGENT");
+        com.dungphd.insuranceass.context.TenantContext.setTenantId("tenant-1");
+        try {
+            PolicySearchCriteria criteria = PolicySearchCriteria.builder().build();
+            permissionService.applySearchScope(criteria);
+            assertEquals("tenant-1", criteria.getAgentId());
+            assertNull(criteria.getAssignedAgentEmail());
+        } finally {
+            com.dungphd.insuranceass.context.TenantContext.clear();
+        }
+    }
+
+    @Test
+    void agentWithoutTenant_searchScope_throwsFailClosed() {
         authenticateAs("agent@example.com", "ROLE_AGENT");
         PolicySearchCriteria criteria = PolicySearchCriteria.builder().build();
-        permissionService.applySearchScope(criteria);
-        assertEquals("agent@example.com", criteria.getAssignedAgentEmail());
+        ForbiddenException ex = assertThrows(ForbiddenException.class,
+                () -> permissionService.applySearchScope(criteria));
+        assertTrue(ex.getMessage().contains("chưa được gán tenant"));
     }
 
     @Test

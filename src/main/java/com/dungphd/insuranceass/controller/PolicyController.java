@@ -41,9 +41,12 @@ public class PolicyController {
     // ==========================================
 
         /**
-     * GET /policies/mine
-     * Hợp đồng của chính user đang đăng nhập (lấy email từ JWT, không tin client).
-     * Thay thế việc tải toàn bộ rồi filter ở frontend.
+     * GET /policies/mine — Track B mục 3, định nghĩa lại: "hợp đồng mà tôi
+     * là người được bảo hiểm", CHỈ lọc insured.email của principal, KHÔNG
+     * đi qua nhánh agent của applySearchScope (chính chỗ đó sinh ra AND
+     * làm /mine rỗng với agent thuần). Agent thuần tạo hộ khách: policy
+     * tạo hộ không nằm trong /mine của agent (agent không phải insured)
+     * nhưng nằm trong GET /policies của agent (scope tenant).
      */
     @GetMapping("/mine")
     public ResponseEntity<ApiResponse<PageResponse<Policy>>> getMyPolicies(
@@ -52,8 +55,7 @@ public class PolicyController {
         if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Yêu cầu đăng nhập");
         }
-        criteria.setInsuredEmail(principal.getName().trim().toLowerCase());
-        PageResponse<Policy> page = policyService.searchPolicies(criteria);
+        PageResponse<Policy> page = policyService.searchMyPolicies(criteria, principal.getName());
         return ResponseEntity.ok(ApiResponse.success(page, "Danh sách hợp đồng của bạn"));
     }
 

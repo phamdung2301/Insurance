@@ -11,6 +11,7 @@ import com.dungphd.insuranceass.model.AdminAuditLog;
 import com.dungphd.insuranceass.model.Role;
 import com.dungphd.insuranceass.model.User;
 import com.dungphd.insuranceass.repository.AdminAuditLogRepository;
+import com.dungphd.insuranceass.repository.AgentRepository;
 import com.dungphd.insuranceass.repository.UserRepository;
 import com.dungphd.insuranceass.service.AdminUserService;
 import com.dungphd.insuranceass.service.OtpService;
@@ -44,9 +45,23 @@ public class AdminUserServiceImpl implements AdminUserService {
     // ngược lại service này nên không tạo vòng tròn bean.
     private final OtpService otpService;
 
+    // SaaS Phase 2 Track B (optional như pattern optional-field của các
+    // service khác): chỉ dùng để validate agentId khi ADMIN gán tenant.
+    // Test unit cũ không có mock này → null thì bỏ qua validate (không
+    // fail), production Spring luôn inject bean thật.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AgentRepository agentRepository;
+
     @Override
     public List<AdminUserResponse> listUsers() {
+        return listUsers(null);
+    }
+
+    @Override
+    public List<AdminUserResponse> listUsers(String agentId) {
         return userRepository.findAll().stream()
+                .filter(u -> agentId == null || agentId.isBlank()
+                        || agentId.equals(u.getAgentId()))
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -58,11 +73,23 @@ public class AdminUserServiceImpl implements AdminUserService {
             throw new DuplicateResourceException("User with email " + email + " already exists");
         }
         List<String> roles = normalizeRoles(request.getRoles());
+        // Track B mục 4: gán tenant ngay lúc tạo (lấp gap Phase 1).
+        String agentId = request.getAgentId() != null && !request.getAgentId().isBlank()
+                ? request.getAgentId().trim() : null;
+        if (agentId != null) {
+            requireAgentExists(agentId);
+        } else if (roles.contains(Role.ROLE_AGENT.name())) {
+            // PLAN §3.5: tạo user AGENT phải chọn tenant trước — không tự
+            // sinh Agent ẩn, không để agent "ma" rồi fail-closed lặng sau này.
+            throw new BadRequestException(
+                    "Tạo user ROLE_AGENT phải gửi kèm agentId của đại lý đã tạo trước (xem /admin/agents).");
+        }
         User user = User.builder()
                 .email(email)
                 .password(passwordEncoder.encode(request.getPassword()))
                 .fullName(request.getFullName())
                 .roles(new ArrayList<>(roles))
+                .agentId(agentId)
                 .enabled(true)
                 .createdAt(Instant.now())
                 .updatedAt(Instant.now())
@@ -70,6 +97,32 @@ public class AdminUserServiceImpl implements AdminUserService {
         User saved = userRepository.save(user);
         writeAudit(actor, email, "CREATE_USER", List.of(), roles);
         return mapToResponse(saved);
+    }
+
+    @Override
+    public AdminUserResponse setAgent(String userId, String agentId, String actor) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+        String normalized = agentId != null && !agentId.isBlank() ? agentId.trim() : null;
+        if (normalized != null) {
+            requireAgentExists(normalized);
+        }
+        List<String> roles = user.getRoles() != null ? new ArrayList<>(user.getRoles()) : new ArrayList<>();
+        // CHỈ đổi User.agentId. Policy.agentId của các policy cũ KHÔNG đổi
+        // theo (nguồn sự thật tenant của policy là Policy.agentId — PLAN
+        // §3.4: cấm suy luận ngược từ User.agentId sang Policy.agentId).
+        user.setAgentId(normalized);
+        user.setUpdatedAt(Instant.now());
+        User saved = userRepository.save(user);
+        writeAudit(actor, saved.getEmail(), "ASSIGN_TENANT", roles, roles);
+        return mapToResponse(saved);
+    }
+
+    /** Agent phải tồn tại khi ADMIN gán tenant; repo null (test cũ) thì bỏ qua. */
+    private void requireAgentExists(String agentId) {
+        if (agentRepository != null && !agentRepository.existsById(agentId)) {
+            throw new BadRequestException("Đại lý không tồn tại với id: " + agentId);
+        }
     }
 
     @Override
@@ -220,6 +273,7 @@ public class AdminUserServiceImpl implements AdminUserService {
                 .email(user.getEmail())
                 .fullName(user.getFullName())
                 .roles(user.getRoles())
+                .agentId(user.getAgentId())
                 .enabled(user.getEnabled())
                 .createdAt(user.getCreatedAt())
                 .build();

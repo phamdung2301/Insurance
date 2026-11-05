@@ -57,9 +57,6 @@ class PolicyServiceImplTransitionLedgerTest {
     private NotificationService notificationService;
 
     @Mock
-    private CommissionService commissionService;
-
-    @Mock
     private RefundService refundService;
 
     @InjectMocks
@@ -73,7 +70,6 @@ class PolicyServiceImplTransitionLedgerTest {
         ReflectionTestUtils.setField(policyService, "permissionService", permissionService);
         ReflectionTestUtils.setField(policyService, "negotiationRepository", negotiationRepository);
         ReflectionTestUtils.setField(policyService, "notificationService", notificationService);
-        ReflectionTestUtils.setField(policyService, "commissionService", commissionService);
         ReflectionTestUtils.setField(policyService, "refundService", refundService);
     }
 
@@ -105,6 +101,5 @@ class PolicyServiceImplTransitionLedgerTest {
         verify(policyRepository).save(any(Policy.class));
         // Hook sau save vẫn chạy (không bị ledger fail chặn trước đó).
         verify(notificationService).notifyPolicyActivated(any(Policy.class));
-        verify(commissionService).markEarned(any(Policy.class));
     }
 }

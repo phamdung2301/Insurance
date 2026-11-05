@@ -2,12 +2,10 @@ package com.dungphd.insuranceass.service;
 
 import com.dungphd.insuranceass.model.Agent;
 import com.dungphd.insuranceass.model.AgentStatus;
-import com.dungphd.insuranceass.model.Commission;
 import com.dungphd.insuranceass.model.Policy;
 import com.dungphd.insuranceass.model.Role;
 import com.dungphd.insuranceass.model.User;
 import com.dungphd.insuranceass.repository.AgentRepository;
-import com.dungphd.insuranceass.repository.CommissionRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,16 +25,25 @@ import java.util.TreeSet;
 /**
  * Migration dữ liệu cũ sang tenant — SaaS Phase 1, PLAN-SAAS §5.
  *
- * <p>Thứ tự bắt buộc: Agent → User → Policy → Commission. Mọi bước đều
+ * <p>Thứ tự bắt buộc: Agent → User → Policy. Mọi bước đều
  * idempotent: chạy lại lần hai cho 0 thay đổi (record đã có agentId không bao
  * giờ bị ghi đè — bảo vệ việc ADMIN gán tay sau lần chạy đầu).</p>
  *
  * <p>CHẾ ĐỘ DRY-RUN: {@link #dryRun()} chỉ đọc, không ghi document nào, không
- * sinh mã (không chạm counter). Đây là chế độ DUY NHẤT được phép chạy trong
- * Phase 1; {@link #apply()} tồn tại để test chứng minh tính idempotent trên
- * mock và để Phase 2 gọi sau khi có duyệt riêng — Phase 1 KHÔNG gắn migration
- * vào bất kỳ endpoint HTTP nào, nên không thể vô tình chạy trên dữ liệu thật
- * qua API.</p>
+ * sinh mã (không chạm counter). {@link #apply()} tồn tại để test chứng minh
+ * tính idempotent trên mock — KHÔNG gắn migration vào bất kỳ endpoint HTTP
+ * nào, nên không thể vô tình chạy trên dữ liệu thật qua API (đã rà soát
+ * Track B: không controller nào inject service này).</p>
+ *
+ * <p><b>LẦN CHẠY PRODUCTION CẦN DUYỆT RIÊNG, KHÔNG THUỘC TRACK NÀY:</b>
+ * trước khi chạy thật phải có (a) kết quả dry-run trên dữ liệu thật đã được
+ * ADMIN duyệt (số agent sẽ tạo, số user/policy sẽ gán, danh sách unassigned
+ * và customer đa tenant), (b) snapshot/backup theo PLAN §5.1, (c) giờ chạy
+ * đã chốt. Chạy production bằng một công cụ chạy một lần có giám sát (job/
+ * script vận hành), KHÔNG bằng cách gắn tạm endpoint HTTP — endpoint sẽ
+ * biến lần chạy có kiểm soát thành nút bấm có thể vô tình bấm lại trên
+ * production. Sau lần chạy thật phải đối soát theo checklist PLAN §5.5
+ * (tổng số không đổi, phân bổ tenant khớp email cũ, unassigned đúng số).</p>
  *
  * <p>Nguyên tắc sắt: {@code assignedAgentEmail} không bao giờ bị xóa hay sửa;
  * {@code agentId} chỉ được THÊM. Policy/user chưa xác định được tenant thì để
@@ -58,7 +65,6 @@ public class TenantMigrationService {
     private final AgentRepository agentRepository;
     private final UserRepository userRepository;
     private final PolicyRepository policyRepository;
-    private final CommissionRepository commissionRepository;
     private final AgentCodeGenerator codeGenerator;
 
     /** Chỉ báo cáo sẽ đổi gì, không ghi gì, không sinh mã. */
@@ -77,7 +83,6 @@ public class TenantMigrationService {
     private TenantMigrationReport execute(boolean dryRun) {
         List<Policy> policies = policyRepository.findAll();
         List<User> users = userRepository.findAll();
-        List<Commission> commissions = commissionRepository.findAll();
         List<Agent> existingAgents = agentRepository.findAll();
 
         TenantMigrationReport.TenantMigrationReportBuilder report = TenantMigrationReport.builder()
@@ -243,43 +248,15 @@ public class TenantMigrationService {
         report.policiesSkippedAlreadyAssigned(policiesSkipped);
         report.unassignedPolicyNumbers(unassigned);
 
-        // ---- Bước 3b: backfill Commission.agentId từ Policy ----
-        Map<String, Policy> policyByNumber = new HashMap<>();
-        for (Policy policy : policies) {
-            if (policy.getPolicyNumber() != null) {
-                policyByNumber.put(policy.getPolicyNumber(), policy);
-            }
-        }
-        int commissionsToUpdate = 0;
-        int commissionsSkipped = 0;
-        List<String> orphans = new ArrayList<>();
-        for (Commission commission : commissions) {
-            if (commission.getAgentId() != null) {
-                commissionsSkipped++;
-                continue;
-            }
-            Policy policy = policyByNumber.get(commission.getPolicyNumber());
-            String resolved = policy == null ? null : resolvedPolicyAgentId(policy, agentIdByEmail);
-            if (resolved == null) {
-                orphans.add(commission.getPolicyNumber());
-                continue;
-            }
-            commissionsToUpdate++;
-            if (!dryRun) {
-                commission.setAgentId(resolved);
-                commissionRepository.save(commission);
-            }
-        }
-        report.commissionsToUpdate(commissionsToUpdate);
-        report.commissionsSkippedAlreadyAssigned(commissionsSkipped);
-        report.orphanCommissionPolicyNumbers(orphans);
+        // SaaS Phase 2 Track A: bước backfill hoa hồng đã bỏ hẳn cùng tính
+        // năng — collection cũ đóng băng, migration không đụng tới nó nữa.
 
         TenantMigrationReport result = report.build();
         log.info("Tenant migration (dryRun={}): agentsToCreate={}, usersToUpdate={}, "
-                        + "policiesToUpdate={}, commissionsToUpdate={}, unassignedPolicies={}, "
-                        + "orphanCommissions={}, multiTenantCustomers={}",
+                        + "policiesToUpdate={}, unassignedPolicies={}, "
+                        + "multiTenantCustomers={}",
                 dryRun, agentsToCreate.size(), usersToUpdate, policiesToUpdate,
-                commissionsToUpdate, unassigned.size(), orphans.size(), multiTenantCustomers.size());
+                unassigned.size(), multiTenantCustomers.size());
         return result;
     }
 

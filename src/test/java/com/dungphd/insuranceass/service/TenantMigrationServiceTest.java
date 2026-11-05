@@ -2,12 +2,10 @@ package com.dungphd.insuranceass.service;
 
 import com.dungphd.insuranceass.model.Agent;
 import com.dungphd.insuranceass.model.AgentStatus;
-import com.dungphd.insuranceass.model.Commission;
 import com.dungphd.insuranceass.model.Insured;
 import com.dungphd.insuranceass.model.Policy;
 import com.dungphd.insuranceass.model.User;
 import com.dungphd.insuranceass.repository.AgentRepository;
-import com.dungphd.insuranceass.repository.CommissionRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -29,9 +27,9 @@ import static org.mockito.Mockito.*;
  *
  * <p>Dữ liệu test: 2 agent email (agent@example.com có user fullName, other@
  * chỉ có policy), 1 customer đa tenant (shared@), 1 customer 1 tenant (only-a@),
- * 1 customer 0 tenant (solo@), 1 policy unassigned, 1 commission orphan do
- * policy mất, 1 commission orphan do policy unassigned, 1 commission đã có
- * agentId. TUYỆT ĐỐI không chạy migration trên dữ liệu thật ở Phase 1.</p>
+ * 1 customer 0 tenant (solo@), 1 policy unassigned. SaaS Phase 2 Track A đã
+ * bỏ bước migration hoa hồng (collection cũ đóng băng, migration không đụng
+ * tới). TUYỆT ĐỐI không chạy migration trên dữ liệu thật ở Phase 1.</p>
  */
 @ExtendWith(MockitoExtension.class)
 class TenantMigrationServiceTest {
@@ -44,9 +42,6 @@ class TenantMigrationServiceTest {
 
     @Mock
     private PolicyRepository policyRepository;
-
-    @Mock
-    private CommissionRepository commissionRepository;
 
     @Mock
     private AgentCodeGenerator codeGenerator;
@@ -83,11 +78,6 @@ class TenantMigrationServiceTest {
                 user("solo@example.com", List.of("ROLE_CUSTOMER"), null),
                 user("admin@example.com", List.of("ROLE_ADMIN"), null),
                 user("   ", List.of("ROLE_AGENT"), null)));
-        when(commissionRepository.findAll()).thenReturn(List.of(
-                Commission.builder().policyNumber("POL-M-1").agentEmail("agent@example.com").agentId(null).build(),
-                Commission.builder().policyNumber("POL-MISSING").agentEmail("agent@example.com").agentId(null).build(),
-                Commission.builder().policyNumber("POL-M-4").agentEmail(null).agentId(null).build(),
-                Commission.builder().policyNumber("POL-M-2").agentEmail("agent@example.com").agentId("tenant-x").build()));
         when(agentRepository.findAll()).thenReturn(List.of());
     }
 
@@ -118,19 +108,10 @@ class TenantMigrationServiceTest {
         assertEquals(4, report.getPoliciesToUpdate());
         assertEquals(List.of("POL-M-4"), report.getUnassignedPolicyNumbers());
 
-        // Commission: 1 gán được, 2 orphan (policy mất + policy unassigned),
-        // 1 đã có agentId nên skip.
-        assertEquals(1, report.getCommissionsToUpdate());
-        assertEquals(2, report.getOrphanCommissionPolicyNumbers().size());
-        assertTrue(report.getOrphanCommissionPolicyNumbers().contains("POL-MISSING"));
-        assertTrue(report.getOrphanCommissionPolicyNumbers().contains("POL-M-4"));
-        assertEquals(1, report.getCommissionsSkippedAlreadyAssigned());
-
         // DRY-RUN: không ghi gì, không chạm counter.
         verify(agentRepository, never()).save(any());
         verify(userRepository, never()).save(any());
         verify(policyRepository, never()).save(any());
-        verify(commissionRepository, never()).save(any());
         verify(codeGenerator, never()).nextCode();
     }
 
@@ -145,7 +126,6 @@ class TenantMigrationServiceTest {
         });
         when(userRepository.save(any(User.class))).thenAnswer(i -> i.getArgument(0));
         when(policyRepository.save(any(Policy.class))).thenAnswer(i -> i.getArgument(0));
-        when(commissionRepository.save(any(Commission.class))).thenAnswer(i -> i.getArgument(0));
 
         TenantMigrationReport report = migrationService.apply();
 
@@ -155,17 +135,9 @@ class TenantMigrationServiceTest {
                         .map(TenantMigrationReport.PlannedAgent::code).collect(Collectors.toList()));
         assertEquals(3, report.getUsersToUpdate());
         assertEquals(4, report.getPoliciesToUpdate());
-        assertEquals(1, report.getCommissionsToUpdate());
         verify(agentRepository, times(2)).save(any(Agent.class));
         verify(userRepository, times(3)).save(any(User.class));
         verify(policyRepository, times(4)).save(any(Policy.class));
-        verify(commissionRepository, times(1)).save(any(Commission.class));
-
-        // Commission gán đúng tenant của policy (không đoán từ agentEmail):
-        ArgumentCaptor<Commission> commissionCaptor = ArgumentCaptor.forClass(Commission.class);
-        verify(commissionRepository).save(commissionCaptor.capture());
-        assertEquals("tenant-agent", commissionCaptor.getValue().getAgentId());
-        assertEquals("POL-M-1", commissionCaptor.getValue().getPolicyNumber());
 
         // User agent gán đúng tenant, customer đa tenant không bị gán:
         ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
@@ -178,7 +150,7 @@ class TenantMigrationServiceTest {
 
     @Test
     void apply_secondRun_isIdempotent_zeroChanges() {
-        // Trạng thái SAU lần apply đầu: agent đã có, user/policy/commission đã gán.
+        // Trạng thái SAU lần apply đầu: agent đã có, user/policy đã gán.
         Agent agentA = Agent.builder().id("tenant-agent").code("AGT-0001")
                 .contactEmail("agent@example.com").status(AgentStatus.ACTIVE).build();
         Agent agentO = Agent.builder().id("tenant-other").code("AGT-0002")
@@ -198,25 +170,53 @@ class TenantMigrationServiceTest {
         agentUser.setAgentId("tenant-agent");
         User custShared = user("shared@example.com", List.of("ROLE_CUSTOMER"), null);
         when(userRepository.findAll()).thenReturn(List.of(agentUser, custShared));
-        when(commissionRepository.findAll()).thenReturn(List.of(
-                Commission.builder().policyNumber("POL-M-1").agentId("tenant-agent").build(),
-                Commission.builder().policyNumber("POL-MISSING").agentId(null).build()));
 
         TenantMigrationReport report = migrationService.apply();
 
         assertTrue(report.getAgentsToCreate().isEmpty());
         assertEquals(0, report.getUsersToUpdate());
         assertEquals(0, report.getPoliciesToUpdate());
-        assertEquals(0, report.getCommissionsToUpdate());
-        // Vẫn còn: 1 policy unassigned + 1 commission orphan — hai thứ này cần
-        // ADMIN gán tay, migration chạy lại không tự "dọn" chúng đi.
+        // Vẫn còn: 1 policy unassigned — cần ADMIN gán tay, migration chạy
+        // lại không tự "dọn" nó đi.
         assertEquals(List.of("POL-M-4"), report.getUnassignedPolicyNumbers());
-        assertEquals(List.of("POL-MISSING"), report.getOrphanCommissionPolicyNumbers());
         verify(agentRepository, never()).save(any());
         verify(userRepository, never()).save(any());
         verify(policyRepository, never()).save(any());
-        verify(commissionRepository, never()).save(any());
         verify(codeGenerator, never()).nextCode();
+    }
+
+    @Test
+    void apply_neverOverwritesManualAssignment() {
+        // Track B mục 1 — nguyên tắc sắt: record ĐÃ có agentId (ADMIN gán
+        // tay sau lần chạy đầu) không bị ghi đè, kể cả khi email cũ map
+        // sang tenant khác. Đây là trường hợp test idempotent cũ chưa bao
+        // phủ (nó chỉ gán lại đúng tenant đã map).
+        Agent agentA = Agent.builder().id("tenant-agent").code("AGT-0001")
+                .contactEmail("agent@example.com").status(AgentStatus.ACTIVE).build();
+        when(agentRepository.findAll()).thenReturn(List.of(agentA));
+
+        Policy manualPolicy = policy("POL-M-9", "agent@example.com", "cust@example.com");
+        manualPolicy.setAgentId("tenant-manual");
+        when(policyRepository.findAll()).thenReturn(List.of(manualPolicy));
+
+        User manualUser = user("agent@example.com", List.of("ROLE_AGENT"), "Đại Lý A");
+        manualUser.setAgentId("tenant-manual");
+        when(userRepository.findAll()).thenReturn(List.of(manualUser));
+
+        TenantMigrationReport report = migrationService.apply();
+
+        assertEquals(0, report.getPoliciesToUpdate());
+        assertEquals(0, report.getUsersToUpdate());
+        assertEquals(1, report.getPoliciesSkippedAlreadyAssigned());
+        assertEquals(1, report.getUsersSkippedAlreadyAssigned());
+        assertTrue(report.getUnassignedPolicyNumbers().isEmpty());
+        // assignedAgentEmail không bao giờ bị sửa — migration chỉ THÊM agentId.
+        assertEquals("agent@example.com", manualPolicy.getAssignedAgentEmail());
+        assertEquals("tenant-manual", manualPolicy.getAgentId());
+        assertEquals("tenant-manual", manualUser.getAgentId());
+        verify(policyRepository, never()).save(any());
+        verify(userRepository, never()).save(any());
+        verify(agentRepository, never()).save(any());
     }
 
     @Test

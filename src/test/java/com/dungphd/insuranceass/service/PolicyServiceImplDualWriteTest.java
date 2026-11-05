@@ -73,6 +73,13 @@ class PolicyServiceImplDualWriteTest {
         lenient().when(policyRepository.save(any(Policy.class))).thenAnswer(i -> i.getArgument(0));
         lenient().when(agentRepository.findById("tenant-1"))
                 .thenReturn(Optional.of(Agent.builder().id("tenant-1").displayName("Đại Lý Mẫu").build()));
+        // Track C: slug resolve cho nhánh CUSTOMER (agent id "agent-1" khác
+        // body agentId "tenant-1" trong test bên dưới — chứng minh body bị bỏ qua).
+        lenient().when(agentRepository.findBySlug("dai-ly-mau")).thenReturn(Optional.of(
+                Agent.builder().id("agent-1").displayName("Đại Lý Mẫu")
+                        .slug("dai-ly-mau").status(com.dungphd.insuranceass.model.AgentStatus.ACTIVE).build()));
+        lenient().when(agentRepository.findById("agent-1")).thenReturn(Optional.of(
+                Agent.builder().id("agent-1").displayName("Đại Lý Mẫu").build()));
     }
 
     @AfterEach
@@ -140,11 +147,14 @@ class PolicyServiceImplDualWriteTest {
     }
 
     @Test
-    void adminCreate_withoutAgentId_leavesNull() {
+    void adminCreate_withoutAgentId_rejected() {
+        // Track C, SỬA CÓ CHỦ ĐÍCH (thay adminCreate_withoutAgentId_leavesNull):
+        // ADMIN tạo hộ nay BẮT BUỘC ghi agentId hợp lệ — để trống không còn
+        // cho ra policy unassigned lặng mà 400, không save.
         when(permissionService.isAdmin()).thenReturn(true);
-        policyService.createPolicy(CreatePolicyRequest.builder().policyNumber("POL-DW-5").build());
-        assertNull(savedPolicy().getAgentId());
-        verify(agentRepository, never()).existsById(anyString());
+        assertThrows(BadRequestException.class, () -> policyService.createPolicy(
+                CreatePolicyRequest.builder().policyNumber("POL-DW-5").build()));
+        verify(policyRepository, never()).save(any(Policy.class));
     }
 
     @Test
@@ -157,26 +167,46 @@ class PolicyServiceImplDualWriteTest {
     }
 
     @Test
-    void customerCreate_agentIdAlwaysNull() {
+    void customerCreate_withoutAgentSlug_rejected() {
+        // Track C, SỬA CÓ CHỦ ĐÍCH (thay customerCreate_agentIdAlwaysNull):
+        // CUSTOMER tự mua không kèm agentSlug nay 400 (Q3: không khách vãng
+        // lai) thay vì tạo policy agentId null lặng. Không được nới quy tắc
+        // để test cũ pass.
         when(permissionService.isAdmin()).thenReturn(false);
         when(permissionService.isUnderwriter()).thenReturn(false);
         when(permissionService.currentPrincipal()).thenReturn("cust@example.com");
         when(permissionService.hasCustomerRole()).thenReturn(true);
-        // Nhánh CUSTOMER không hề đọc currentTenantId() (code chỉ đọc tenant
-        // ở nhánh AGENT) nên không stub nó — agentId null là do nhánh, không
-        // phải do tenant trống.
-        policyService.createPolicy(CreatePolicyRequest.builder()
-                .policyNumber("POL-DW-7").agentId("tenant-1").build());
-        assertNull(savedPolicy().getAgentId(), "CUSTOMER tự tạo: agentId luôn null, kể cả khi body/context có tenant");
+        assertThrows(BadRequestException.class, () -> policyService.createPolicy(
+                CreatePolicyRequest.builder().policyNumber("POL-DW-7").agentId("tenant-1").build()));
+        verify(policyRepository, never()).save(any(Policy.class));
     }
 
     @Test
-    void response_withoutAgent_agentNameNullSafe() {
+    void customerCreate_validSlug_setsResolvedAgentId_ignoresBodyAgentId() {
+        // Track C: CUSTOMER kèm agentSlug hợp lệ → agentId gắn từ Agent đã
+        // resolve ("agent-1"), body agentId ("tenant-1") vẫn bị bỏ qua.
+        when(permissionService.isAdmin()).thenReturn(false);
+        when(permissionService.isUnderwriter()).thenReturn(false);
+        when(permissionService.currentPrincipal()).thenReturn("cust@example.com");
+        when(permissionService.hasCustomerRole()).thenReturn(true);
+        policyService.createPolicy(CreatePolicyRequest.builder()
+                .policyNumber("POL-DW-7b").agentId("tenant-1").agentSlug("dai-ly-mau").build());
+        assertEquals("agent-1", savedPolicy().getAgentId());
+    }
+
+    @Test
+    void response_unknownAgent_agentNameNullSafe() {
+        // Track C, SỬA CÓ CHỦ ĐÍCH (thay response_withoutAgent_agentNameNullSafe):
+        // policy không-agent không còn tạo được qua ADMIN (thiếu agentId →
+        // 400) nên trường hợp null-safe còn lại là Agent đã resolve lúc tạo
+        // nhưng findById lúc map response không thấy → agentName null, không
+        // fail đường đọc policy.
         when(permissionService.isAdmin()).thenReturn(true);
+        when(agentRepository.existsById("tenant-9")).thenReturn(true);
+        when(agentRepository.findById("tenant-9")).thenReturn(Optional.empty());
         PolicyResponse response = policyService.createPolicy(
-                CreatePolicyRequest.builder().policyNumber("POL-DW-8").build());
-        assertNull(response.getAgentId());
+                CreatePolicyRequest.builder().policyNumber("POL-DW-8").agentId("tenant-9").build());
+        assertEquals("tenant-9", response.getAgentId());
         assertNull(response.getAgentName());
-        verify(agentRepository, never()).findById(anyString());
     }
 }

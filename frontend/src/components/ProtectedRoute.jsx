@@ -27,7 +27,7 @@ export function ProtectedRoute({ children, roles }) {
   }
   if (roles && roles.length > 0 && !hasAnyRole(roles)) {
     toast.info('Bạn không có quyền truy cập trang này.');
-    return <Navigate to="/" replace />;
+    return <Navigate to="/hop-dong-cua-toi" replace />;
   }
   return children;
 }

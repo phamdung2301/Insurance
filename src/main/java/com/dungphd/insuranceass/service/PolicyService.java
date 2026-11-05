@@ -20,6 +20,13 @@ public interface PolicyService {
     PolicyResponse claimPayment(String policyNumber, String actor);
 
     PageResponse<Policy> searchPolicies(PolicySearchCriteria criteria);
+
+    /**
+     * GET /policies/mine — Track B mục 3: chỉ hợp đồng mà caller là người
+     * được bảo hiểm ({@code insured.email = principalEmail}), không qua
+     * applySearchScope (tránh bug AND của nhánh agent cũ).
+     */
+    PageResponse<Policy> searchMyPolicies(PolicySearchCriteria criteria, String principalEmail);
     Policy getPolicyById(String policyIdOrNumber);
     Policy createPolicy(Policy policy);
 }

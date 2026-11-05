@@ -13,6 +13,6 @@ public enum AgentStatus {
     ACTIVE,
     /** Tạm ngưng: ngữ nghĩa chặn tạo mới nhưng vẫn đọc — CHƯA enforce ở Phase 1. */
     SUSPENDED,
-    /** Đóng: không xóa document (giữ chuỗi audit + commission) — CHƯA enforce ở Phase 1. */
+    /** Đóng: không xóa document (giữ chuỗi audit) — CHƯA enforce ở Phase 1. */
     CLOSED
 }

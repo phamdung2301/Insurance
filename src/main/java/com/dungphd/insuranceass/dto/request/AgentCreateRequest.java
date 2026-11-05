@@ -33,4 +33,13 @@ public class AgentCreateRequest {
 
     @Size(max = 500, message = "Địa chỉ không vượt quá 500 ký tự")
     private String address;
+
+    /**
+     * Slug public trong link {@code /a/<slug>} (SaaS Phase 2 Track C, ADMIN
+     * đặt, tùy chọn lúc tạo — bổ sung sau qua PUT cũng được). Service chuẩn
+     * hóa về chữ thường và validate pattern {@code [a-z0-9-]} (xem
+     * {@code AgentSlug}); trùng slug → 400. KHÔNG dùng {@code code} làm slug.
+     */
+    @Size(max = 64, message = "Slug không vượt quá 64 ký tự")
+    private String slug;
 }

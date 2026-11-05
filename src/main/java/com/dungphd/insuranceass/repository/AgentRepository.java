@@ -15,6 +15,11 @@ public interface AgentRepository extends MongoRepository<Agent, String> {
 
     boolean existsByCode(String code);
 
+    /** Tra Agent theo slug public (link /a/<slug>); agent chưa có slug không bao giờ khớp. */
+    Optional<Agent> findBySlug(String slug);
+
+    boolean existsBySlug(String slug);
+
     /** List agents lọc theo trạng thái (ADMIN xem agent SUSPENDED/CLOSED) — PLAN §2.3. */
     List<Agent> findByStatusOrderByCodeAsc(AgentStatus status);
 

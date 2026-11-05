@@ -90,14 +90,4 @@ class SaasPhase1SchemaTest {
                 "User.agentId phải @Indexed (index {agentId})");
     }
 
-    @Test
-    void commission_agentIdAndIndexes() throws Exception {
-        assertNotNull(field(Commission.class, "agentId").getAnnotation(Indexed.class),
-                "Commission.agentId phải @Indexed (index {agentId})");
-        // agentEmail giữ nguyên làm snapshot — không xóa.
-        assertNotNull(field(Commission.class, "agentEmail"));
-        Set<String> defs = compoundDefs(Commission.class);
-        assertTrue(defs.contains("{'agentId': 1, 'status': 1}"),
-                "thiếu index commissions {agentId,status}, có: " + defs);
-    }
 }

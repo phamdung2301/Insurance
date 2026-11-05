@@ -193,6 +193,9 @@ public class DataInitializer {
         };
     }
 
+    /** Slug mẫu cho agent seed — link test được: /a/dai-ly-mau (Track C). */
+    static final String SEED_AGENT_SLUG = "dai-ly-mau";
+
     /**
      * Find-or-create agent seed (SaaS Phase 1). Lỗi ở đây không được phá seed
      * user/policy phía sau nên bọc try/catch riêng, chỉ log warn (theo tinh thần
@@ -200,21 +203,38 @@ public class DataInitializer {
      */
     private Agent seedAgent() {
         try {
-            return agentRepository.findByCode(SEED_AGENT_CODE).orElseGet(() -> {
-                Agent agent = Agent.builder()
-                        .code(SEED_AGENT_CODE)
-                        .displayName("Đại Lý Mẫu")
-                        .contactName("Đại Lý Mẫu")
-                        .contactEmail(SEED_AGENT_EMAIL)
-                        .status(AgentStatus.ACTIVE)
-                        .createdBy("seed")
-                        .createdAt(Instant.now())
-                        .updatedAt(Instant.now())
-                        .build();
-                Agent saved = agentRepository.save(agent);
-                log.info("Seeded agent {} ({})", SEED_AGENT_CODE, SEED_AGENT_EMAIL);
-                return saved;
-            });
+            Agent existing = agentRepository.findByCode(SEED_AGENT_CODE).orElse(null);
+            if (existing != null) {
+                // Backfill Track C: DB đã seed từ trước khi có slug thì agent
+                // seed chưa có slug → gán slug mẫu (chỉ khi chưa ai giữ slug
+                // đó; nếu đã có agent khác giữ thì giữ nguyên + warn, không
+                // phá link của agent kia).
+                if (existing.getSlug() == null || existing.getSlug().isBlank()) {
+                    if (!agentRepository.existsBySlug(SEED_AGENT_SLUG)) {
+                        existing.setSlug(SEED_AGENT_SLUG);
+                        existing.setUpdatedAt(Instant.now());
+                        Agent updated = agentRepository.save(existing);
+                        log.info("Backfilled slug {} cho agent seed {}", SEED_AGENT_SLUG, SEED_AGENT_CODE);
+                        return updated;
+                    }
+                    log.warn("Slug {} đã có chủ, không backfill cho agent seed {}", SEED_AGENT_SLUG, SEED_AGENT_CODE);
+                }
+                return existing;
+            }
+            Agent agent = Agent.builder()
+                    .code(SEED_AGENT_CODE)
+                    .slug(SEED_AGENT_SLUG)
+                    .displayName("Đại Lý Mẫu")
+                    .contactName("Đại Lý Mẫu")
+                    .contactEmail(SEED_AGENT_EMAIL)
+                    .status(AgentStatus.ACTIVE)
+                    .createdBy("seed")
+                    .createdAt(Instant.now())
+                    .updatedAt(Instant.now())
+                    .build();
+            Agent saved = agentRepository.save(agent);
+            log.info("Seeded agent {} ({})", SEED_AGENT_CODE, SEED_AGENT_EMAIL);
+            return saved;
         } catch (Exception e) {
             log.warn("Could not seed agent {}: {}", SEED_AGENT_CODE, e.getMessage());
             return null;

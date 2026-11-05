@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   ShieldCheck, ShieldAlert, Home, ShoppingCart, LayoutDashboard, FileText,
-  Gauge, Database, User, X, Users, HandCoins, BarChart3,
+  Gauge, Database, User, X, Users, BarChart3,
   MessagesSquare, ScrollText, CreditCard, Scale, Clock, History,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -15,7 +15,7 @@ export function Sidebar({ open, onClose }) {
   const benchmarkEnabled = import.meta.env.VITE_ENABLE_BENCHMARK === 'true';
 
   const customerLinks = [
-    { to: '/', label: 'Hợp đồng của tôi', icon: <Home size={18} />, end: true },
+    { to: '/hop-dong-cua-toi', label: 'Hợp đồng của tôi', icon: <Home size={18} />, end: true },
     { to: '/mua-bao-hiem', label: 'Mua bảo hiểm', icon: <ShoppingCart size={18} /> },
     { to: '/thanh-toan', label: 'Thanh toán', icon: <CreditCard size={18} />, roles: ['ROLE_CUSTOMER'] },
     { to: '/claims', label: 'Bồi thường', icon: <ShieldAlert size={18} /> },
@@ -39,7 +39,6 @@ export function Sidebar({ open, onClose }) {
   ];
   const agentLinks = [
     { to: '/agent/khach-hang', label: 'Khách hàng của tôi', icon: <Users size={18} />, roles: ['ROLE_AGENT', 'ROLE_ADMIN'] },
-    { to: '/agent/hoa-hong', label: 'Hoa hồng', icon: <HandCoins size={18} />, roles: ['ROLE_AGENT', 'ROLE_ADMIN'] },
     { to: '/claims', label: 'Bồi thường khách hàng', icon: <ShieldAlert size={18} />, roles: ['ROLE_AGENT'] },
   ];
   const accountLinks = [

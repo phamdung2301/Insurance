@@ -10,6 +10,7 @@ import com.dungphd.insuranceass.dto.request.UpdatePolicyRequest;
 import com.dungphd.insuranceass.dto.response.PageResponse;
 import com.dungphd.insuranceass.dto.response.PolicyResponse;
 import com.dungphd.insuranceass.exception.BadRequestException;
+import com.dungphd.insuranceass.exception.AgentLinkInactiveException;
 import com.dungphd.insuranceass.exception.DuplicateResourceException;
 import com.dungphd.insuranceass.exception.ForbiddenException;
 import com.dungphd.insuranceass.exception.InvalidRequestException;
@@ -19,8 +20,8 @@ import com.dungphd.insuranceass.repository.AgentRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PolicyTransactionRepository;
 import com.dungphd.insuranceass.repository.PriceNegotiationRepository;
-import com.dungphd.insuranceass.service.CommissionService;
 import com.dungphd.insuranceass.service.NotificationService;
+import com.dungphd.insuranceass.service.AgentSlug;
 import com.dungphd.insuranceass.service.RefundService;
 import com.dungphd.insuranceass.service.PermissionService;
 import com.dungphd.insuranceass.service.PolicyService;
@@ -71,11 +72,6 @@ public class PolicyServiceImpl implements PolicyService {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private NotificationService notificationService;
-
-    // Hook đợt 3 (nối ở merge, theo pattern notificationService): 2 service
-    // này failure-isolated nên không cần try/catch thêm ở đây.
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private CommissionService commissionService;
 
     // SaaS Phase 1 (optional như các service phụ khác): chỉ dùng để (a) kiểm
     // tra agentId ADMIN chọn khi tạo hộ có tồn tại không, (b) resolve agentName
@@ -147,23 +143,47 @@ public class PolicyServiceImpl implements PolicyService {
                 }
             }
         }
-        // SaaS Phase 1 dual-write: ghi cả agentId (mới) và assignedAgentEmail
-        // (cũ) — scope vẫn dùng email cũ như trước, agentId chưa ép scope.
-        // ADMIN tạo hộ: theo agentId được chọn trong body (không chọn → null).
-        // AGENT tạo hộ: theo tenant của caller qua TenantContext (permissionService
-        // đọc context do filter resolve); agent chưa gán tenant → null, KHÔNG
-        // fail-closed ở Phase 1. Body agentId của non-ADMIN luôn bị bỏ qua.
-        // CUSTOMER tự tạo: null (khách tự mua). Thứ tự ưu tiên CUSTOMER trước
-        // AGENT giữ nguyên như nhánh assignedAgentEmail/insured ở trên.
+        // SaaS Phase 2 Track C: quy tắc mua mới BẮT BUỘC có đại lý (Q3, thay
+        // đổi hành vi cũ có chủ đích — khách vãng lai không còn mua được):
+        // - CUSTOMER tự mua (kể cả phía CUSTOMER của dual-role): BẮT BUỘC có
+        //   agentSlug hợp lệ từ link; server tra Agent theo slug, chỉ chấp
+        //   nhận ACTIVE (không tồn tại → 404, SUSPENDED/CLOSED → 410 Gone),
+        //   rồi gắn agentId từ Agent đó. Mọi agentId client gửi đều bị bỏ qua.
+        //   Lưu ý: KHÔNG set assignedAgentEmail từ contactEmail của Agent ở
+        //   đây — sau cutover Track B, agentId là nguồn sự thật duy nhất của
+        //   tenant; assignedAgentEmail chỉ còn là dấu vết dual-write của luồng
+        //   AGENT tạo hộ (principal = chính agent đó).
+        // - AGENT tạo hộ (thuần, không mang CUSTOMER): như Track B — tenant
+        //   từ context thắng, agentSlug gửi kèm (nếu có) bị bỏ qua; agent
+        //   chưa gán tenant → fail-closed 403, tenant SUSPENDED/CLOSED → 403
+        //   theo guard trạng thái (checkTenantWriteForStaff).
+        // - ADMIN tạo hộ: BẮT BUỘC ghi agentId hợp lệ từ request (tồn tại,
+        //   nếu không → 400); thiếu agentId → 400. Đây là thay đổi so với
+        //   Phase 1/Track B (trước đây ADMIN được để trống → null, policy
+        //   unassigned lặng). agentSlug của ADMIN (nếu gửi) bị bỏ qua.
+        // - Role khác (không ADMIN/CUSTOMER/AGENT, vd FINANCE): giữ hành vi cũ
+        //   (agentId null) — không phải luồng mua, không thuộc ma trận Track C.
+        // Khi permissionService == null (gọi nội bộ/test unit cũ không set
+        // context) thì toàn bộ khối này bị bỏ qua như quy ước null-guard sẵn
+        // có của method; khi agentRepository == null (test unit cũ không
+        // inject repo) thì nhánh CUSTOMER cũng bỏ qua resolve slug — production
+        // luôn inject bean thật nên không đi đường này.
         String agentId = null;
         if (permissionService != null) {
             if (permissionService.isAdmin()) {
                 agentId = request.getAgentId() != null && !request.getAgentId().isBlank()
                         ? request.getAgentId().trim() : null;
-                if (agentId != null && agentRepository != null && !agentRepository.existsById(agentId)) {
+                if (agentId == null) {
+                    throw new BadRequestException(
+                            "ADMIN tạo hợp đồng phải chọn đại lý (agentId là bắt buộc, không được để trống).");
+                }
+                if (agentRepository != null && !agentRepository.existsById(agentId)) {
                     throw new BadRequestException("Đại lý không tồn tại với id: " + agentId);
                 }
-            } else if (!permissionService.hasCustomerRole() && permissionService.hasAgentRole()) {
+            } else if (permissionService.hasCustomerRole()) {
+                agentId = resolveCustomerAgentId(request.getAgentSlug());
+            } else if (permissionService.hasAgentRole()) {
+                permissionService.checkTenantWriteForStaff();
                 agentId = permissionService.currentTenantId();
             }
         }
@@ -263,16 +283,51 @@ public class PolicyServiceImpl implements PolicyService {
         if (permissionService != null) {
             permissionService.applySearchScope(criteria);
         }
+        return executeSearch(criteria);
+    }
 
+    /**
+     * GET /policies/mine — Track B mục 3: "hợp đồng mà tôi là người được
+     * bảo hiểm", CHỈ lọc {@code insured.email = principal}, KHÔNG đi qua
+     * {@code applySearchScope} (nhánh agent của scope cũ sinh ra AND giữa
+     * insuredEmail và assignedAgentEmail làm /mine rỗng với agent thuần —
+     * chính là bug cần sửa). Agent thuần tạo hộ: policy tạo hộ có insured
+     * là khách nên KHÔNG nằm trong /mine của agent, nhưng nằm trong
+     * /policies của agent (scope tenant, xem searchPolicies + OR dual-role).
+     */
+    @Override
+    public PageResponse<Policy> searchMyPolicies(PolicySearchCriteria criteria, String principalEmail) {
+        if (criteria == null) {
+            criteria = new PolicySearchCriteria();
+        }
+        if (principalEmail == null || principalEmail.isBlank()) {
+            throw new ForbiddenException("Bạn không có quyền xem danh sách hợp đồng.");
+        }
+        criteria.setInsuredEmail(principalEmail.trim().toLowerCase());
+        criteria.setAgentId(null);
+        criteria.setAssignedAgentEmail(null);
+        criteria.setDualRoleOrScope(false);
+        return executeSearch(criteria);
+    }
+
+    /** Dựng query Mongo từ criteria ĐÃ scope (dùng chung cho /policies và /mine). */
+    private PageResponse<Policy> executeSearch(PolicySearchCriteria criteria) {
         List<Criteria> criteriaList = new ArrayList<>();
 
         if (criteria.getAssignedAgentEmail() != null && !criteria.getAssignedAgentEmail().isBlank()) {
             criteriaList.add(Criteria.where("assignedAgentEmail").is(criteria.getAssignedAgentEmail().trim().toLowerCase()));
         }
 
-        // SaaS Phase 1: filter agentId thêm (ADMIN/UW xem theo từng agent).
-        // Chưa ép scope: applySearchScope vẫn ép assignedAgentEmail như cũ.
-        if (criteria.getAgentId() != null && !criteria.getAgentId().isBlank()) {
+        // SaaS Phase 2 Track B: dual-role AGENT+CUSTOMER dùng MỘT $or duy
+        // nhất (insured == principal HOẶC agentId == tenant). AND hai điều
+        // kiện riêng lẻ sẽ rỗng với policy agent tạo hộ (insured là khách,
+        // agentId là tenant) và rỗng với policy khách tự mua (không có
+        // agentId) — đó là lý do phải có nhánh OR riêng, không ghép AND.
+        if (criteria.isDualRoleOrScope()) {
+            criteriaList.add(new Criteria().orOperator(
+                    Criteria.where("insured.email").is(criteria.getInsuredEmail().trim().toLowerCase()),
+                    Criteria.where("agentId").is(criteria.getAgentId().trim())));
+        } else if (criteria.getAgentId() != null && !criteria.getAgentId().isBlank()) {
             criteriaList.add(Criteria.where("agentId").is(criteria.getAgentId().trim()));
         }
 
@@ -298,7 +353,10 @@ public class PolicyServiceImpl implements PolicyService {
             criteriaList.add(keywordCriteria);
         }
 
-        if (criteria.getInsuredEmail() != null && !criteria.getInsuredEmail().isBlank()) {
+        // Dual-role: insured.email đã nằm trong $or ở trên, không AND thêm
+        // (AND thêm sẽ triệt tiêu nhánh tenant của OR).
+        if (!criteria.isDualRoleOrScope()
+                && criteria.getInsuredEmail() != null && !criteria.getInsuredEmail().isBlank()) {
             criteriaList.add(Criteria.where("insured.email").is(criteria.getInsuredEmail().trim().toLowerCase()));
         }
 
@@ -525,12 +583,12 @@ public class PolicyServiceImpl implements PolicyService {
      * <p>Về các hook chạy trong transaction này (không gắn
      * {@code @Transactional} riêng cho chúng — xem báo cáo Track 2):
      * <ul>
-     *   <li>Commission ({@code createForBound}/{@code markEarned}) và Refund
-     *       ({@code createForCancellation}): failure-isolated + idempotent
-     *       từ trước. Khi gọi trong transaction này, save thành công của
-     *       chúng commit CÙNG policy (nguyên tử); khi chúng nuốt lỗi nội bộ
-     *       thì policy vẫn commit mà không có commission/refund — đúng hành
-     *       vi "hook có thể rớt" cũ, chưa có outbox chạy bù (còn nợ).</li>
+     *   <li>Refund ({@code createForCancellation}): failure-isolated +
+     *       idempotent từ trước. Khi gọi trong transaction này, save thành
+     *       công của nó commit CÙNG policy (nguyên tử); khi nó nuốt lỗi nội
+     *       bộ thì policy vẫn commit mà không có refund — đúng hành vi
+     *       "hook có thể rớt" cũ, chưa có outbox chạy bù (còn nợ). Hook
+     *       hoa hồng đã bỏ hẳn ở SaaS Phase 2, không còn hook nào khác.</li>
      *   <li>Mail kích hoạt ({@code notifyPolicyActivated}): đăng ký
      *       afterCommit — trước đây mail gửi ngay sau policy-save, TRƯỚC
      *       vòng lặp negotiation; nếu vòng lặp fail thì mail "đã kích hoạt"
@@ -611,15 +669,8 @@ public class PolicyServiceImpl implements PolicyService {
             TransactionSideEffects.afterCommit(() -> notificationService.notifyPolicyActivated(savedPolicy));
         }
 
-        // Hook đợt 3 (nối ở merge): hoa hồng + hoàn phí, SAU khi policy đã save.
-        // Cả 2 service đều failure-isolated + idempotent, không làm fail transition.
-        if (targetStatus == PolicyStatus.BOUND && commissionService != null) {
-            commissionService.createForBound(savedPolicy);
-        }
-        if (currentStatus == PolicyStatus.BOUND && targetStatus == PolicyStatus.ACTIVE
-                && commissionService != null) {
-            commissionService.markEarned(savedPolicy);
-        }
+        // Hook hoàn phí, SAU khi policy đã save. Service này failure-isolated
+        // + idempotent, không làm fail transition.
         if (currentStatus == PolicyStatus.ACTIVE && targetStatus == PolicyStatus.CANCELLED
                 && refundService != null) {
             refundService.createForCancellation(savedPolicy);
@@ -696,6 +747,36 @@ public class PolicyServiceImpl implements PolicyService {
                     || negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), NegotiationStatus.PENDING_CONFIRMATION))) {
             throw new InvalidRequestException("Giá hợp đồng đã chốt hoặc đang chờ xác nhận qua thương lượng, không được sửa đổi phí khi còn ở trạng thái QUOTED.");
         }
+    }
+
+    /**
+     * Resolve tenant cho CUSTOMER tự mua qua link đại lý (Track C).
+     * Thiếu agentSlug → 400 với message rõ ràng (FE hiện toast, không lặng);
+     * slug không tồn tại → 404; slug SUSPENDED/CLOSED → 410 Gone
+     * (AgentLinkInactiveException, phân biệt với 404 như storefront resolve).
+     * Chỉ Agent ACTIVE mới được gắn. Mọi agentId client gửi kèm đều bị bỏ qua
+     * (caller không truyền nó vào đây — xem khối agentId ở createPolicy).
+     * agentRepository == null (test unit cũ) → trả null theo quy ước null-guard
+     * của file này; production luôn có repo thật.
+     */
+    private String resolveCustomerAgentId(String rawSlug) {
+        String slug = AgentSlug.normalize(rawSlug);
+        if (slug == null || slug.isBlank()) {
+            throw new BadRequestException(
+                    "Bạn cần mua qua link của đại lý. Vui lòng mở link đại lý đã gửi cho bạn rồi mua lại "
+                            + "(không thể tự mua khi chưa có link đại lý).");
+        }
+        if (agentRepository == null) {
+            return null;
+        }
+        Agent agent = agentRepository.findBySlug(slug).orElse(null);
+        if (agent == null) {
+            throw new ResourceNotFoundException("Không tìm thấy đại lý với link: " + slug);
+        }
+        if (agent.getStatus() == AgentStatus.SUSPENDED || agent.getStatus() == AgentStatus.CLOSED) {
+            throw new AgentLinkInactiveException(slug, agent.getStatus());
+        }
+        return agent.getId();
     }
 
     private PolicyResponse mapToPolicyResponse(Policy policy) {

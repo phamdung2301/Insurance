@@ -104,10 +104,29 @@ class JwtAuthenticationFilterTenantTest {
 
     @Test
     void agentWithoutAgentId_resolvesToEmpty_notFailClosed() throws Exception {
-        // Phase 1: agent chưa gán tenant KHÔNG bị fail-closed (hành vi Phase 2).
+        // Filter chỉ resolve (tenant rỗng); fail-closed của agent chưa gán
+        // được enforce ở tầng service (PermissionService, Track B Phase 2),
+        // không phải ở filter — nên test mức filter này vẫn giữ nguyên.
         assertNull(tenantSeenDownstream(
                 user("agent@example.com", null, List.of("ROLE_AGENT"))));
         assertNull(TenantContext.getTenantId());
+    }
+
+    @Test
+    void disabledUser_tokenRejected_noAuthentication() throws Exception {
+        // Q8 (Track B): tài khoản bị khóa (enabled=false) thì token cũ bị
+        // từ chối ngay — filter không set authentication, request sau đó
+        // bị SecurityConfig chặn. Đây là cơ chế khiến khóa tài khoản của
+        // agent có hiệu lực ngay, không chờ token hết hạn.
+        User disabled = user("locked@example.com", "tenant-1", List.of("ROLE_CUSTOMER"));
+        disabled.setEnabled(false);
+        when(request.getHeader("Authorization")).thenReturn("Bearer token-123");
+        when(jwtTokenProvider.validateToken("token-123")).thenReturn(true);
+        when(jwtTokenProvider.getEmailFromToken("token-123")).thenReturn(disabled.getEmail());
+        when(userRepository.findByEmail(disabled.getEmail())).thenReturn(Optional.of(disabled));
+        filter.doFilter(request, response, filterChain);
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        verify(filterChain).doFilter(request, response);
     }
 
     @Test

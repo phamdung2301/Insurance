@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { policyService, excelService } from '../services/api';
+import { policyService, publicAgentService, excelService } from '../services/api';
+import { getAgentRef } from '../utils/agentRef';
 import { isBackendMissing } from '../utils/backend';
 import { formatMoney, isValidEmail, isValidPhone } from '../utils/format';
 
@@ -92,6 +93,28 @@ export function BuyWizardPage() {
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [serverPrem, setServerPrem] = useState({});
+
+  // SaaS Phase 2 Track C: dấu đại lý từ link /a/<slug> (localStorage
+  // 'agentRef'). Banner minh bạch: resolve tên đại lý để khách biết mình mua
+  // qua ai (không gắn lén). Resolve lỗi 410/404 → banner cảnh báo (lúc tạo
+  // policy server vẫn báo lỗi rõ ràng); không có agentRef → banner nhắc mở
+  // link đại lý (server sẽ 400 nếu cố tạo — Q3 cấm mua vãng lai).
+  const [agentRef] = useState(() => getAgentRef());
+  const [agentBanner, setAgentBanner] = useState(null); // { name } | { dead: true } | null
+  useEffect(() => {
+    if (!agentRef) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await publicAgentService.resolveSlug(agentRef);
+        const data = res?.data ?? res;
+        if (!cancelled) setAgentBanner({ name: data?.displayName || agentRef });
+      } catch (err) {
+        if (!cancelled && (err?.status === 410 || err?.status === 404)) setAgentBanner({ dead: true });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [agentRef]);
 
   const setIns = (k, v) => setInsured((p) => ({ ...p, [k]: v }));
   const setLoc = (i, k, v) => setLocations((p) => p.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
@@ -227,6 +250,11 @@ export function BuyWizardPage() {
 
   const buildPayload = () => ({
     policyNumber: genPolicyNumber(),
+    // Track C: gửi kèm slug đại lý từ agentRef — server resolve + validate
+    // (chỉ ACTIVE), gắn agentId, bỏ qua mọi agentId client gửi. Không có
+    // agentRef thì key bị JSON.stringify lược (undefined) và server trả 400
+    // với message rõ ràng, hiện qua toast ở saveDraft/requestQuote.
+    agentSlug: agentRef || undefined,
     insured: {
       name: insured.hoTen.trim(),
       email: insured.email.trim().toLowerCase(),
@@ -304,6 +332,25 @@ export function BuyWizardPage() {
         <h1>Mua bảo hiểm</h1>
         <p>Hoàn tất 4 bước để tạo hợp đồng bảo hiểm mới cho bạn.</p>
       </div>
+
+      {/* Track C: banner minh bạch về đại lý — không gắn lén theo link. */}
+      {!agentRef && (
+        <p className="form-error" style={{ fontSize: '0.95rem' }}>
+          Bạn cần mở link của đại lý trước khi mua — hợp đồng mới bắt buộc gắn với một đại lý.
+          Hãy quay lại link đại lý đã gửi cho bạn rồi bấm “Mua bảo hiểm”.
+        </p>
+      )}
+      {agentRef && agentBanner?.dead && (
+        <p className="form-error" style={{ fontSize: '0.95rem' }}>
+          Link đại lý bạn đã mở không còn hiệu lực (đại lý đã ngừng hoạt động hoặc link không tồn tại).
+          Bạn chưa thể tạo hợp đồng từ link này — vui lòng liên hệ quản trị viên.
+        </p>
+      )}
+      {agentRef && agentBanner?.name && (
+        <p style={{ fontSize: '0.95rem' }}>
+          Bạn đang mua qua đại lý {agentBanner.name}.
+        </p>
+      )}
 
       {/* Progress */}
       <div className="wizard-progress" role="list" aria-label="Tiến trình mua bảo hiểm">
