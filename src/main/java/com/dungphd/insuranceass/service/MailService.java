@@ -18,9 +18,39 @@ public class MailService {
     @Value("${spring.mail.username:no-reply@insurance.local}")
     private String fromEmail;
 
+    /**
+     * Toggle gửi mail (review/mentor) — điều khiển bằng biến môi trường:
+     * <ul>
+     *   <li>{@code MAIL_ENABLED} (mặc định true): công tắc chính. false =
+     *       không gửi bất kỳ mail nào (OTP + thông báo); OTP in ra log như
+     *       fallback để vẫn đăng nhập được khi review.</li>
+     *   <li>{@code MAIL_SMTP_ENABLED} (mặc định true): công tắc riêng cho
+     *       đường SMTP. false = bỏ qua bước gửi SMTP dù mail đang bật — hữu
+     *       ích trên Render free vì SMTP bị chặn (tránh chờ timeout ~30s
+     *       mỗi lần gửi); hôm nay chưa có đường gửi khác nên hành vi giống
+     *       tắt mail, nhưng là móc để sau này gắn provider HTTPS.</li>
+     * </ul>
+     * Cả hai mặc định true để giữ hành vi hiện tại. Notification in-app
+     * (lưu MongoDB, chuông trong app) KHÔNG bị toggle này ảnh hưởng — chỉ
+     * chân email mới tắt.
+     */
+    @Value("${app.mail.enabled:true}")
+    private boolean mailEnabled;
+
+    @Value("${app.mail.smtp.enabled:true}")
+    private boolean smtpEnabled;
+
     public void sendOtpEmail(String toEmail, String otp) {
         String maskedEmail = maskEmail(toEmail);
         log.info("[OTP DISPATCH] Delivering OTP to {}", maskedEmail);
+
+        if (!mailEnabled || !smtpEnabled) {
+            // Mail đang tắt (review/mentor): không chạm SMTP — OTP in ra log
+            // như đường fallback khi SMTP lỗi, để vẫn đăng nhập được.
+            log.warn("[MAIL DISABLED] Outbound mail is off (MAIL_ENABLED={} MAIL_SMTP_ENABLED={}). Skipping SMTP dispatch. Review OTP for {}: {}",
+                    mailEnabled, smtpEnabled, maskedEmail, otp);
+            return;
+        }
 
         if (mailSender == null) {
             log.warn("[DEV MODE] JavaMailSender not configured. Skipping SMTP dispatch. Dev OTP for {}: {}", maskedEmail, otp);
@@ -68,6 +98,11 @@ public class MailService {
      */
     public void sendNotificationEmail(String toEmail, String title, String message, String link) {
         String maskedEmail = maskEmail(toEmail);
+        if (!mailEnabled || !smtpEnabled) {
+            log.warn("[NOTIFICATION EMAIL SKIPPED] Outbound mail is off (MAIL_ENABLED={} MAIL_SMTP_ENABLED={}). To {}: {}",
+                    mailEnabled, smtpEnabled, maskedEmail, title);
+            return;
+        }
         if (mailSender == null) {
             log.warn("[NOTIFICATION EMAIL SKIPPED] JavaMailSender not configured. To {}: {}", maskedEmail, title);
             return;
