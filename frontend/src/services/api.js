@@ -115,7 +115,7 @@ export const policyService = {
    * qrUrl }; KHÔNG redirect sang cổng — FE hiển thị QR + thông tin chuyển
    * khoản để khách tự chuyển khoản bằng app ngân hàng. Trạng thái chỉ đổi
    * khi SePay gửi xác nhận về backend. Lỗi: 404 không tồn tại, 403 không
-   * phải bên cầu, 409 không QUOTED, 400 giá deal lệch, 503 cổng chưa cấu hình.
+   * phải bên cầu, 409 không QUOTED/BOUND, 400 giá deal lệch, 503 cổng chưa cấu hình.
    */
   createSepayPayment: (policyNumber) =>
     api.post(`/policies/${encodeURIComponent(policyNumber)}/payments`),

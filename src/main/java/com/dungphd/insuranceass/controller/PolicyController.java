@@ -133,7 +133,7 @@ public class PolicyController {
 
     /**
      * POST /policies/{policyNumber}/payments — tạo payment qua cổng SePay.
-     * Chỉ policy QUOTED + người gọi là bên cầu (service enforce).
+     * Chỉ policy QUOTED hoặc BOUND + người gọi là bên cầu (service enforce).
      * Response data: { transferContent, qrUrl, bankCode, accountNumber,
      * accountName, txnRef, amount, status: "PENDING", ... }.
      * FE hiển thị QR + nội dung chuyển khoản cho khách; trạng thái chỉ đổi
