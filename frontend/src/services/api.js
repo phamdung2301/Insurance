@@ -129,6 +129,17 @@ export const policyService = {
    * trạng thái PAID (hoặc policyStatus ACTIVE) từ backend.
    */
   getPaymentStatus: (txnRef) => api.get('/payments/status', { params: { txnRef } }),
+  /**
+   * Mô phỏng thanh toán thành công (test/review ONLY, KHÔNG phải tiền thật).
+   * POST /payments/{txnRef}/simulate trả { txnRef, status: 'PAID',
+   * policyStatus, amount, provider }. Chỉ chạy khi toggle
+   * SIMULATE_PAYMENT_ENABLED=true ở backend (mặc định false → 404);
+   * FE chỉ hiện nút khi response tạo/tra cứu trạng thái có simulateEnabled.
+   * Lỗi: 404 toggle tắt hoặc không tìm thấy payment, 403 không phải bên
+   * cầu, 409 payment không PENDING hoặc policy không QUOTED/BOUND.
+   */
+  simulateSepayPayment: (txnRef) =>
+    api.post(`/payments/${encodeURIComponent(txnRef)}/simulate`),
   /** Yêu cầu điều chỉnh (endorsement) — backend: POST /policies/{n}/endorsements */
   endorse: (policyNumber, payload) => api.post(`/policies/${encodeURIComponent(policyNumber)}/endorsements`, payload),
   getHistory: (policyNumber) => api.get(`/policies/${encodeURIComponent(policyNumber)}/history`),

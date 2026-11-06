@@ -6,6 +6,7 @@ import com.dungphd.insuranceass.service.PaymentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -65,5 +66,22 @@ public class PaymentController {
         String actor = principal != null && principal.getName() != null ? principal.getName() : "System";
         PaymentResponse response = paymentService.lookupStatus(txnRef, actor);
         return ResponseEntity.ok(ApiResponse.success(response, "Payment status retrieved successfully"));
+    }
+
+    /**
+     * POST /payments/{txnRef}/simulate — MÔ PHỎNG thanh toán thành công
+     * (test/review ONLY, KHÔNG phải tiền thật, KHÔNG qua SePay).
+     * Chỉ bên cầu + chỉ khi toggle SIMULATE_PAYMENT_ENABLED=true
+     * (mặc định false → 404). Yêu cầu JWT (không permitAll như webhook).
+     * Response = PaymentResponse { status: "PAID", policyStatus } để FE
+     * xác nhận và đóng modal như webhook thật.
+     */
+    @PostMapping("/{txnRef}/simulate")
+    public ResponseEntity<ApiResponse<PaymentResponse>> simulatePayment(
+            @PathVariable String txnRef,
+            Principal principal) {
+        String actor = principal != null && principal.getName() != null ? principal.getName() : "System";
+        PaymentResponse response = paymentService.simulatePaymentSuccess(txnRef, actor);
+        return ResponseEntity.ok(ApiResponse.success(response, "Đã mô phỏng thanh toán thành công (không phải giao dịch thật)."));
     }
 }

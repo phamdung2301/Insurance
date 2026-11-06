@@ -39,4 +39,10 @@ public class PaymentResponse {
     private String accountName;
     private String qrUrl;
     private String policyStatus;
+    /**
+     * Cờ mô phỏng thanh toán (toggle SIMULATE_PAYMENT_ENABLED): chỉ có ở
+     * response tạo payment + tra cứu trạng thái; FE hiện nút mô phỏng khi
+     * cờ này true. Dùng Boolean để NON_NULL loại bỏ khi không set.
+     */
+    private Boolean simulateEnabled;
 }

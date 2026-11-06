@@ -2,11 +2,13 @@ package com.dungphd.insuranceass.service;
 
 import com.dungphd.insuranceass.dto.response.PaymentResponse;
 import com.dungphd.insuranceass.exception.ForbiddenException;
+import com.dungphd.insuranceass.exception.ResourceNotFoundException;
 import com.dungphd.insuranceass.model.GatewayPaymentStatus;
 import com.dungphd.insuranceass.model.Insured;
 import com.dungphd.insuranceass.model.Payment;
 import com.dungphd.insuranceass.model.Policy;
 import com.dungphd.insuranceass.model.PolicyStatus;
+import com.dungphd.insuranceass.model.TransactionType;
 import com.dungphd.insuranceass.repository.PaymentRepository;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.service.impl.PaymentServiceImpl;
@@ -16,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
@@ -207,6 +210,73 @@ class PaymentServiceImplTest {
         ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
                 paymentService.createPayment("POL-1001", "customer@example.com"));
         assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+    }
+
+    @Test
+    void simulatePaymentSuccess_toggleOff_notFound() {
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
+                paymentService.simulatePaymentSuccess("POL1001-123-ABCDEF", "customer@example.com"));
+        assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
+        verify(paymentRepository, never()).findByTxnRef(anyString());
+    }
+
+    @Test
+    void simulatePaymentSuccess_quoted_activatesAndNotifies() {
+        ReflectionTestUtils.setField(paymentService, "simulateEnabled", true);
+        when(permissionService.isDemandSide(quotedPolicy, "customer@example.com")).thenReturn(true);
+        when(paymentRepository.findByTxnRef("POL1001-123-ABCDEF")).thenReturn(Optional.of(pendingPayment));
+
+        PaymentResponse res = paymentService.simulatePaymentSuccess("POL1001-123-ABCDEF", "customer@example.com");
+        assertEquals("PAID", res.getStatus());
+        assertEquals("ACTIVE", res.getPolicyStatus());
+        assertEquals(GatewayPaymentStatus.PAID, pendingPayment.getStatus());
+        assertEquals("SIMULATED", pendingPayment.getGatewayTransactionNo());
+        assertEquals(PolicyStatus.ACTIVE, quotedPolicy.getStatus());
+        verify(notificationService).notifyPaymentSucceeded(quotedPolicy, pendingPayment);
+        verify(transactionLedgerService).recordTransaction(eq("POL-1001"), any(),
+                eq(TransactionType.STATUS_TRANSITION), eq("SEPAY-SIMULATE"), anyString());
+    }
+
+    @Test
+    void simulatePaymentSuccess_bound_marksPaidKeepsBound() {
+        ReflectionTestUtils.setField(paymentService, "simulateEnabled", true);
+        quotedPolicy.setStatus(PolicyStatus.BOUND);
+        when(permissionService.isDemandSide(quotedPolicy, "customer@example.com")).thenReturn(true);
+        when(paymentRepository.findByTxnRef("POL1001-123-ABCDEF")).thenReturn(Optional.of(pendingPayment));
+
+        PaymentResponse res = paymentService.simulatePaymentSuccess("POL1001-123-ABCDEF", "customer@example.com");
+        assertEquals("PAID", res.getStatus());
+        assertEquals("BOUND", res.getPolicyStatus());
+        assertEquals(PolicyStatus.BOUND, quotedPolicy.getStatus());
+        verify(notificationService, never()).notifyPaymentSucceeded(any(), any());
+    }
+
+    @Test
+    void simulatePaymentSuccess_alreadyPaid_conflict() {
+        ReflectionTestUtils.setField(paymentService, "simulateEnabled", true);
+        pendingPayment.setStatus(GatewayPaymentStatus.PAID);
+        when(permissionService.isDemandSide(quotedPolicy, "customer@example.com")).thenReturn(true);
+        when(paymentRepository.findByTxnRef("POL1001-123-ABCDEF")).thenReturn(Optional.of(pendingPayment));
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
+                paymentService.simulatePaymentSuccess("POL1001-123-ABCDEF", "customer@example.com"));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+    }
+
+    @Test
+    void simulatePaymentSuccess_notDemandSide_forbidden() {
+        ReflectionTestUtils.setField(paymentService, "simulateEnabled", true);
+        when(permissionService.isDemandSide(quotedPolicy, "other@example.com")).thenReturn(false);
+        when(paymentRepository.findByTxnRef("POL1001-123-ABCDEF")).thenReturn(Optional.of(pendingPayment));
+        assertThrows(ForbiddenException.class, () ->
+                paymentService.simulatePaymentSuccess("POL1001-123-ABCDEF", "other@example.com"));
+    }
+
+    @Test
+    void simulatePaymentSuccess_paymentNotFound_notFound() {
+        ReflectionTestUtils.setField(paymentService, "simulateEnabled", true);
+        when(paymentRepository.findByTxnRef("NOPE")).thenReturn(Optional.empty());
+        assertThrows(ResourceNotFoundException.class, () ->
+                paymentService.simulatePaymentSuccess("NOPE", "customer@example.com"));
     }
 
     @Test

@@ -101,6 +101,7 @@ Frontend runs at **http://localhost:5173**
 | `ADMIN_EMAILS` | Admin email list, comma-separated | — |
 | `MAIL_USERNAME` / `MAIL_PASSWORD` | Gmail address + App Password for OTP emails | — |
 | `MAIL_ENABLED` / `MAIL_SMTP_ENABLED` | Toggle outbound mail (master / SMTP transport); off = skip sending, OTP printed to server log for review login | `true` / `true` |
+| `SIMULATE_PAYMENT_ENABLED` | Show "confirm paid (simulated)" button in the SePay modal; test/review only, no real money | `false` |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth2 (from Google Cloud Console) | — |
 | `FRONTEND_URL` | Frontend URL (backend redirects here after Google login) | `http://localhost:5173` |
 | `CORS_ALLOWED_ORIGINS` | Allowed API origins | `http://localhost:5173,...` |
