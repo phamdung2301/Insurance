@@ -238,7 +238,7 @@ class PaymentServiceImplTest {
     }
 
     @Test
-    void simulatePaymentSuccess_bound_marksPaidKeepsBound() {
+    void simulatePaymentSuccess_bound_activatesLikeQuoted() {
         ReflectionTestUtils.setField(paymentService, "simulateEnabled", true);
         quotedPolicy.setStatus(PolicyStatus.BOUND);
         when(permissionService.isDemandSide(quotedPolicy, "customer@example.com")).thenReturn(true);
@@ -246,9 +246,11 @@ class PaymentServiceImplTest {
 
         PaymentResponse res = paymentService.simulatePaymentSuccess("POL1001-123-ABCDEF", "customer@example.com");
         assertEquals("PAID", res.getStatus());
-        assertEquals("BOUND", res.getPolicyStatus());
-        assertEquals(PolicyStatus.BOUND, quotedPolicy.getStatus());
-        verify(notificationService, never()).notifyPaymentSucceeded(any(), any());
+        assertEquals("ACTIVE", res.getPolicyStatus());
+        assertEquals(PolicyStatus.ACTIVE, quotedPolicy.getStatus());
+        verify(notificationService).notifyPaymentSucceeded(quotedPolicy, pendingPayment);
+        verify(transactionLedgerService).recordTransaction(eq("POL-1001"), any(),
+                eq(TransactionType.STATUS_TRANSITION), eq("SEPAY-SIMULATE"), anyString());
     }
 
     @Test
@@ -456,6 +458,25 @@ class PaymentServiceImplTest {
         assertEquals(GatewayPaymentStatus.PENDING, pendingPayment.getStatus()); // giữ để đối soát tay
         verify(policyRepository, never()).save(any());
         verify(notificationService, never()).notifyPaymentSucceeded(any(), any());
+    }
+
+    @Test
+    void webhook_policyBound_activatesLikeQuoted() {
+        quotedPolicy.setStatus(PolicyStatus.BOUND);
+        stubVerifiedWebhook();
+        when(paymentRepository.findByTransferContent("INSABCDEF1234"))
+                .thenReturn(Optional.of(pendingPayment));
+        when(paymentRepository.findByGatewayTransactionNo("987654")).thenReturn(Optional.empty());
+
+        PaymentService.WebhookResult result = webhookOk(webhookBody(
+                "987654", "in", "INSABCDEF1234", "INSABCDEF1234", "1234567890", 5_000_000L));
+        assertEquals(200, result.httpStatus());
+        assertTrue(result.success());
+        assertEquals(GatewayPaymentStatus.PAID, pendingPayment.getStatus());
+        assertEquals(PolicyStatus.ACTIVE, quotedPolicy.getStatus());
+        assertNotNull(quotedPolicy.getEffectiveDate());
+        assertNotNull(quotedPolicy.getExpirationDate());
+        verify(notificationService, times(1)).notifyPaymentSucceeded(any(), any());
     }
 
     @Test
