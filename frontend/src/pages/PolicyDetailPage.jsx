@@ -51,6 +51,7 @@ export function PolicyDetailPage() {
   const [sepayPayment, setSepayPayment] = useState(null);
   const [sepayStatus, setSepayStatus] = useState(null);
   const [sepayChecking, setSepayChecking] = useState(false);
+  const [sepaySimulating, setSepaySimulating] = useState(false);
 
   // Modals
   const [locModal, setLocModal] = useState(null);   // {mode:'add'} | {mode:'edit', loc}
@@ -159,6 +160,24 @@ export function PolicyDetailPage() {
       setSepayChecking(false);
     }
   }, [sepayPayment?.txnRef, toast]);
+  // Mô phỏng thanh toán thành công (test/review ONLY, KHÔNG phải tiền
+  // thật): POST simulate rồi cập nhật sepayStatus từ JSON trả về —
+  // auto-close + toast chạy theo đúng luồng trạng thái như webhook thật
+  // (PAID → đóng; ACTIVE → kích hoạt, BOUND → chờ kế toán xác nhận).
+  const simulateSepayPayment = useCallback(async () => {
+    const txnRef = sepayPayment?.txnRef;
+    if (!txnRef || sepaySimulating) return;
+    setSepaySimulating(true);
+    try {
+      const res = await policyService.simulateSepayPayment(txnRef);
+      const data = res?.data ?? res ?? null;
+      if (data) setSepayStatus(data);
+    } catch (err) {
+      toast.error(err.message || 'Không mô phỏng được thanh toán.');
+    } finally {
+      setSepaySimulating(false);
+    }
+  }, [sepayPayment?.txnRef, sepaySimulating, toast]);
   // Polling mỗi ~10s khi modal mở và chưa có trạng thái cuối; dừng khi
   // unmount/đóng modal hoặc khi đã PAID/ACTIVE/FAILED/CANCELLED.
   useEffect(() => {
@@ -180,11 +199,13 @@ export function PolicyDetailPage() {
     if (!sepayOpen || !sepaySuccess) return undefined;
     const t = setTimeout(async () => {
       setSepayOpen(false);
-      toast.success('Thanh toán thành công — hợp đồng đã được kích hoạt.');
+      toast.success(sepayStatus?.policyStatus === 'ACTIVE'
+        ? 'Thanh toán thành công — hợp đồng đã được kích hoạt.'
+        : 'Thanh toán thành công — hợp đồng đang chờ kế toán xác nhận kích hoạt.');
       await load();
     }, 2000);
     return () => clearTimeout(t);
-  }, [sepayOpen, sepaySuccess, load, toast]);
+  }, [sepayOpen, sepaySuccess, sepayStatus?.policyStatus, load, toast]);
   const deletePolicy = async () => {
     setBusy(true);
     try {
@@ -481,6 +502,9 @@ export function PolicyDetailPage() {
         statusInfo={sepayStatus}
         checking={sepayChecking}
         onCheck={checkSepayStatus}
+        onSimulate={simulateSepayPayment}
+        simulating={sepaySimulating}
+        simulateEnabled={sepayPayment?.simulateEnabled || sepayStatus?.simulateEnabled}
         onRetry={() => { setSepayOpen(false); payViaSepay(); }}
         onViewPolicy={async () => { setSepayOpen(false); await load(); }}
         onViewPayments={() => { setSepayOpen(false); navigate('/thanh-toan'); }}
@@ -495,7 +519,7 @@ export function PolicyDetailPage() {
 // khoản, chủ tài khoản, số tiền, nội dung chuyển khoản (kèm nút copy) và
 // trạng thái chờ. Trạng thái hiển thị lấy từ statusInfo (polling + nút bấm
 // tay ở component cha); CHƯA có PAID/ACTIVE thì không kết luận thành công.
-function SepayPaymentModal({ open, onClose, payment, statusInfo, checking, onCheck, onRetry, onViewPolicy, onViewPayments }) {
+function SepayPaymentModal({ open, onClose, payment, statusInfo, checking, onCheck, onSimulate, simulating, simulateEnabled, onRetry, onViewPolicy, onViewPayments }) {
   const toast = useToast();
   const [copied, setCopied] = useState(null);
   if (!payment) return null;
@@ -541,6 +565,11 @@ function SepayPaymentModal({ open, onClose, payment, statusInfo, checking, onChe
               {checking ? 'Đang kiểm tra…' : 'Kiểm tra trạng thái'}
             </button>
           )}
+          {isPending && simulateEnabled && (
+            <button type="button" className="btn btn-primary" onClick={onSimulate} disabled={simulating}>
+              {simulating ? 'Đang xác nhận…' : 'Xác nhận đã thanh toán (mô phỏng)'}
+            </button>
+          )}
           {isSuccess && (
             <button type="button" className="btn btn-primary" onClick={onViewPolicy}>
               Về trang chi tiết hợp đồng
@@ -559,7 +588,9 @@ function SepayPaymentModal({ open, onClose, payment, statusInfo, checking, onChe
     >
       {isSuccess && (
         <p style={{ color: '#047857', fontWeight: 600 }}>
-          Thanh toán thành công — hợp đồng đã được kích hoạt.
+          {policyStatus === 'ACTIVE'
+            ? 'Thanh toán thành công — hợp đồng đã được kích hoạt.'
+            : 'Thanh toán thành công — hợp đồng đang chờ kế toán xác nhận kích hoạt.'}
         </p>
       )}
       {isFailed && (
@@ -573,6 +604,7 @@ function SepayPaymentModal({ open, onClose, payment, statusInfo, checking, onChe
           chục giây, bấm “Kiểm tra trạng thái” để cập nhật. Trạng thái tự cập nhật
           mỗi ~10 giây khi modal còn mở. Khi có kết quả, hộp này sẽ tự đóng.
           {policyStatus === 'BOUND' && ' Hợp đồng đang ở trạng thái BOUND nên sau khi tiền về, kế toán sẽ xác nhận để kích hoạt — hộp này sẽ tự đóng khi hợp đồng được kích hoạt.'}
+          {simulateEnabled && ' Nút "Xác nhận đã thanh toán (mô phỏng)" chỉ dùng để test/review — không phải thanh toán thật.'}
         </p>
       )}
       {payment.qrUrl && (

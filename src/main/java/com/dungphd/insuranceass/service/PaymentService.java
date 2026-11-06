@@ -42,6 +42,18 @@ public interface PaymentService {
     PaymentResponse lookupStatus(String txnRef, String principal);
 
     /**
+     * Mô phỏng thanh toán thành công (test/review ONLY — KHÔNG phải tiền
+     * thật, KHÔNG qua SePay). Chỉ khi toggle
+     * {@code app.payment.simulate.enabled=true} (mặc định false).
+     * Hành vi bám sát webhook thành công: QUOTED → payment PAID + policy
+     * ACTIVE (ledger + mail payment-success); BOUND → payment PAID, policy
+     * GIỮ BOUND để FINANCE xác nhận BOUND→ACTIVE. Lỗi: toggle tắt → 404;
+     * payment không tồn tại → 404; không phải bên cầu → 403; payment
+     * không PENDING hoặc policy không QUOTED/BOUND → 409.
+     */
+    PaymentResponse simulatePaymentSuccess(String txnRef, String principal);
+
+    /**
      * Xử lý webhook SePay "Có tiền vào" (POST JSON, server-to-server,
      * KHÔNG có JWT — an toàn dựa vào verify HMAC-SHA256 trên RAW BODY).
      *

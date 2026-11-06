@@ -22,6 +22,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -84,6 +85,14 @@ public class PaymentServiceImpl implements PaymentService {
     private final TransactionLedgerService transactionLedgerService;
     /** Parser webhook tự tạo (không inject bean: app không expose ObjectMapper bean). */
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * Toggle mô phỏng thanh toán (test/review): mặc định FALSE — test hook
+     * bỏ qua xác minh tiền thật nên không được bật sẵn ở production.
+     * Bật bằng biến môi trường SIMULATE_PAYMENT_ENABLED=true.
+     */
+    @Value("${app.payment.simulate.enabled:false}")
+    private boolean simulateEnabled;
 
     @Override
     public PaymentResponse createPayment(String policyNumber, String principal) {
@@ -182,6 +191,88 @@ public class PaymentServiceImpl implements PaymentService {
                 .policyStatus(policy.getStatus() != null ? policy.getStatus().name() : null)
                 .amount(payment.getAmount())
                 .provider(payment.getProvider())
+                .simulateEnabled(simulateEnabled)
+                .build();
+    }
+
+    /**
+     * Mô phỏng thanh toán thành công (test/review ONLY — KHÔNG phải tiền
+     * thật, KHÔNG qua SePay). Chỉ khi toggle
+     * {@code app.payment.simulate.enabled=true} (mặc định false).
+     * Hành vi bám sát webhook thành công: QUOTED → payment PAID + policy
+     * ACTIVE (ledger + mail payment-success); BOUND → payment PAID, policy
+     * GIỮ BOUND để FINANCE xác nhận BOUND→ACTIVE (không tự kích hoạt,
+     * không gửi mail payment-success — người bấm mô phỏng đã xác nhận
+     * tiền, nhưng kích hoạt vẫn là việc của FINANCE).
+     */
+    @Override
+    @Transactional
+    public PaymentResponse simulatePaymentSuccess(String txnRef, String principal) {
+        if (!simulateEnabled) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "Tính năng mô phỏng thanh toán chưa được bật (SIMULATE_PAYMENT_ENABLED=false).");
+        }
+        if (txnRef == null || txnRef.isBlank()) {
+            throw new BadRequestException("Thiếu mã giao dịch (txnRef).");
+        }
+        Payment payment = paymentRepository.findByTxnRef(txnRef)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy giao dịch thanh toán: " + txnRef));
+        Policy policy = findPolicy(payment.getPolicyNumber());
+        if (principal == null || principal.isBlank()
+                || !permissionService.isDemandSide(policy, principal)) {
+            throw new ForbiddenException("Chỉ bên cầu của hợp đồng (người được bảo hiểm hoặc đại lý được giao) mới được mô phỏng thanh toán.");
+        }
+        permissionService.checkTenantWriteForPolicy(policy);
+        if (payment.getStatus() != GatewayPaymentStatus.PENDING) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Chỉ mô phỏng được giao dịch đang chờ thanh toán (PENDING). Trạng thái hiện tại: " + payment.getStatus());
+        }
+        if (policy.getStatus() != PolicyStatus.QUOTED && policy.getStatus() != PolicyStatus.BOUND) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Chỉ mô phỏng thanh toán khi hợp đồng ở trạng thái QUOTED hoặc BOUND. Trạng thái hiện tại: " + policy.getStatus());
+        }
+        Instant now = Instant.now();
+        payment.setStatus(GatewayPaymentStatus.PAID);
+        payment.setGatewayTransactionNo("SIMULATED");
+        payment.setPaidAt(now);
+        payment.setUpdatedAt(now);
+        Payment savedPayment = paymentRepository.save(payment);
+
+        Policy savedPolicy = policy;
+        if (policy.getStatus() == PolicyStatus.QUOTED) {
+            Instant effective = policy.getEffectiveDate() != null ? policy.getEffectiveDate() : now;
+            policy.setStatus(PolicyStatus.ACTIVE);
+            policy.setEffectiveDate(effective);
+            policy.setExpirationDate(effective.plus(365, ChronoUnit.DAYS));
+            policy.setPaymentStatus(PaymentStatus.CONFIRMED);
+            policy.setUpdatedAt(now);
+            savedPolicy = policyRepository.save(policy);
+            Policy activated = savedPolicy;
+            Payment paid = savedPayment;
+            TransactionSideEffects.afterCommit(() -> transactionLedgerService.recordTransaction(
+                    activated.getPolicyNumber(), activated.getVersion(),
+                    TransactionType.STATUS_TRANSITION, "SEPAY-SIMULATE",
+                    "Mo phong thanh toan SePay thanh cong (txnRef=" + paid.getTxnRef()
+                            + "), hop dong QUOTED -> ACTIVE"));
+            TransactionSideEffects.afterCommit(() -> notificationService.notifyPaymentSucceeded(activated, paid));
+        } else {
+            // BOUND: tiền đã xác nhận (do người bấm mô phỏng) nhưng policy
+            // GIỮ BOUND để FINANCE xác nhận BOUND→ACTIVE như webhook thật.
+            TransactionSideEffects.afterCommit(() -> transactionLedgerService.recordTransaction(
+                    policy.getPolicyNumber(), policy.getVersion(),
+                    TransactionType.STATUS_TRANSITION, "SEPAY-SIMULATE",
+                    "Mo phong thanh toan SePay thanh cong (txnRef=" + payment.getTxnRef()
+                            + "), hop dong GIU BOUND cho FINANCE xac nhan"));
+        }
+        log.info("Simulated SePay payment success: txnRef={} policy={} policyStatus={}",
+                savedPayment.getTxnRef(), savedPolicy.getPolicyNumber(), savedPolicy.getStatus());
+        return PaymentResponse.builder()
+                .txnRef(savedPayment.getTxnRef())
+                .status(savedPayment.getStatus() != null ? savedPayment.getStatus().name() : null)
+                .policyStatus(savedPolicy.getStatus() != null ? savedPolicy.getStatus().name() : null)
+                .amount(savedPayment.getAmount())
+                .provider(savedPayment.getProvider())
+                .simulateEnabled(true)
                 .build();
     }
 
@@ -447,6 +538,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .accountNumber(paymentGateway.getAccountNumber())
                 .accountName(accountName != null && !accountName.isBlank() ? accountName : null)
                 .qrUrl(qrUrl)
+                .simulateEnabled(simulateEnabled)
                 .build();
     }
 
