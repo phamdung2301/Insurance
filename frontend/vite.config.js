@@ -21,7 +21,7 @@ function isPageRoute(urlPath) {
   return PAGE_PREFIXES.some((p) => urlPath.startsWith(p));
 }
 
-const API_PREFIXES = ['/auth', '/user', '/policies', '/underwriter', '/excel', '/reports', '/benchmark', '/api', '/oauth2', '/login/oauth2', '/endorsements', '/history', '/versions', '/admin', '/agents'];
+const API_PREFIXES = ['/auth', '/user', '/policies', '/payments', '/pending-endorsements', '/underwriter', '/excel', '/reports', '/benchmark', '/api', '/oauth2', '/login/oauth2', '/endorsements', '/history', '/versions', '/admin', '/agents'];
 
 function spaBypassMiddleware() {
   return {
@@ -52,6 +52,17 @@ export default defineConfig({
       '/auth': { target: 'http://localhost:8080', changeOrigin: true },
       '/user': { target: 'http://localhost:8080', changeOrigin: true },
       '/policies': { target: 'http://localhost:8080', changeOrigin: true },
+      // Thanh toán SePay (GET /payments/status, POST /payments/{txnRef}/simulate):
+      // từng thiếu ở đây nên ở dev POST simulate rơi vào Vite 404 (request
+      // không tới backend, toast chỉ hiện "Request failed with status code
+      // 404"), còn GET status rơi về SPA fallback (trả index.html 200) và
+      // polling nhận HTML thay JSON nên modal không bao giờ tự đóng — cùng
+      // họ lỗi từng gặp ở /underwriter (thiếu proxy → list rỗng lặng).
+      '/payments': { target: 'http://localhost:8080', changeOrigin: true },
+      // Hàng đợi endorsement chờ duyệt (GET /pending-endorsements): cùng họ
+      // lỗi — không có entry này thì ở dev request trả index.html 200 và
+      // trang hiện rỗng lặng.
+      '/pending-endorsements': { target: 'http://localhost:8080', changeOrigin: true },
       // Hàng đợi thương lượng UW (GET /underwriter/negotiations): từng thiếu
       // ở đây nên ở dev request rơi về SPA fallback (trả index.html 200) và
       // tab /admin/thuong-luong hiện rỗng dù DB đã có bản ghi.
