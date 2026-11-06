@@ -659,8 +659,9 @@ public class PolicyServiceImpl implements PolicyService {
             policy.setExpirationDate(effective.plus(365, java.time.temporal.ChronoUnit.DAYS));
         }
 
-        // Luồng thanh toán (PLAN §1.6): BOUND→ACTIVE (chỉ FINANCE/ADMIN tới được đây)
-        // = xác nhận thu tiền; BOUND→DRAFT (chỉ ADMIN) = rollback, reset marker.
+        // BOUND→ACTIVE (chỉ ADMIN — kích hoạt trực tiếp không qua thanh toán;
+        // xác nhận tay của FINANCE đã bỏ, webhook SePay kích hoạt thẳng);
+        // BOUND→DRAFT (chỉ ADMIN) = rollback, reset marker.
         if (currentStatus == PolicyStatus.BOUND && targetStatus == PolicyStatus.ACTIVE) {
             policy.setPaymentStatus(PaymentStatus.CONFIRMED);
         }

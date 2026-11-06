@@ -90,10 +90,10 @@ class PolicyServiceImplTransitionLedgerTest {
 
         StatusTransitionRequest request = StatusTransitionRequest.builder()
                 .targetStatus(PolicyStatus.ACTIVE)
-                .reason("Finance xác nhận thu tiền")
+                .reason("Admin kích hoạt trực tiếp")
                 .build();
 
-        PolicyResponse res = policyService.transitionStatus("POL-BOUND-01", request, "finance@x.com");
+        PolicyResponse res = policyService.transitionStatus("POL-BOUND-01", request, "admin@x.com");
 
         assertNotNull(res);
         assertEquals(PolicyStatus.ACTIVE, res.getStatus());

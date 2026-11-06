@@ -375,10 +375,11 @@ public class PermissionService {
 
     /**
      * Bảng chuyển trạng thái → role, enforce ở service.
-     * BOUND → ACTIVE: ADMIN hoặc FINANCE — đây là bước xác nhận đã đối soát
-     * tiền vào (FINANCE chỉ được duy nhất bước này; ADMIN đã return ở trên).
-     * Nhân viên tenant đổi trạng thái policy của tenant mình còn phải qua
-     * guard trạng thái (SUSPENDED/CLOSED chặn); phía CUSTOMER không bị chặn.
+     * BOUND → ACTIVE: chỉ ADMIN (kích hoạt trực tiếp không qua thanh toán).
+     * Xác nhận tay của FINANCE đã bỏ — tiền về qua webhook SePay là kích
+     * hoạt thẳng sang ACTIVE, không còn bước đối soát tay. Nhân viên tenant
+     * đổi trạng thái policy của tenant mình còn phải qua guard trạng thái
+     * (SUSPENDED/CLOSED chặn); phía CUSTOMER không bị chặn.
      */
     public void checkTransition(Policy policy, PolicyStatus from, PolicyStatus to) {
         String principal = currentPrincipal();
@@ -391,7 +392,7 @@ public class PermissionService {
         boolean demandAllowed = isDemandSide(policy, principal) && (hasCustomerRole() || hasAgentRole());
         boolean allowed;
         if (from == PolicyStatus.BOUND && to == PolicyStatus.ACTIVE) {
-            allowed = hasFinanceRole(); // Chỉ FINANCE xác nhận đối soát tiền vào
+            allowed = false; // chỉ ADMIN (đã return ở trên); FINANCE không còn xác nhận tay
         } else if (from == PolicyStatus.BOUND && to == PolicyStatus.DRAFT) {
             allowed = false; // chỉ ADMIN (đã return ở trên)
         } else if (from == PolicyStatus.ACTIVE && to == PolicyStatus.EXPIRED) {

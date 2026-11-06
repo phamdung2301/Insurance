@@ -42,16 +42,17 @@ import java.util.UUID;
  *
  * <p>QUYẾT ĐỊNH ĐÃ CHỐT (ghi rõ để parent quyết sau, không tự thêm logic):
  * <ul>
- *   <li>Luồng cổng đi QUOTED → ACTIVE trực tiếp bằng guard webhook riêng
+ *   <li>Luồng cổng đi QUOTED/BOUND → ACTIVE trực tiếp bằng guard webhook riêng
  *       trong {@link #handleSepayWebhook}, KHÔNG tái dùng
  *       {@code transitionStatus} và KHÔNG sửa
  *       {@code PolicyStatus.ALLOWED_TRANSITIONS} — vì mở map chung sẽ mở
  *       luôn đường QUOTED → ACTIVE cho endpoint status-transitions của user.</li>
  *   <li>Luồng cổng BỎ QUA cả hai hook hoa hồng của luồng thủ công
  *       ({@code createForBound} / {@code markEarned} trong transitionStatus):
- *       cổng nhảy thẳng QUOTED → ACTIVE nên không đi qua BOUND. Đây là quyết
- *       định CỐ TÌNH TẠM THỜI trong đợt này (theo brief: ghi rõ, không tự thêm
- *       logic hoa hồng khi chưa rõ) — parent quyết sau có gọi bù hay không.</li>
+ *       webhook kích hoạt thẳng sang ACTIVE nên không đi qua các hook đó.
+ *       Đây là quyết định CỐ TÌNH TẠM THỜI trong đợt này (theo brief: ghi rõ,
+ *       không tự thêm logic hoa hồng khi chưa rõ) — parent quyết sau có gọi
+ *       bù hay không.</li>
  *   <li>Policy sau webhook thành công: {@code paymentStatus = CONFIRMED} (thống nhất
  *       "đã xác nhận thu tiền" như nhánh BOUND → ACTIVE) nhưng KHÔNG set
  *       {@code paymentClaimedAt} — field đó là marker riêng của luồng thủ công
@@ -67,7 +68,7 @@ import java.util.UUID;
  *       7 lần trong 5h nếu không nhận 200/201 + {@code {"success": true}},
  *       nên chỉ lỗi xác thực mới trả 401; mọi lỗi dữ liệu trả 200 success +
  *       log (retry cũng vô ích), payment giữ PENDING để đối soát tay khi
- *       sai tiền hoặc policy không còn QUOTED.</li>
+ *       sai tiền hoặc policy không còn QUOTED/BOUND.</li>
  * </ul>
  */
 @Slf4j
@@ -106,9 +107,8 @@ public class PaymentServiceImpl implements PaymentService {
         // chính mình và webhook SePay không đi qua guard này.
         permissionService.checkTenantWriteForPolicy(policy);
         // Tạo payment khi QUOTED hoặc BOUND — cả hai trạng thái đều thanh
-        // toán được. Khác biệt ở webhook: QUOTED thì kích hoạt thẳng sang
-        // ACTIVE, BOUND thì giữ PENDING để FINANCE xác nhận BOUND→ACTIVE
-        // (xem handleSepayWebhook bước 8, không đổi ở đợt này).
+        // toán được, và webhook kích hoạt thẳng sang ACTIVE ở cả hai (không
+        // còn giữ PENDING để FINANCE xác nhận — xem handleSepayWebhook bước 8).
         if (policy.getStatus() != PolicyStatus.QUOTED && policy.getStatus() != PolicyStatus.BOUND) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Chỉ tạo thanh toán khi hợp đồng ở trạng thái QUOTED hoặc BOUND. Trạng thái hiện tại: " + policy.getStatus());
@@ -199,11 +199,9 @@ public class PaymentServiceImpl implements PaymentService {
      * Mô phỏng thanh toán thành công (test/review ONLY — KHÔNG phải tiền
      * thật, KHÔNG qua SePay). Chỉ khi toggle
      * {@code app.payment.simulate.enabled=true} (mặc định false).
-     * Hành vi bám sát webhook thành công: QUOTED → payment PAID + policy
-     * ACTIVE (ledger + mail payment-success); BOUND → payment PAID, policy
-     * GIỮ BOUND để FINANCE xác nhận BOUND→ACTIVE (không tự kích hoạt,
-     * không gửi mail payment-success — người bấm mô phỏng đã xác nhận
-     * tiền, nhưng kích hoạt vẫn là việc của FINANCE).
+     * Hành vi bám sát webhook thành công: payment PAID + policy ACTIVE ở cả
+     * QUOTED lẫn BOUND (ledger + mail payment-success) — thanh toán xong là
+     * kích hoạt thẳng, không còn chờ FINANCE xác nhận tay.
      */
     @Override
     @Transactional
@@ -238,32 +236,24 @@ public class PaymentServiceImpl implements PaymentService {
         payment.setUpdatedAt(now);
         Payment savedPayment = paymentRepository.save(payment);
 
-        Policy savedPolicy = policy;
-        if (policy.getStatus() == PolicyStatus.QUOTED) {
-            Instant effective = policy.getEffectiveDate() != null ? policy.getEffectiveDate() : now;
-            policy.setStatus(PolicyStatus.ACTIVE);
-            policy.setEffectiveDate(effective);
-            policy.setExpirationDate(effective.plus(365, ChronoUnit.DAYS));
-            policy.setPaymentStatus(PaymentStatus.CONFIRMED);
-            policy.setUpdatedAt(now);
-            savedPolicy = policyRepository.save(policy);
-            Policy activated = savedPolicy;
-            Payment paid = savedPayment;
-            TransactionSideEffects.afterCommit(() -> transactionLedgerService.recordTransaction(
-                    activated.getPolicyNumber(), activated.getVersion(),
-                    TransactionType.STATUS_TRANSITION, "SEPAY-SIMULATE",
-                    "Mo phong thanh toan SePay thanh cong (txnRef=" + paid.getTxnRef()
-                            + "), hop dong QUOTED -> ACTIVE"));
-            TransactionSideEffects.afterCommit(() -> notificationService.notifyPaymentSucceeded(activated, paid));
-        } else {
-            // BOUND: tiền đã xác nhận (do người bấm mô phỏng) nhưng policy
-            // GIỮ BOUND để FINANCE xác nhận BOUND→ACTIVE như webhook thật.
-            TransactionSideEffects.afterCommit(() -> transactionLedgerService.recordTransaction(
-                    policy.getPolicyNumber(), policy.getVersion(),
-                    TransactionType.STATUS_TRANSITION, "SEPAY-SIMULATE",
-                    "Mo phong thanh toan SePay thanh cong (txnRef=" + payment.getTxnRef()
-                            + "), hop dong GIU BOUND cho FINANCE xac nhan"));
-        }
+        // Thanh toán xong là kích hoạt thẳng — cả QUOTED lẫn BOUND đều sang
+        // ACTIVE như webhook thật (không còn giữ BOUND chờ FINANCE xác nhận).
+        PolicyStatus fromStatus = policy.getStatus();
+        Instant effective = policy.getEffectiveDate() != null ? policy.getEffectiveDate() : now;
+        policy.setStatus(PolicyStatus.ACTIVE);
+        policy.setEffectiveDate(effective);
+        policy.setExpirationDate(effective.plus(365, ChronoUnit.DAYS));
+        policy.setPaymentStatus(PaymentStatus.CONFIRMED);
+        policy.setUpdatedAt(now);
+        Policy savedPolicy = policyRepository.save(policy);
+        Policy activated = savedPolicy;
+        Payment paid = savedPayment;
+        TransactionSideEffects.afterCommit(() -> transactionLedgerService.recordTransaction(
+                activated.getPolicyNumber(), activated.getVersion(),
+                TransactionType.STATUS_TRANSITION, "SEPAY-SIMULATE",
+                "Mo phong thanh toan SePay thanh cong (txnRef=" + paid.getTxnRef()
+                        + "), hop dong " + fromStatus + " -> ACTIVE"));
+        TransactionSideEffects.afterCommit(() -> notificationService.notifyPaymentSucceeded(activated, paid));
         log.info("Simulated SePay payment success: txnRef={} policy={} policyStatus={}",
                 savedPayment.getTxnRef(), savedPolicy.getPolicyNumber(), savedPolicy.getStatus());
         return PaymentResponse.builder()
@@ -354,7 +344,8 @@ public class PaymentServiceImpl implements PaymentService {
                     payment.getTxnRef(), payment.getStatus());
             return WebhookResult.ok();
         }
-        // 8. Guard QUOTED → ACTIVE riêng cho webhook (không qua transitionStatus).
+        // 8. Guard QUOTED/BOUND → ACTIVE riêng cho webhook (không qua transitionStatus).
+        // Tiền về là kích hoạt thẳng — không còn giữ PENDING chờ FINANCE xác nhận tay.
         Policy policy = policyRepository.findByPolicyNumber(payment.getPolicyNumber())
                 .or(() -> policyRepository.findById(payment.getPolicyNumber()))
                 .orElse(null);
@@ -362,11 +353,11 @@ public class PaymentServiceImpl implements PaymentService {
             log.warn("SePay webhook: policy not found for txnRef {}", payment.getTxnRef());
             return WebhookResult.ok();
         }
-        if (policy.getStatus() != PolicyStatus.QUOTED) {
-            // Tiền đã về nhưng policy không còn QUOTED (đã ACTIVE qua luồng khác
+        if (policy.getStatus() != PolicyStatus.QUOTED && policy.getStatus() != PolicyStatus.BOUND) {
+            // Tiền đã về nhưng policy không còn QUOTED/BOUND (đã ACTIVE qua luồng khác
             // hoặc đã CANCELLED): không chuyển đổi lại, giữ payment PENDING để
             // đối soát tay, không tự hoàn tiền trong đợt này.
-            log.warn("SePay webhook held for manual review: policy {} not QUOTED (status={}) for txnRef {}",
+            log.warn("SePay webhook held for manual review: policy {} not QUOTED/BOUND (status={}) for txnRef {}",
                     policy.getPolicyNumber(), policy.getStatus(), payment.getTxnRef());
             return WebhookResult.ok();
         }
@@ -376,7 +367,7 @@ public class PaymentServiceImpl implements PaymentService {
         // theo, nên giữ nó lại vừa vô tác dụng vừa gây nhầm lẫn): hai save
         // dưới đây cùng một transaction. Nếu payment-save fail, exception
         // runtime lan ra ngoài → proxy rollback cả policy-save (policy ở
-        // lại QUOTED, payment ở lại PENDING, chưa ghi sepayId) → controller
+        // lại QUOTED/BOUND, payment ở lại PENDING, chưa ghi sepayId) → controller
         // trả 500 → SePay retry (tối đa 7 lần/5h) có thể thành công, đúng
         // như bù trừ cũ từng đạt được nhưng không còn cửa sổ lệch state
         // nào giữa chừng. Không nuốt exception thành success ở đây.
@@ -408,7 +399,7 @@ public class PaymentServiceImpl implements PaymentService {
                 savedPolicy.getPolicyNumber(), savedPolicy.getVersion(),
                 TransactionType.STATUS_TRANSITION, "SEPAY-WEBHOOK",
                 "Thanh toan qua SePay thanh cong (txnRef=" + payment.getTxnRef()
-                        + "), hop dong QUOTED -> ACTIVE"));
+                        + "), hop dong QUOTED/BOUND -> ACTIVE"));
         TransactionSideEffects.afterCommit(() -> notificationService.notifyPaymentSucceeded(savedPolicy, savedPayment));
         return WebhookResult.ok();
     }

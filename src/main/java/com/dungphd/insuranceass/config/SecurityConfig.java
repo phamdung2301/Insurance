@@ -156,14 +156,20 @@ public class SecurityConfig {
                         // "ADMIN xem, FINANCE 403, customer/agent theo phạm vi".
                         .requestMatchers("/pending-endorsements/**", "/api/pending-endorsements/**").authenticated()
                         // FINANCE không tạo hợp đồng: chặn ngay ở matcher (chỉ
-                        // POST /policies chính xác — các POST con như
-                        // /status-transitions vẫn đi matcher generic bên dưới
-                        // để FINANCE xác nhận BOUND→ACTIVE được). Danh sách
-                        // là mọi role hiện có trừ FINANCE (kể cả ROLE_USER cũ
-                        // tương đương CUSTOMER); service gate đợt 1C trong
-                        // PolicyServiceImpl.createPolicy là chốt thứ hai và
-                        // nên bổ sung FINANCE ở đó khi branch khác xong.
+                        // POST /policies chính xác — các POST con vẫn đi
+                        // matcher generic bên dưới; FINANCE không còn vào
+                        // được status-transitions — xem matcher ngay dưới).
+                        // Danh sách là mọi role hiện có trừ FINANCE (kể cả
+                        // ROLE_USER cũ tương đương CUSTOMER); service gate
+                        // đợt 1C trong PolicyServiceImpl.createPolicy là chốt
+                        // thứ hai và nên bổ sung FINANCE ở đó khi branch khác xong.
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/policies", "/api/policies")
+                                .hasAnyRole("ADMIN", "CUSTOMER", "USER", "AGENT", "UNDERWRITER")
+                        // Không còn xác nhận tay BOUND→ACTIVE của FINANCE
+                        // (webhook SePay kích hoạt thẳng): FINANCE không vào
+                        // được status-transitions; các role còn lại giữ nguyên
+                        // (service checkTransition enforce lại).
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/policies/*/status-transitions", "/api/policies/*/status-transitions")
                                 .hasAnyRole("ADMIN", "CUSTOMER", "USER", "AGENT", "UNDERWRITER")
                         .requestMatchers("/policies/**", "/api/policies/**").authenticated()
                         .requestMatchers("/endorsements", "/api/endorsements").authenticated()

@@ -191,11 +191,12 @@ class PermissionServiceTest {
     }
 
     @Test
-    void financeContext_canApproveBoundToActive_onlyThatTransition() {
-        // Đảo hành vi có chủ đích (PR finance-scope): FINANCE xác nhận
-        // BOUND→ACTIVE sau khi đối soát tiền vào; các transition khác vẫn 403.
+    void financeContext_cannotApproveBoundToActive() {
+        // Đảo hành vi có chủ đích: bỏ xác nhận tay BOUND→ACTIVE của FINANCE —
+        // tiền về qua webhook SePay là kích hoạt thẳng; FINANCE không còn
+        // transition nào (chỉ ADMIN kích hoạt trực tiếp).
         authenticateAs("finance@example.com", "ROLE_FINANCE");
-        assertDoesNotThrow(() -> permissionService.checkTransition(
+        assertThrows(ForbiddenException.class, () -> permissionService.checkTransition(
                 ownedByCustomer, PolicyStatus.BOUND, PolicyStatus.ACTIVE));
         assertThrows(ForbiddenException.class, () -> permissionService.checkTransition(
                 ownedByCustomer, PolicyStatus.BOUND, PolicyStatus.DRAFT));

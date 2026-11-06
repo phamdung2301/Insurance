@@ -45,10 +45,10 @@ public interface PaymentService {
      * Mô phỏng thanh toán thành công (test/review ONLY — KHÔNG phải tiền
      * thật, KHÔNG qua SePay). Chỉ khi toggle
      * {@code app.payment.simulate.enabled=true} (mặc định false).
-     * Hành vi bám sát webhook thành công: QUOTED → payment PAID + policy
-     * ACTIVE (ledger + mail payment-success); BOUND → payment PAID, policy
-     * GIỮ BOUND để FINANCE xác nhận BOUND→ACTIVE. Lỗi: toggle tắt → 404;
-     * payment không tồn tại → 404; không phải bên cầu → 403; payment
+     * Hành vi bám sát webhook thành công: payment PAID + policy ACTIVE ở cả
+     * QUOTED lẫn BOUND (ledger + mail payment-success) — thanh toán xong là
+     * kích hoạt thẳng, không còn chờ FINANCE xác nhận tay. Lỗi: toggle tắt
+     * → 404; payment không tồn tại → 404; không phải bên cầu → 403; payment
      * không PENDING hoặc policy không QUOTED/BOUND → 409.
      */
     PaymentResponse simulatePaymentSuccess(String txnRef, String principal);
@@ -67,9 +67,9 @@ public interface PaymentService {
      *       transferType != "in", không khớp payment nào, accountNumber lệch,
      *       sai số tiền (payment GIỮ PENDING để đối soát tay), webhook trùng
      *       (SePay id đã xử lý / payment đã ở trạng thái cuối), policy không
-     *       còn QUOTED (payment GIỮ PENDING để đối soát tay).</li>
+     *       còn QUOTED/BOUND (payment GIỮ PENDING để đối soát tay).</li>
      *   <li>200 success + chuyển trạng thái: chỉ khi payment PENDING + policy
-     *       QUOTED → QUOTED → ACTIVE, paymentStatus=CONFIRMED, ledger
+     *       QUOTED hoặc BOUND → ACTIVE, paymentStatus=CONFIRMED, ledger
      *       STATUS_TRANSITION, lưu gatewayTransactionNo=SePay id, gửi mail
      *       payment-success + in-app notification (tái dùng trigger cũ).</li>
      * </ul>
