@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authService, userService, extractAuth } from '../services/api';
-import { clearAgentRef } from '../utils/agentRef';
+import { clearAgentRef, getAgentRef } from '../utils/agentRef';
+import { useToast } from './ToastContext';
 
 const AuthContext = createContext(null);
 
@@ -69,6 +70,7 @@ function enrichUser(usr, token) {
 
 export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
+  const toast = useToast();
   const [token, setToken] = useState(() => localStorage.getItem('itoken') || '');
   const [user, setUser] = useState(() => {
     try {
@@ -127,10 +129,35 @@ export const AuthProvider = ({ children }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * Luồng 3 — đăng ký qua link đại lý: ngay sau đăng nhập, nếu còn dấu
+   * đại lý (agentRef từ link /a/<slug>) và tài khoản là customer thuần
+   * thì gọi /user/agent-link gắn đại lý MỘT LẦN (BE idempotent: đã gắn
+   * thì no-op). Link hỏng không được chặn đăng nhập — im lặng bỏ qua.
+   */
+  const maybeLinkAgent = (enriched) => {
+    const slug = getAgentRef();
+    if (!slug || !enriched) return;
+    const roles = (enriched.roles ?? []).map((r) => String(r).toUpperCase());
+    const pureCustomer = roles.length > 0
+      && roles.every((r) => r === 'ROLE_CUSTOMER' || r === 'ROLE_USER');
+    if (!pureCustomer) return;
+    userService.linkAgent(slug)
+      .then((res) => {
+        const d = res?.data;
+        if (d?.linked && d?.agentName) {
+          toast.info(`Tài khoản của bạn đã gắn với ${d.agentName}.`);
+        }
+      })
+      .catch(() => { /* link hỏng/sai — bỏ qua, không phá đăng nhập */ });
+  };
+
   const loginWithToken = useCallback((tok, usr) => {
     persist(tok, usr);
+    const enriched = enrichUser(usr, tok);
+    maybeLinkAgent(enriched);
     navigate(landingForRole(usr?.roles ?? rolesFromToken(tok)), { replace: true });
-  }, [navigate]);
+  }, [navigate, toast]);
 
   const loginOtp = useCallback(async (email, otp) => {
     const res = await authService.verifyOtp(email.trim(), otp.trim());

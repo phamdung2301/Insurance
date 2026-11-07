@@ -81,6 +81,8 @@ export const userService = {
   getProfile: () => api.get('/user/profile'),
   updateProfile: (data) => api.put('/user/profile', data),
   changePassword: (data) => api.post('/user/change-password', data),
+  /** Luồng 3: gắn tài khoản khách (một lần) với đại lý theo slug link storefront. */
+  linkAgent: (agentSlug) => api.post('/user/agent-link', { agentSlug }),
 };
 
 // ---------------------------------------------------------------- Policy (SRS §6)
