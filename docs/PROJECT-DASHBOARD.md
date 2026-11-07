@@ -11,11 +11,38 @@
 
 | Chỉ số | Phase 1 (Core) | Phase 2 (Upgrade) | Tổng |
 |---|---|---|---|
-| Tổng task | 49 | 26 (đã làm) + 12 (backlog) | 87 |
-| Done | 49 ✅ | 26 ✅ *(nhánh đang chờ merge)* | 75 |
+| Tổng task | 49 | 23 (đã làm) + 11 (backlog) | 83 |
+| Done | 49 ✅ | 23 ✅ *(nhánh đang chờ merge)* | 72 |
 | In Progress | 0 | 0 | 0 |
-| Pending | 0 | 12 ⏳ | 12 ⏳ |
+| Pending | 0 | 11 ⏳ | 11 ⏳ |
 | **Tiến độ** | `██████████ 100%` | `██████████ 100%`(làm) · `░░░░░░░░░░ backlog` | `███░░░░░░░ 86%` |
+
+### 📊 Biểu đồ tiến độ
+
+```mermaid
+pie title Tổng thể task (Phase 1 + Phase 2)
+    "Hoàn thành (Phase 1: 49 + Phase 2: 23)" : 72
+    "Backlog chờ (M8)" : 11
+```
+
+```mermaid
+gantt
+    title Timeline Phase 2 · SaaS Upgrade & Hardening (2026)
+    dateFormat DD/MM
+    axisFormat %d/%m
+    section M5 · Multi-Tenant
+    Payment SePay + Claim intake + ACID      :done, m5a, 02/11, 04/11
+    SaaS Phase 1 + Track B/C + Admin         :done, m5b, 04/11, 05/11
+    section M6 · Payments & Ops
+    Mail toggle + Simulate + Proxy + Auto-activate :done, m6, 06/11, 06/11
+    section M7 · Hardening (PR chờ merge)
+    Claim flow + Tenant roles + Error contract + Integrity + UX :done, m7a, 07/11, 07/11
+    Seed demo + Agent-link (luồng 3) + Terms consent + Handbook :done, m7b, 07/11, 07/11
+    section M8 · Production Readiness (kế hoạch)
+    Merge PR + Luồng 4/5                     :active, m8a, 08/11, 08/11
+    S3/R2 + Video + Cleanup job              :m8b, 09/11, 09/11
+    Refresh token + Legal thật + Docs + Hoàn tiền + Reports :m8c, 10/11, 11/11
+```
 
 **Nhân sự Phase 2:** Dũng (BE+FE+tracking) — Git: 2 nhánh `feat/saas-*`, `feat/hardening-claim-flow-tenant-roles`, PR review workflow giữ nguyên chuẩn S05 của Phase 1.
 
@@ -30,9 +57,9 @@
 | M3 · Technical Review | 16/10 | 15 | 15 | `██████████ 100%` | ✅ Done |
 | M4 · Finalization & Submission | 19/10 | 9 | 9 | `██████████ 100%` | ✅ Done |
 | **M5 · SaaS Multi-Tenant Foundation** | 02–05/11 | 10 | 10 | `██████████ 100%` | ✅ Done |
-| **M6 · Payments & Ops Hardening** | 04–06/11 | 8 | 8 | `██████████ 100%` | ✅ Done |
-| **M7 · Business Rules & UX Hardening** | 07/11 | 8 | 8 | `██████████ 100%` | 🅿️ Done — PR chờ merge |
-| **M8 · Production Readiness (kế hoạch)** | đề xuất 08–11/11 | 12 | 0 | `░░░░░░░░░░ 0%` | ⏳ Pending |
+| **M6 · Payments & Ops Hardening** | 04–06/11 | 4 | 4 | `██████████ 100%` | ✅ Done |
+| **M7 · Business Rules & UX Hardening** | 07/11 | 9 | 9 | `██████████ 100%` | 🅿️ Done — PR chờ merge |
+| **M8 · Production Readiness (kế hoạch)** | đề xuất 08–11/11 | 11 | 0 | `░░░░░░░░░░ 0%` | ⏳ Pending |
 
 ---
 
@@ -81,7 +108,7 @@
 | N22 | **Điều khoản & chính sách bắt buộc**: wizard hiển thị + tick đồng ý → mới tới thanh toán; audit trail `termsAcceptedAt/Version` | 3h | `057bc9e` | ✅ |
 | N23 | Handbook 3 khối claims/mail/SaaS cho review mentor | 2h | `6e792c0` | ✅ |
 
-**Tổng Phase 2 đã làm: 26 task · ~67h effort thực tế · 525 test pass · build FE pass**
+**Tổng Phase 2 đã làm: 23 task · 83h effort · 525 test pass · build FE pass**
 
 ---
 
@@ -115,7 +142,7 @@
 | N33 | Hoàn tiền theo thời gian còn lại (hiện là record PENDING chờ đối soát tay) | I05-v2 | 4h | 🟢 Thấp | ⏳ |
 | N34 | Bảng biểu dashboard admin dùng API reports thật (bỏ "số liệu ước tính" client-side) | U01-v2 | 2h | 🟢 Thấp | ⏳ |
 
-**Tổng backlog: 12 task · ~37h ước tính**
+**Tổng backlog: 11 task · ~33h ước tính**
 
 ---
 
