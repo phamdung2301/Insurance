@@ -122,6 +122,13 @@ public class PolicyServiceImpl implements PolicyService {
         if (effectiveDate.isAfter(expirationDate)) {
             throw new InvalidRequestException("Ngày hiệu lực phải trước ngày hết hạn.");
         }
+        // Đồng ý Điều khoản & Chính sách là BẮT BUỘC trước khi tạo hợp đồng
+        // (bước "Xác nhận" của wizard phải tick đồng ý). Server là người giữ
+        // luật — không tin nút bấm của client.
+        if (!Boolean.TRUE.equals(request.getTermsAccepted())) {
+            throw new BadRequestException(
+                    "Bạn cần đọc và đồng ý Điều khoản & Chính sách bảo hiểm trước khi tiếp tục.");
+        }
         // Ép theo role (PLAN §1.5): CUSTOMER không tạo hộ người khác; AGENT tạo hộ
         // nhưng assignedAgentEmail luôn là mình. UW/FINANCE/ADMIN giữ nguyên request.
         Insured insured = mapToInsured(request.getInsured());
@@ -200,11 +207,15 @@ public class PolicyServiceImpl implements PolicyService {
                 agentId = permissionService.currentTenantId();
             }
         }
+        String termsVersion = request.getTermsVersion() != null && !request.getTermsVersion().isBlank()
+                ? request.getTermsVersion().trim() : null;
         Policy policy = Policy.builder()
                 .policyNumber(request.getPolicyNumber())
                 .status(PolicyStatus.DRAFT)
                 .agentId(agentId)
                 .assignedAgentEmail(assignedAgentEmail)
+                .termsAcceptedAt(Instant.now())
+                .termsVersion(termsVersion)
                 .insured(insured)
                 .locations(request.getLocations() != null ?
                         request.getLocations().stream().map(this::mapToLocation).collect(Collectors.toList()) : new ArrayList<>())
@@ -826,6 +837,8 @@ public class PolicyServiceImpl implements PolicyService {
                 .agentId(policy.getAgentId())
                 .agentName(resolveAgentName(policy.getAgentId()))
                 .negotiatedPremium(policy.getNegotiatedPremium())
+                .termsAcceptedAt(policy.getTermsAcceptedAt())
+                .termsVersion(policy.getTermsVersion())
                 .paymentClaimedAt(policy.getPaymentClaimedAt())
                 .paymentStatus(policy.getPaymentStatus())
                 .effectiveDate(policy.getEffectiveDate())

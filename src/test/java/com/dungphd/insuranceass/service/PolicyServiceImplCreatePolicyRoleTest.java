@@ -75,7 +75,7 @@ class PolicyServiceImplCreatePolicyRoleTest {
     }
 
     private CreatePolicyRequest request() {
-        return CreatePolicyRequest.builder().policyNumber("POL-GATE-1").build();
+        return CreatePolicyRequest.builder().policyNumber("POL-GATE-1").termsAccepted(true).build();
     }
 
     @Test
@@ -101,7 +101,7 @@ class PolicyServiceImplCreatePolicyRoleTest {
         // Track C: ADMIN tạo hộ bắt buộc có agentId — request không agentId
         // nay 400 nên test này phải kèm agentId hợp lệ.
         assertNotNull(policyService.createPolicy(CreatePolicyRequest.builder()
-                .policyNumber("POL-GATE-1").agentId("tenant-9").build()));
+                .policyNumber("POL-GATE-1").agentId("tenant-9").termsAccepted(true).build()));
         verify(policyRepository).save(any(Policy.class));
     }
 
@@ -121,7 +121,7 @@ class PolicyServiceImplCreatePolicyRoleTest {
         // nay 400 nên test này phải kèm agentSlug hợp lệ; body agentId vẫn bị
         // bỏ qua, agentId gắn từ Agent đã resolve.
         assertNotNull(policyService.createPolicy(CreatePolicyRequest.builder()
-                .policyNumber("POL-GATE-1").agentSlug("dai-ly-mau").build()));
+                .policyNumber("POL-GATE-1").agentSlug("dai-ly-mau").termsAccepted(true).build()));
         ArgumentCaptor<Policy> captor = ArgumentCaptor.forClass(Policy.class);
         verify(policyRepository).save(captor.capture());
         assertEquals("agent-1", captor.getValue().getAgentId());

@@ -75,6 +75,10 @@ public class Policy {
 
     /** Giá chốt thương lượng (set khi negotiation ACCEPTED), null nếu chưa thương lượng. */
     private Double negotiatedPremium;
+    /** Thời điểm khách đồng ý Điều khoản & Chính sách (audit — bắt buộc khi tạo). */
+    private Instant termsAcceptedAt;
+    /** Phiên bản điều khoản khách đã đồng ý (khớp TERMS_VERSION ở FE config/legal.js). */
+    private String termsVersion;
 
     /** Thời điểm khách bấm "Tôi đã chuyển khoản" (PLAN §1.6); null = chưa khai báo. */
     private Instant paymentClaimedAt;

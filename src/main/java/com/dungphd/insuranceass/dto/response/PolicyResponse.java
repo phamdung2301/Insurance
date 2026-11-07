@@ -32,6 +32,10 @@ public class PolicyResponse {
      */
     private String agentName;
     private Double negotiatedPremium;
+    /** Vết audit: thời điểm khách đồng ý Điều khoản & Chính sách (bắt buộc khi tạo). */
+    private Instant termsAcceptedAt;
+    /** Phiên bản điều khoản khách đã đồng ý. */
+    private String termsVersion;
     private Instant paymentClaimedAt;
     private PaymentStatus paymentStatus;
     private Instant effectiveDate;

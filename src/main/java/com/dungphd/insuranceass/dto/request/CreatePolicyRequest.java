@@ -54,6 +54,17 @@ public class CreatePolicyRequest {
     @Builder.Default
     private List<LocationDto> locations = new ArrayList<>();
 
+    /**
+     * Bắt buộc TRUE: khách phải đọc và đồng ý Điều khoản & Chính sách bảo
+     * hiểm ở bước "Xác nhận" của wizard trước khi tạo hợp đồng. Server chặn
+     * 400 nếu thiếu — không tin nút bấm của client.
+     */
+    private Boolean termsAccepted;
+
+    /** Phiên bản điều khoản khách đã đồng ý (FE gửi từ config/legal.js). */
+    @jakarta.validation.constraints.Size(max = 32, message = "Phiên bản điều khoản tối đa 32 ký tự.")
+    private String termsVersion;
+
     @com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = com.dungphd.insuranceass.config.FlexibleInstantDeserializer.class)
     private Instant effectiveDate;
 
