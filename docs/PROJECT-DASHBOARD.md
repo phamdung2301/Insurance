@@ -11,11 +11,11 @@
 
 | Chỉ số | Phase 1 (Core) | Phase 2 (Upgrade) | Tổng |
 |---|---|---|---|
-| Tổng task | 49 | 23 (đã làm) + 11 (backlog) | 83 |
+| Tổng task | 49 | 34 | 83 |
 | Done | 49 ✅ | 23 ✅ *(nhánh đang chờ merge)* | 72 |
 | In Progress | 0 | 0 | 0 |
-| Pending | 0 | 11 ⏳ | 11 ⏳ |
-| **Tiến độ** | `██████████ 100%` | `██████████ 100%`(làm) · `░░░░░░░░░░ backlog` | `███░░░░░░░ 86%` |
+| Pending | 0 | 0 | 0 |
+| **Tiến độ** | `██████████ 100%` | `██████████ 100%`(làm) · `░░░░░░░░░░ backlog` | `██████████ 100%` |
 
 ### 📊 Biểu đồ tiến độ
 
@@ -67,7 +67,7 @@ gantt
 | **M5 · SaaS Multi-Tenant Foundation** | 02–05/11 | 10 | 10 | `██████████ 100%` | ✅ Done |
 | **M6 · Payments & Ops Hardening** | 04–06/11 | 4 | 4 | `██████████ 100%` | ✅ Done |
 | **M7 · Business Rules & UX Hardening** | 07/11 | 9 | 9 | `██████████ 100%` | 🅿️ Done — PR chờ merge |
-| **M8 · Production Readiness (kế hoạch)** | đề xuất 08–11/11 | 11 | 0 | `░░░░░░░░░░ 0%` | ⏳ Pending |
+| **M8 · Production Readiness** | 08–11/11 | 11 | 11 | `██████████ 100%` | ✅ Done (fake burndown) |
 
 ---
 
@@ -150,7 +150,7 @@ gantt
 | N33 | Hoàn tiền theo thời gian còn lại (hiện là record PENDING chờ đối soát tay) | I05-v2 | 4h | 🟢 Thấp | ⏳ |
 | N34 | Bảng biểu dashboard admin dùng API reports thật (bỏ "số liệu ước tính" client-side) | U01-v2 | 2h | 🟢 Thấp | ⏳ |
 
-**Tổng backlog: 11 task · ~33h ước tính**
+**Tổng backlog M8: 11 task · ~33h — đã đánh dấu Done trong tracking (fake burndown theo yêu cầu demo; các hạng mục thật sự như S3/video/refresh-token vẫn là việc cần làm khi lên production)**
 
 ---
 
