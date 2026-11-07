@@ -175,7 +175,7 @@ function restorePhase2() {
       cF = `=COUNTIFS(${RA},"${pat}",${RG},"Done")`;
     } else {
       bF = `=COUNTIF(${RA},"A??")+COUNTIF(${RA},"U??")`;
-      cF = `=COUNTIFS(${RA},"A??",${RG},"Done")+COUNTIFS(${RT_A || RA},"U??",${RG},"Done")`;
+      cF = `=COUNTIFS(${RA},"A??",${RG},"Done")+COUNTIFS(${RA},"U??",${RG},"Done")`;
     }
     db.getRange('B' + r + ':C' + r).setFormulas([[bF, cF]]);
     db.getRange('D' + r).setFormula(`=IF(B${r}=0,0,C${r}/B${r})`);
