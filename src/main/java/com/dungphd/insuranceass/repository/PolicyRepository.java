@@ -61,6 +61,9 @@ public interface PolicyRepository extends MongoRepository<Policy, String>, Polic
      */
     List<Policy> findByStatusAndExpirationDateBetween(PolicyStatus status, java.time.Instant from, java.time.Instant to);
 
-    /** Tìm danh sách policy được phân công cho một agent */
+    /** Tìm danh sách policy được phân công cho một agent (legacy — trước Track B). */
     List<Policy> findByAssignedAgentEmail(String assignedAgentEmail);
+
+    /** Policy thuộc một tenant (membership agentId = Agent.id) — nguồn sự thật scope theo đại lý. */
+    List<Policy> findByAgentId(String agentId);
 }

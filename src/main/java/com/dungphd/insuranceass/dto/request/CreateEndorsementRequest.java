@@ -18,7 +18,7 @@ import java.util.List;
 @Builder
 public class CreateEndorsementRequest {
 
-    @NotBlank(message = "Endorsement reason is required")
+    @NotBlank(message = "Lý do điều chỉnh hợp đồng là bắt buộc.")
     private String endorsementReason;
 
     private String endorsementType; // e.g. GENERAL, FINANCIAL, ADDRESS_CHANGE, COVERAGE_ADJUSTMENT

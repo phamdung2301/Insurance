@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { getUserMessage } from '../utils/messages';
 import { Link, useNavigate } from 'react-router-dom';
-import { FileText, ShieldCheck, Hourglass, Wallet, Plus, RefreshCw } from 'lucide-react';
+import { FileText, ShieldCheck, Hourglass, Wallet, Plus, RefreshCw, AlertTriangle, Download } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { policyService } from '../services/api';
+import { policyService, documentService, downloadBlob } from '../services/api';
 import { StatusBadge, STATUS_META } from '../components/Status';
 import { StatCard, EmptyState, SkeletonCard } from '../components/ui';
 import { FadeIn, Stagger, StaggerItem, TiltCard } from '../components/motion';
-import { formatMoney } from '../utils/format';
+import { formatMoney, formatDate, daysUntilExpiry } from '../utils/format';
 
 /** Lọc trạng thái cho danh sách hợp đồng. */
 const FILTERS = [
@@ -37,7 +38,7 @@ export function CustomerPortalPage() {
       setPolicies(Array.isArray(list) ? list : []);
     } catch (err) {
       setFailed(true);
-      toast.error(err.message || 'Không tải được danh sách hợp đồng.');
+      toast.error(getUserMessage(err, 'Không tải được danh sách hợp đồng.'));
     } finally {
       setLoading(false);
     }
@@ -48,6 +49,21 @@ export function CustomerPortalPage() {
   const active = policies.filter((p) => p.status === 'ACTIVE');
   const pendingPay = policies.filter((p) => p.status === 'BOUND' || p.status === 'QUOTED');
   const paidTotal = active.reduce((s, p) => s + Number(p.totalPremium || 0), 0);
+  // Cảnh báo gia hạn: hợp đồng ACTIVE còn <=60 ngày hiệu lực, sắp hết hạn lên trước.
+  const expiringSoon = active
+    .map((p) => ({ policy: p, days: daysUntilExpiry(p) }))
+    .filter((x) => x.days != null && x.days <= 60)
+    .sort((a, b) => a.days - b.days);
+
+  const downloadCertificate = async (policyNumber) => {
+    try {
+      const res = await documentService.downloadCertificate(policyNumber);
+      downloadBlob(res?.data ?? res, `${policyNumber}-chung-nhan.pdf`);
+      toast.success('Đã tải chứng nhận bảo hiểm.');
+    } catch (err) {
+      toast.error(getUserMessage(err, 'Không tải được chứng nhận. Vui lòng thử lại.'));
+    }
+  };
 
   const shown = statusFilter === 'ALL'
     ? policies
@@ -107,6 +123,25 @@ export function CustomerPortalPage() {
         </StaggerItem>
       </Stagger>
 
+      {/* Cảnh báo gia hạn */}
+      {!loading && expiringSoon.length > 0 && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '1rem 1.1rem', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700, color: '#92400e', marginBottom: '0.5rem' }}>
+            <AlertTriangle size={18} /> Hợp đồng sắp hết hạn
+          </div>
+          <ul style={{ margin: 0, paddingLeft: '1.25rem', color: '#92400e', fontSize: '0.9rem' }}>
+            {expiringSoon.map(({ policy, days }) => (
+              <li key={policy.policyNumber} style={{ marginBottom: '0.25rem' }}>
+                <Link to={`/hop-dong/${policy.policyNumber}`} style={{ fontWeight: 600 }}>{policy.policyNumber}</Link>
+                {' '}hết hạn ngày {formatDate(policy.expiryDate ?? policy.expirationDate)}
+                {days >= 0 ? ` — còn ${days} ngày` : ' — đã quá hạn'}
+                {'; '}vui lòng liên hệ đại lý để gia hạn.
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Danh sách hợp đồng */}
       <div className="page-header" style={{ marginBottom: '1rem' }}>
         <h2 style={{ fontSize: '1.25rem' }}>Hợp đồng của tôi</h2>
@@ -162,10 +197,25 @@ export function CustomerPortalPage() {
                     <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
                       Người được bảo hiểm: <strong style={{ color: 'var(--text-primary)' }}>{p.insured?.name || '—'}</strong>
                     </div>
-                    <div className="stat-value" style={{ margin: '0.5rem 0 1rem' }}>{formatMoney(p.totalPremium)}</div>
-                    <Link className="btn btn-secondary btn-sm" to={`/hop-dong/${p.policyNumber}`}>
-                      Xem chi tiết
-                    </Link>
+                    <div className="stat-value" style={{ margin: '0.5rem 0 0.35rem' }}>{formatMoney(p.totalPremium)}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                      Hết hạn: {formatDate(p.expiryDate ?? p.expirationDate)}
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <Link className="btn btn-secondary btn-sm" to={`/hop-dong/${p.policyNumber}`}>
+                        Xem chi tiết
+                      </Link>
+                      {p.status === 'ACTIVE' && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => downloadCertificate(p.policyNumber)}
+                          title="Tải chứng nhận bảo hiểm (PDF)"
+                        >
+                          <Download size={14} /> Chứng nhận
+                        </button>
+                      )}
+                    </div>
                   </TiltCard>
                 </StaggerItem>
               ))}

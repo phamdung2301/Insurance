@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { reportService } from '../services/api';
 import { useToast } from '../context/ToastContext';
+import { getUserMessage, statusLabel, POLICY_STATUS } from '../utils/messages';
+import { StatusBadge } from '../components/Status';
 import {
   BarChart3,
   TrendingUp,
@@ -16,7 +18,7 @@ import {
 } from 'lucide-react';
 
 export const ReportsPage = () => {
-  const { showToast } = useToast();
+  const { error: toastError } = useToast();
   const [loading, setLoading] = useState(false);
 
   const [statusCounts, setStatusCounts] = useState([]);
@@ -39,7 +41,7 @@ export const ReportsPage = () => {
       setTopPolicies(topRes.data || []);
       setMonthlyPremiums(monthRes.data || []);
     } catch (err) {
-      showToast(err.message || 'Không thể tải báo cáo thống kê MongoDB', 'error');
+      toastError(getUserMessage(err, 'Không thể tải báo cáo thống kê.'));
     } finally {
       setLoading(false);
     }
@@ -87,14 +89,14 @@ export const ReportsPage = () => {
         <div>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
             <span className="badge badge-primary">
-              <BarChart3 size={13} /> Section 4.7: MongoDB Aggregation Reports
+              <BarChart3 size={13} /> Báo cáo quản trị
             </span>
           </div>
           <h1 style={{ fontSize: '1.85rem', fontWeight: 700, margin: 0 }}>
-            Báo cáo Phân tích & Thống kê Hiệu năng Hợp đồng
+            Báo cáo Phân tích & Thống kê Hợp đồng
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: 0 }}>
-            Trực quan hóa 4 báo cáo thống kê tổng hợp xử lý trực tiếp qua MongoDB Aggregation Pipeline ($group, $project, $month, $sort).
+            Theo dõi số lượng và doanh thu hợp đồng theo trạng thái, khách hàng tiềm năng và theo tháng.
           </p>
         </div>
 
@@ -193,7 +195,7 @@ export const ReportsPage = () => {
             {statusCounts.map((item) => (
               <div key={item.status} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                  <span style={{ fontWeight: 600 }}>{item.status}</span>
+                  <span style={{ fontWeight: 600 }}>{statusLabel(POLICY_STATUS, item.status)}</span>
                   <span>
                     <b>{item.count.toLocaleString('vi-VN')}</b> hợp đồng ({item.percentage}%)
                   </span>
@@ -238,7 +240,7 @@ export const ReportsPage = () => {
               return (
                 <div key={item.status} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                    <span style={{ fontWeight: 600 }}>{item.status}</span>
+                    <span style={{ fontWeight: 600 }}>{statusLabel(POLICY_STATUS, item.status)}</span>
                     <span style={{ color: '#10b981', fontWeight: 700 }}>
                       {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.totalPremium)}
                     </span>
@@ -323,7 +325,7 @@ export const ReportsPage = () => {
                   <div>
                     <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{p.insuredName}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      Mã HĐ: {p.policyNumber} • {p.status} • {p.locationCount} địa điểm, {p.coverageCount} quyền lợi
+                      Mã HĐ: {p.policyNumber} • {statusLabel(POLICY_STATUS, p.status)} • {p.locationCount} địa điểm, {p.coverageCount} quyền lợi
                     </div>
                   </div>
                 </div>

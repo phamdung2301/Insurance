@@ -1,6 +1,8 @@
 package com.dungphd.insuranceass.dto.request;
 
+import com.dungphd.insuranceass.util.PasswordPolicy;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -13,11 +15,12 @@ import lombok.NoArgsConstructor;
 @Builder
 public class ChangePasswordRequest {
 
-    @NotBlank(message = "Current password is required")
+    @NotBlank(message = "Vui lòng nhập mật khẩu hiện tại.")
     private String oldPassword;
 
-    @NotBlank(message = "New password is required")
-    @Size(min = 6, max = 50, message = "New password must be between 6 and 50 characters")
+    @NotBlank(message = "Vui lòng nhập mật khẩu mới.")
+    @Size(min = 8, max = 50, message = "Mật khẩu mới phải có độ dài 8–50 ký tự.")
+    @Pattern(regexp = PasswordPolicy.PATTERN, message = PasswordPolicy.VIOLATION_MESSAGE)
     private String newPassword;
 
     private String confirmPassword;

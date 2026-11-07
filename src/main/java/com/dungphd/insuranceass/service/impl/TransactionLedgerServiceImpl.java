@@ -29,7 +29,7 @@ public class TransactionLedgerServiceImpl implements TransactionLedgerService {
     @Override
     public PolicyTransaction recordTransaction(String policyNumber, Integer version, TransactionType type, String actor, String description) {
         if (policyNumber == null || policyNumber.isBlank()) {
-            throw new BadRequestException("Policy number is required to record transaction");
+            throw new BadRequestException("Số hợp đồng là bắt buộc để ghi lịch sử giao dịch.");
         }
 
         PolicyTransaction transaction = PolicyTransaction.builder()

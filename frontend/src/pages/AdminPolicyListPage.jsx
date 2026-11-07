@@ -257,8 +257,8 @@ export function AdminPolicyListPage() {
         ) : backendMissing ? (
           <EmptyState
             icon={<Search size={28} />}
-            title="Tính năng đang hoàn thiện ở backend"
-            desc="Chức năng tìm kiếm hợp đồng cần backend bổ sung. Vui lòng quay lại sau."
+            title="Chưa tải được danh sách hợp đồng"
+            desc="Hệ thống chưa trả được dữ liệu tìm kiếm. Vui lòng thử lại sau."
           />
         ) : policies.length === 0 ? (
           <EmptyState

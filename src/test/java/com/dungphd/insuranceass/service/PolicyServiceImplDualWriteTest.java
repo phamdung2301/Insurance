@@ -106,7 +106,7 @@ class PolicyServiceImplDualWriteTest {
     void agentCreate_writesBothAgentIdAndAssignedEmail() {
         asAgent("tenant-1");
         PolicyResponse response = policyService.createPolicy(
-                CreatePolicyRequest.builder().policyNumber("POL-DW-1").build());
+                CreatePolicyRequest.builder().policyNumber("POL-DW-1").termsAccepted(true).build());
 
         Policy saved = savedPolicy();
         assertEquals("tenant-1", saved.getAgentId());
@@ -120,7 +120,7 @@ class PolicyServiceImplDualWriteTest {
     void agentCreate_ignoresBodyAgentId_contextWins() {
         asAgent("tenant-1");
         policyService.createPolicy(CreatePolicyRequest.builder()
-                .policyNumber("POL-DW-2").agentId("tenant-evil").build());
+                .policyNumber("POL-DW-2").agentId("tenant-evil").termsAccepted(true).build());
         assertEquals("tenant-1", savedPolicy().getAgentId());
     }
 
@@ -129,7 +129,7 @@ class PolicyServiceImplDualWriteTest {
         // Phase 1: agent chưa gán tenant KHÔNG bị fail-closed — policy vẫn tạo,
         // agentId null, assignedAgentEmail vẫn ghi như cũ.
         asAgent(null);
-        policyService.createPolicy(CreatePolicyRequest.builder().policyNumber("POL-DW-3").build());
+        policyService.createPolicy(CreatePolicyRequest.builder().policyNumber("POL-DW-3").termsAccepted(true).build());
         Policy saved = savedPolicy();
         assertNull(saved.getAgentId());
         assertEquals("agent@example.com", saved.getAssignedAgentEmail());
@@ -140,7 +140,7 @@ class PolicyServiceImplDualWriteTest {
         when(permissionService.isAdmin()).thenReturn(true);
         when(agentRepository.existsById("tenant-9")).thenReturn(true);
         policyService.createPolicy(CreatePolicyRequest.builder()
-                .policyNumber("POL-DW-4").agentId("tenant-9").build());
+                .policyNumber("POL-DW-4").agentId("tenant-9").termsAccepted(true).build());
         Policy saved = savedPolicy();
         assertEquals("tenant-9", saved.getAgentId());
         assertNull(saved.getAssignedAgentEmail(), "ADMIN tạo hộ không ép email agent");
@@ -153,7 +153,7 @@ class PolicyServiceImplDualWriteTest {
         // cho ra policy unassigned lặng mà 400, không save.
         when(permissionService.isAdmin()).thenReturn(true);
         assertThrows(BadRequestException.class, () -> policyService.createPolicy(
-                CreatePolicyRequest.builder().policyNumber("POL-DW-5").build()));
+                CreatePolicyRequest.builder().policyNumber("POL-DW-5").termsAccepted(true).build()));
         verify(policyRepository, never()).save(any(Policy.class));
     }
 
@@ -162,7 +162,7 @@ class PolicyServiceImplDualWriteTest {
         when(permissionService.isAdmin()).thenReturn(true);
         when(agentRepository.existsById("tenant-ghost")).thenReturn(false);
         assertThrows(BadRequestException.class, () -> policyService.createPolicy(
-                CreatePolicyRequest.builder().policyNumber("POL-DW-6").agentId("tenant-ghost").build()));
+                CreatePolicyRequest.builder().policyNumber("POL-DW-6").agentId("tenant-ghost").termsAccepted(true).build()));
         verify(policyRepository, never()).save(any(Policy.class));
     }
 
@@ -177,7 +177,7 @@ class PolicyServiceImplDualWriteTest {
         when(permissionService.currentPrincipal()).thenReturn("cust@example.com");
         when(permissionService.hasCustomerRole()).thenReturn(true);
         assertThrows(BadRequestException.class, () -> policyService.createPolicy(
-                CreatePolicyRequest.builder().policyNumber("POL-DW-7").agentId("tenant-1").build()));
+                CreatePolicyRequest.builder().policyNumber("POL-DW-7").agentId("tenant-1").termsAccepted(true).build()));
         verify(policyRepository, never()).save(any(Policy.class));
     }
 
@@ -190,7 +190,7 @@ class PolicyServiceImplDualWriteTest {
         when(permissionService.currentPrincipal()).thenReturn("cust@example.com");
         when(permissionService.hasCustomerRole()).thenReturn(true);
         policyService.createPolicy(CreatePolicyRequest.builder()
-                .policyNumber("POL-DW-7b").agentId("tenant-1").agentSlug("dai-ly-mau").build());
+                .policyNumber("POL-DW-7b").agentId("tenant-1").agentSlug("dai-ly-mau").termsAccepted(true).build());
         assertEquals("agent-1", savedPolicy().getAgentId());
     }
 
@@ -205,7 +205,7 @@ class PolicyServiceImplDualWriteTest {
         when(agentRepository.existsById("tenant-9")).thenReturn(true);
         when(agentRepository.findById("tenant-9")).thenReturn(Optional.empty());
         PolicyResponse response = policyService.createPolicy(
-                CreatePolicyRequest.builder().policyNumber("POL-DW-8").agentId("tenant-9").build());
+                CreatePolicyRequest.builder().policyNumber("POL-DW-8").agentId("tenant-9").termsAccepted(true).build());
         assertEquals("tenant-9", response.getAgentId());
         assertNull(response.getAgentName());
     }

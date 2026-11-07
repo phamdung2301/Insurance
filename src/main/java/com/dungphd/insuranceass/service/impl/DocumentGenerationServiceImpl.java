@@ -135,11 +135,11 @@ public class DocumentGenerationServiceImpl implements DocumentGenerationService 
     @Override
     public byte[] generateInvoicePdf(String policyNumber) {
         if (policyNumber == null || policyNumber.isBlank()) {
-            throw new BadRequestException("Policy number must be provided");
+            throw new BadRequestException("Vui lòng cung cấp số hợp đồng.");
         }
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyNumber));
 
         // Invoice là chứng từ tiền: FINANCE được tải qua checkMoneyRead
         // (ADMIN/UW/FINANCE + bên cầu). Certificate/summary giữ nguyên
@@ -277,7 +277,7 @@ public class DocumentGenerationServiceImpl implements DocumentGenerationService 
     public List<DocumentMetadataDto> getAvailableDocuments(String policyNumber) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyNumber));
 
         if (permissionService != null) {
             permissionService.checkPolicyRead(policy);
@@ -331,12 +331,12 @@ public class DocumentGenerationServiceImpl implements DocumentGenerationService 
 
     private Policy resolvePolicyVersion(String policyNumber, Integer version) {
         if (policyNumber == null || policyNumber.isBlank()) {
-            throw new BadRequestException("Policy number must be provided");
+            throw new BadRequestException("Vui lòng cung cấp số hợp đồng.");
         }
 
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyNumber));
 
         if (permissionService != null) {
             permissionService.checkPolicyRead(policy);

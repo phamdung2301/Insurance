@@ -51,7 +51,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
             response.setHeader("X-RateLimit-Reset", String.valueOf(result.getRetryAfterSeconds()));
 
             String json = String.format(
-                    "{\"success\":false,\"message\":\"Quá nhiều yêu cầu (Too Many Requests). Vui lòng thử lại sau %d giây.\",\"timestamp\":\"%s\"}",
+                    "{\"success\":false,\"code\":\"RATE_LIMITED\",\"message\":\"Quá nhiều yêu cầu. Vui lòng thử lại sau %d giây.\",\"timestamp\":\"%s\"}",
                     result.getRetryAfterSeconds(),
                     Instant.now()
             );

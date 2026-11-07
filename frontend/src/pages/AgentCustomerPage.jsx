@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { getUserMessage } from '../utils/messages';
 import { Link } from 'react-router-dom';
 import { Users, Plus, RefreshCw, Search } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
@@ -74,7 +75,7 @@ export function AgentCustomerPage() {
       const list = d?.content ?? d?.items ?? (Array.isArray(d) ? d : []);
       setPolicies(list);
     } catch (err) {
-      toast.error(err.message || 'Không tải được danh sách khách hàng.');
+      toast.error(getUserMessage(err, 'Không tải được danh sách khách hàng.'));
     } finally {
       setLoading(false);
     }

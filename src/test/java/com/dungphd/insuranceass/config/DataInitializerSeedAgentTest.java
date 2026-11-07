@@ -50,8 +50,12 @@ class DataInitializerSeedAgentTest {
     private AgentRepository agentRepository;
 
     private DataInitializer initializer() {
-        return new DataInitializer(userRepository, policyRepository, policyVersionRepository,
+        DataInitializer di = new DataInitializer(userRepository, policyRepository, policyVersionRepository,
                 policyTransactionRepository, passwordEncoder, agentRepository);
+        // Công tắc seed demo (app.seed.demo-data): unit test chạy logic seed
+        // nên bật tường minh (Spring không inject @Value trong test).
+        org.springframework.test.util.ReflectionTestUtils.setField(di, "seedDemoData", true);
+        return di;
     }
 
     private void stubCountsNonEmpty() {

@@ -17,7 +17,7 @@ public class PolicySearchCriteria {
 
     private PolicyStatus status;
 
-    @jakarta.validation.constraints.Size(max = 100, message = "Insured name must not exceed 100 characters")
+    @jakarta.validation.constraints.Size(max = 100, message = "Tên người được bảo hiểm tối đa 100 ký tự.")
     private String insuredName;
 
     /** Lọc chính xác theo email người được bảo hiểm (dùng cho /policies/mine) */
@@ -56,10 +56,10 @@ public class PolicySearchCriteria {
     /** true → chỉ trả policy có paymentClaimedAt != null (hàng đợi FINANCE, PLAN §1.6) */
     private Boolean paymentClaimedOnly;
 
-    @jakarta.validation.constraints.Size(max = 100, message = "Keyword must not exceed 100 characters")
+    @jakarta.validation.constraints.Size(max = 100, message = "Từ khóa tìm kiếm tối đa 100 ký tự.")
     private String keyword;
 
-    @jakarta.validation.constraints.Size(max = 100, message = "Location must not exceed 100 characters")
+    @jakarta.validation.constraints.Size(max = 100, message = "Địa điểm tối đa 100 ký tự.")
     private String location;
 
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
@@ -68,25 +68,25 @@ public class PolicySearchCriteria {
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
     private Instant effectiveDateTo;
 
-    @jakarta.validation.constraints.Size(max = 100, message = "Policy number must not exceed 100 characters")
+    @jakarta.validation.constraints.Size(max = 100, message = "Số hợp đồng tối đa 100 ký tự.")
     private String policyNumber;
 
-    @jakarta.validation.constraints.Size(max = 100, message = "Coverage code must not exceed 100 characters")
+    @jakarta.validation.constraints.Size(max = 100, message = "Mã quyền lợi tối đa 100 ký tự.")
     private String coverageCode;
 
-    @jakarta.validation.constraints.Size(max = 100, message = "Coverage type must not exceed 100 characters")
+    @jakarta.validation.constraints.Size(max = 100, message = "Loại quyền lợi tối đa 100 ký tự.")
     private String coverageType;
 
     private Double minPremium;
 
     private Double maxPremium;
 
-    @jakarta.validation.constraints.Min(value = 0, message = "Page index must be greater than or equal to 0")
+    @jakarta.validation.constraints.Min(value = 0, message = "Số trang phải lớn hơn hoặc bằng 0.")
     @Builder.Default
     private int page = 0;
 
-    @jakarta.validation.constraints.Min(value = 1, message = "Page size must be at least 1")
-    @jakarta.validation.constraints.Max(value = 100, message = "Page size cannot exceed 100")
+    @jakarta.validation.constraints.Min(value = 1, message = "Kích thước trang tối thiểu là 1.")
+    @jakarta.validation.constraints.Max(value = 100, message = "Kích thước trang tối đa là 100.")
     @Builder.Default
     private int size = 10;
 

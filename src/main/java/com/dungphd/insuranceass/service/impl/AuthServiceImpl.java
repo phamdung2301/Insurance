@@ -150,7 +150,7 @@ public class AuthServiceImpl implements AuthService {
         // thông điệp chung, không tạo trạng thái khóa).
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
             if (email == null || email.isBlank()) {
-                throw new BadRequestException("Email is required for authentication");
+                throw new BadRequestException("Vui lòng nhập email để đăng nhập.");
             }
             if (otpService.isPasswordLocked(email)) {
                 throw new ForbiddenException(ACCOUNT_TEMPORARILY_LOCKED_MESSAGE);
@@ -183,7 +183,7 @@ public class AuthServiceImpl implements AuthService {
 
         // 3. Regular OTP verification mode
         if (email == null || email.isBlank()) {
-            throw new BadRequestException("Email is required for authentication");
+            throw new BadRequestException("Vui lòng nhập email để đăng nhập.");
         }
 
         if (request.getOtp() != null && !request.getOtp().isBlank()) {
@@ -192,7 +192,7 @@ public class AuthServiceImpl implements AuthService {
                 throw new BadRequestException("Mã OTP không chính xác hoặc đã hết hạn.");
             }
         } else {
-            throw new BadRequestException("OTP or Role must be provided for login");
+            throw new BadRequestException("Vui lòng nhập mã OTP để đăng nhập.");
         }
 
         assertNotDisabled(email);
@@ -248,8 +248,11 @@ public class AuthServiceImpl implements AuthService {
         }
         userRepository.findByEmail(email.trim().toLowerCase())
                 .ifPresent(existing -> {
+                    // Dùng CHUNG thông điệp khóa tạm với nhánh mật khẩu để không
+                    // phân biệt được "bị vô hiệu hoá" với "đang khóa tạm" (chống
+                    // enumeration trạng thái tài khoản).
                     if (Boolean.FALSE.equals(existing.getEnabled())) {
-                        throw new ForbiddenException("Tài khoản này đã bị khóa. Vui lòng liên hệ quản trị viên.");
+                        throw new ForbiddenException(ACCOUNT_TEMPORARILY_LOCKED_MESSAGE);
                     }
                 });
     }
@@ -257,11 +260,11 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public UserProfileResponse getMe(String email) {
         if (email == null || email.isBlank()) {
-            throw new BadRequestException("Authenticated email cannot be empty");
+            throw new BadRequestException("Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.");
         }
 
         User user = userRepository.findByEmail(email.trim().toLowerCase())
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with email: " + email));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng với email: " + email));
 
         return UserProfileResponse.builder()
                 .id(user.getId())

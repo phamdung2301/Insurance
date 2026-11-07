@@ -114,13 +114,20 @@ public class PolicyServiceImpl implements PolicyService {
             }
         }
         if (policyRepository.existsByPolicyNumber(request.getPolicyNumber())) {
-            throw new DuplicateResourceException("Policy with number " + request.getPolicyNumber() + " already exists");
+            throw new DuplicateResourceException("Số hợp đồng " + request.getPolicyNumber() + " đã tồn tại. Vui lòng dùng số khác.");
         }
         Instant effectiveDate = request.getEffectiveDate() != null ? request.getEffectiveDate() : Instant.now();
         Instant expirationDate = request.getExpirationDate() != null ? request.getExpirationDate() : effectiveDate.plus(365, java.time.temporal.ChronoUnit.DAYS);
 
         if (effectiveDate.isAfter(expirationDate)) {
-            throw new InvalidRequestException("Effective date must be before expiration date");
+            throw new InvalidRequestException("Ngày hiệu lực phải trước ngày hết hạn.");
+        }
+        // Đồng ý Điều khoản & Chính sách là BẮT BUỘC trước khi tạo hợp đồng
+        // (bước "Xác nhận" của wizard phải tick đồng ý). Server là người giữ
+        // luật — không tin nút bấm của client.
+        if (!Boolean.TRUE.equals(request.getTermsAccepted())) {
+            throw new BadRequestException(
+                    "Bạn cần đọc và đồng ý Điều khoản & Chính sách bảo hiểm trước khi tiếp tục.");
         }
         // Ép theo role (PLAN §1.5): CUSTOMER không tạo hộ người khác; AGENT tạo hộ
         // nhưng assignedAgentEmail luôn là mình. UW/FINANCE/ADMIN giữ nguyên request.
@@ -200,11 +207,15 @@ public class PolicyServiceImpl implements PolicyService {
                 agentId = permissionService.currentTenantId();
             }
         }
+        String termsVersion = request.getTermsVersion() != null && !request.getTermsVersion().isBlank()
+                ? request.getTermsVersion().trim() : null;
         Policy policy = Policy.builder()
                 .policyNumber(request.getPolicyNumber())
                 .status(PolicyStatus.DRAFT)
                 .agentId(agentId)
                 .assignedAgentEmail(assignedAgentEmail)
+                .termsAcceptedAt(Instant.now())
+                .termsVersion(termsVersion)
                 .insured(insured)
                 .locations(request.getLocations() != null ?
                         request.getLocations().stream().map(this::mapToLocation).collect(Collectors.toList()) : new ArrayList<>())
@@ -248,7 +259,7 @@ public class PolicyServiceImpl implements PolicyService {
     @Override
     public Policy createPolicy(Policy policy) {
         if (policy == null) {
-            throw new BadRequestException("Policy data cannot be null");
+            throw new BadRequestException("Dữ liệu hợp đồng không hợp lệ.");
         }
 
         if (policy.getPolicyNumber() == null || policy.getPolicyNumber().isBlank()) {
@@ -256,7 +267,7 @@ public class PolicyServiceImpl implements PolicyService {
         }
 
         if (policyRepository.existsByPolicyNumber(policy.getPolicyNumber())) {
-            throw new BadRequestException("Policy with number " + policy.getPolicyNumber() + " already exists");
+            throw new BadRequestException("Số hợp đồng " + policy.getPolicyNumber() + " đã tồn tại.");
         }
 
         if (policy.getStatus() == null) {
@@ -270,7 +281,7 @@ public class PolicyServiceImpl implements PolicyService {
     @Override
     public PolicyResponse getPolicyByNumber(String policyNumber) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyNumber));
         if (permissionService != null) {
             permissionService.checkPolicyRead(policy);
         }
@@ -280,12 +291,12 @@ public class PolicyServiceImpl implements PolicyService {
     @Override
     public Policy getPolicyById(String policyIdOrNumber) {
         if (policyIdOrNumber == null || policyIdOrNumber.isBlank()) {
-            throw new BadRequestException("Policy ID or Number must be provided");
+            throw new BadRequestException("Vui lòng cung cấp số hợp đồng.");
         }
 
         return policyRepository.findById(policyIdOrNumber)
                 .or(() -> policyRepository.findByPolicyNumber(policyIdOrNumber))
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with ID or PolicyNumber: " + policyIdOrNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyIdOrNumber));
     }
 
     @Override
@@ -425,6 +436,11 @@ public class PolicyServiceImpl implements PolicyService {
             criteriaList.add(Criteria.where("effectiveDate").lte(criteria.getEffectiveDateTo()));
         }
 
+        if (criteria.getMinPremium() != null && criteria.getMaxPremium() != null
+                && criteria.getMinPremium() > criteria.getMaxPremium()) {
+            throw new BadRequestException("Khoảng phí không hợp lệ: phí tối thiểu không được lớn hơn phí tối đa.");
+        }
+
         if (criteria.getMinPremium() != null && criteria.getMaxPremium() != null) {
             criteriaList.add(Criteria.where("totalPremium")
                     .gte(criteria.getMinPremium())
@@ -472,7 +488,7 @@ public class PolicyServiceImpl implements PolicyService {
     @Override
     public PolicyResponse updatePolicy(String policyNumber, UpdatePolicyRequest request) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyNumber));
 
         if (permissionService != null) {
             permissionService.checkPolicyWrite(policy);
@@ -481,14 +497,23 @@ public class PolicyServiceImpl implements PolicyService {
         checkAcceptedNegotiationLock(policy);
 
         if (policy.getStatus() == PolicyStatus.ACTIVE) {
-            throw new InvalidRequestException("Direct modifications are not allowed on ACTIVE policies. Please use the Endorsement process to preserve historical integrity.");
+            throw new InvalidRequestException("Hợp đồng đã có hiệu lực (ACTIVE) không thể sửa trực tiếp. Vui lòng dùng chức năng điều chỉnh hợp đồng (endorsement).");
         }
         if (policy.getStatus() == PolicyStatus.CANCELLED || policy.getStatus() == PolicyStatus.EXPIRED) {
-            throw new InvalidRequestException("Cannot modify policy in " + policy.getStatus() + " status.");
+            throw new InvalidRequestException("Không thể sửa hợp đồng ở trạng thái " + policy.getStatus() + ".");
         }
 
         if (request.getInsured() != null) {
             policy.setInsured(mapToInsured(request.getInsured()));
+            // Chống chiếm quyền hợp đồng: CUSTOMER không được đổi người được bảo hiểm
+            // sang email khác (đổi insured.email = chuyển tay quyền bồi thường, thanh
+            // toán, thương lượng). AGENT/UW/ADMIN giữ hành vi hiện tại.
+            if (permissionService != null && permissionService.hasCustomerRole() && !permissionService.isAdmin()) {
+                String principal = permissionService.currentPrincipal();
+                if (principal != null && policy.getInsured() != null) {
+                    policy.getInsured().setEmail(principal.trim().toLowerCase());
+                }
+            }
         }
         if (request.getEffectiveDate() != null) {
             policy.setEffectiveDate(request.getEffectiveDate());
@@ -499,7 +524,7 @@ public class PolicyServiceImpl implements PolicyService {
 
         if (policy.getEffectiveDate() != null && policy.getExpirationDate() != null
                 && policy.getEffectiveDate().isAfter(policy.getExpirationDate())) {
-            throw new InvalidRequestException("Effective date must be before expiration date");
+            throw new InvalidRequestException("Ngày hiệu lực phải trước ngày hết hạn.");
         }
 
         policy.setVersion(policy.getVersion() != null ? policy.getVersion() + 1 : 2);
@@ -527,14 +552,14 @@ public class PolicyServiceImpl implements PolicyService {
     @Override
     public void deletePolicy(String policyNumber) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number: " + policyNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyNumber));
 
         if (permissionService != null) {
             permissionService.checkPolicyWrite(policy);
         }
 
         if (policy.getStatus() != PolicyStatus.DRAFT) {
-            throw new InvalidRequestException("Only policies in DRAFT status can be deleted. Current status is " + policy.getStatus());
+            throw new InvalidRequestException("Chỉ có thể xoá hợp đồng ở trạng thái nháp (DRAFT). Trạng thái hiện tại: " + policy.getStatus());
         }
 
         transactionLedgerService.recordTransaction(
@@ -552,7 +577,7 @@ public class PolicyServiceImpl implements PolicyService {
     public PolicyResponse claimPayment(String policyNumber, String actor) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyNumber));
         if (permissionService != null) {
             permissionService.checkPolicyWrite(policy);
         }
@@ -575,7 +600,7 @@ public class PolicyServiceImpl implements PolicyService {
                     saved.getVersion(),
                     TransactionType.UPDATE_POLICY,
                     actor,
-                    "Khách hàng khai báo đã chuyển khoản, chờ FINANCE đối soát"
+                    "Khách hàng khai báo đã chuyển khoản, chờ xác nhận thanh toán"
             );
         } catch (Exception e) {
             log.warn("Failed to record ledger for payment claim on policy {}: {}",
@@ -617,7 +642,7 @@ public class PolicyServiceImpl implements PolicyService {
     public PolicyResponse transitionStatus(String policyNumber, StatusTransitionRequest request, String actor) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyNumber));
 
         PolicyStatus currentStatus = policy.getStatus() != null ? policy.getStatus() : PolicyStatus.DRAFT;
         PolicyStatus targetStatus = request.getTargetStatus();
@@ -634,12 +659,12 @@ public class PolicyServiceImpl implements PolicyService {
         // Rule for QUOTED: must have at least 1 Location and each Location must have at least 1 Coverage
         if (targetStatus == PolicyStatus.QUOTED) {
             if (policy.getLocations() == null || policy.getLocations().isEmpty()) {
-                throw new BadRequestException("Policy must contain at least 1 location to transition to QUOTED");
+                throw new BadRequestException("Hợp đồng cần ít nhất 1 địa điểm được bảo hiểm trước khi chuyển sang trạng thái báo giá (QUOTED).");
             }
             boolean allHaveCoverages = policy.getLocations().stream()
                     .allMatch(loc -> loc.getCoverages() != null && !loc.getCoverages().isEmpty());
             if (!allHaveCoverages) {
-                throw new BadRequestException("Each location in policy must have at least 1 coverage to transition to QUOTED");
+                throw new BadRequestException("Mỗi địa điểm cần ít nhất 1 quyền lợi bảo hiểm trước khi chuyển sang trạng thái báo giá (QUOTED).");
             }
         }
 
@@ -812,6 +837,8 @@ public class PolicyServiceImpl implements PolicyService {
                 .agentId(policy.getAgentId())
                 .agentName(resolveAgentName(policy.getAgentId()))
                 .negotiatedPremium(policy.getNegotiatedPremium())
+                .termsAcceptedAt(policy.getTermsAcceptedAt())
+                .termsVersion(policy.getTermsVersion())
                 .paymentClaimedAt(policy.getPaymentClaimedAt())
                 .paymentStatus(policy.getPaymentStatus())
                 .effectiveDate(policy.getEffectiveDate())
@@ -901,14 +928,13 @@ public class PolicyServiceImpl implements PolicyService {
                 .limit(dto.getLimit())
                 .deductible(dto.getDeductible())
                 .termMonths(dto.getTermMonths() != null ? dto.getTermMonths() : 12)
-                .baseRate(dto.getBaseRate())
                 .build();
 
-        if (dto.getPremium() != null && dto.getPremium() > 0 && dto.getBaseRate() != null) {
-            coverage.setPremium(dto.getPremium());
-        } else {
-            coverage.setPremium(premiumCalculationService.calculate(coverage));
-        }
+        // Giá do SERVER quyết định: luôn tính lại theo bảng giá nội bộ,
+        // bỏ qua premium/baseRate do client gửi (chống giả mạo phí bảo hiểm).
+        double serverRate = premiumCalculationService.resolveServerBaseRate(coverage.getCoverageCode());
+        coverage.setBaseRate(serverRate);
+        coverage.setPremium(premiumCalculationService.calculateServerPriced(coverage));
 
         return coverage;
     }

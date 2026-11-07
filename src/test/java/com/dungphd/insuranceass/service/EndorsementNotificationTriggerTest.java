@@ -71,6 +71,14 @@ class EndorsementNotificationTriggerTest {
         ReflectionTestUtils.setField(endorsementService, "permissionService", permissionService);
         ReflectionTestUtils.setField(endorsementService, "notificationService", notificationService);
         ReflectionTestUtils.setField(endorsementService, "pendingEndorsementRepository", pendingEndorsementRepository);
+        // Giá server-authoritative: mock echo premium có sẵn trên entity —
+        // test này kiểm tra trigger notification, không test công thức giá.
+        lenient().when(premiumCalculationService.calculateServerPriced(any(Coverage.class)))
+                .thenAnswer(inv -> {
+                    Coverage c = inv.getArgument(0);
+                    return c != null && c.getPremium() != null ? c.getPremium() : 0.0;
+                });
+        lenient().when(premiumCalculationService.resolveServerBaseRate(any())).thenReturn(0.1);
     }
 
     private EndorsementRequest requestWithNewCoverage(double newPremium) {

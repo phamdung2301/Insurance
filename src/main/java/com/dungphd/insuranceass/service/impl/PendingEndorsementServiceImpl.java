@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -42,8 +43,22 @@ public class PendingEndorsementServiceImpl implements PendingEndorsementService 
         }
         List<PendingEndorsement> allPending =
                 pendingEndorsementRepository.findByStatusOrderByRequestedAtAsc(PendingEndorsementStatus.PENDING);
-        if (permissionService.isUnderwriter() || permissionService.isAdmin()) {
+        if (permissionService.isAdmin()) {
             return allPending;
+        }
+        if (permissionService.isUnderwriter()) {
+            // UW đã gán tenant: chỉ hàng chờ của policy thuộc đại lý mình;
+            // chưa gán tenant = toàn hệ thống.
+            String tenantId = permissionService.currentTenantId();
+            if (tenantId == null || tenantId.isBlank()) {
+                return allPending;
+            }
+            Set<String> tenantPolicyNumbers = policyRepository.findByAgentId(tenantId).stream()
+                    .map(Policy::getPolicyNumber)
+                    .collect(Collectors.toSet());
+            return allPending.stream()
+                    .filter(pending -> tenantPolicyNumbers.contains(pending.getPolicyNumber()))
+                    .collect(Collectors.toList());
         }
 
         // CUSTOMER / AGENT / role khác: chỉ pending của policy trong phạm vi
@@ -131,7 +146,7 @@ public class PendingEndorsementServiceImpl implements PendingEndorsementService 
 
     private PendingEndorsement loadPendingOrThrow(String pendingId) {
         return pendingEndorsementRepository.findById(pendingId)
-                .orElseThrow(() -> new ResourceNotFoundException("Pending endorsement not found: " + pendingId));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy yêu cầu điều chỉnh đang chờ: " + pendingId));
     }
 
     private Policy findPolicy(String policyNumber) {

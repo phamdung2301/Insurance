@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { getUserMessage } from '../utils/messages';
 import { Navigate } from 'react-router-dom';
 import { Mail, KeyRound, ShieldCheck, Hammer, BadgeCheck, Clock3, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -237,7 +238,7 @@ function OtpForm() {
       toast.success('Đã gửi mã OTP. Vui lòng kiểm tra hộp thư email của bạn.');
       setTimeout(() => focusBox(0), 100);
     } catch (err) {
-      toast.error(err.message || 'Không gửi được mã OTP. Vui lòng thử lại.');
+      toast.error(getUserMessage(err, 'Không gửi được mã OTP. Vui lòng thử lại.'));
     } finally {
       setSending(false);
     }
@@ -278,7 +279,7 @@ function OtpForm() {
       toast.success('Đăng nhập thành công.');
       // AuthContext tự điều hướng sau khi đăng nhập
     } catch (err) {
-      toast.error(err.message || 'Mã OTP không đúng hoặc đã hết hạn.');
+      toast.error(getUserMessage(err, 'Mã OTP không đúng hoặc đã hết hạn.'));
     } finally {
       setVerifying(false);
     }
@@ -385,7 +386,7 @@ function PasswordForm() {
       toast.success('Đăng nhập thành công.');
       // AuthContext tự điều hướng sau khi đăng nhập
     } catch (err) {
-      toast.error(err.message || 'Email hoặc mật khẩu không đúng.');
+      toast.error(getUserMessage(err, 'Email hoặc mật khẩu không đúng.'));
     } finally {
       setBusy(false);
     }
@@ -462,7 +463,7 @@ function DevForm() {
       await devLogin(email, fullName, role);
       toast.success('Đăng nhập thành công.');
     } catch (err) {
-      toast.error(err.message || 'Đăng nhập thất bại. Vui lòng thử lại.');
+      toast.error(getUserMessage(err, 'Đăng nhập thất bại. Vui lòng thử lại.'));
     } finally {
       setBusy(false);
     }

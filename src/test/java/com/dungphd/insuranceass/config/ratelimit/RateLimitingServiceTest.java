@@ -33,7 +33,8 @@ class RateLimitingServiceTest {
     }
 
     @Test
-    void resolveClientIp_PrefersXForwardedFor() {
+    void resolveClientIp_TrustProxyOn_PrefersXForwardedFor() {
+        ReflectionTestUtils.setField(rateLimitingService, "trustProxy", true);
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("X-Forwarded-For", "203.0.113.195, 70.41.3.18");
         request.setRemoteAddr("10.0.0.1");
@@ -43,7 +44,8 @@ class RateLimitingServiceTest {
     }
 
     @Test
-    void resolveClientIp_FallsBackToXRealIp() {
+    void resolveClientIp_TrustProxyOn_FallsBackToXRealIp() {
+        ReflectionTestUtils.setField(rateLimitingService, "trustProxy", true);
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("X-Real-IP", "198.51.100.22");
         request.setRemoteAddr("10.0.0.1");
@@ -53,12 +55,36 @@ class RateLimitingServiceTest {
     }
 
     @Test
-    void resolveClientIp_FallsBackToRemoteAddr() {
+    void resolveClientIp_TrustProxyOn_FallsBackToRemoteAddr() {
+        ReflectionTestUtils.setField(rateLimitingService, "trustProxy", true);
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setRemoteAddr("192.168.1.50");
 
         String ip = rateLimitingService.resolveClientIp(request);
         assertEquals("192.168.1.50", ip);
+    }
+
+    /**
+     * trust-proxy=false (mặc định): header X-Forwarded-For do client tự gửi
+     * phải bị bỏ qua — dùng remoteAddr, chặn giả mạo header xoay IP vượt
+     * rate limit / làm nhiễn nhật ký.
+     */
+    @Test
+    void resolveClientIp_TrustProxyOff_IgnoresSpoofedForwardingHeaders() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-Forwarded-For", "203.0.113.195, 70.41.3.18");
+        request.addHeader("X-Real-IP", "198.51.100.22");
+        request.setRemoteAddr("10.0.0.1");
+
+        String ip = rateLimitingService.resolveClientIp(request);
+        assertEquals("10.0.0.1", ip);
+    }
+
+    @Test
+    void resolveTier_UploadRequestsGetUploadTier() {
+        assertEquals(RateLimitingService.RequestTier.UPLOAD, rateLimitingService.resolveTier("/claims"));
+        assertEquals(RateLimitingService.RequestTier.UPLOAD, rateLimitingService.resolveTier("/api/claims/abc/photos"));
+        assertEquals(RateLimitingService.RequestTier.GENERAL, rateLimitingService.resolveTier("/policies"));
     }
 
     @Test

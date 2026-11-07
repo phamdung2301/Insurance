@@ -20,6 +20,9 @@ public class OtpService {
     private static final long OTP_VALIDITY_SECONDS = 300; // 5 minutes TTL
     private static final int MAX_FAILED_ATTEMPTS = 5;
     private static final long COOLDOWN_SECONDS = 60; // 60s resend cooldown
+    /** Chống email bombing: tối đa số mã OTP gửi cho MỘT địa chỉ nhận trong 24 giờ. */
+    private static final int MAX_OTP_PER_DAY_PER_EMAIL = 10;
+    private static final long DAY_MILLIS = 24L * 60 * 60 * 1000;
 
     /**
      * Khóa đăng nhập bằng mật khẩu (đợt 1A, L5). ĐÍNH CHÍNH so với giả định
@@ -39,6 +42,7 @@ public class OtpService {
     private final SecureRandom secureRandom = new SecureRandom();
     private final Map<String, OtpEntry> otpCache = new ConcurrentHashMap<>();
     private final Map<String, Instant> cooldownCache = new ConcurrentHashMap<>();
+    private final Map<String, java.util.Deque<Instant>> otpSendTimestamps = new ConcurrentHashMap<>();
 
     private record OtpEntry(String code, Instant expiresAt, AtomicInteger failedAttempts) {
         boolean isExpired() {
@@ -61,12 +65,25 @@ public class OtpService {
             throw new BadRequestException("Vui lòng đợi " + Math.max(1, remainingSeconds) + " giây trước khi yêu cầu gửi lại mã OTP mới.");
         }
 
+        // Chống email bombing (quấy rối địa chỉ thư thứ ba): giới hạn số mã
+        // OTP gửi cho mỗi địa chỉ nhận trong khung 24 giờ, độc lập với IP.
+        java.util.Deque<Instant> sentTimestamps =
+                otpSendTimestamps.computeIfAbsent(normalizedEmail, k -> new java.util.concurrent.ConcurrentLinkedDeque<>());
+        Instant dayAgo = Instant.now().minusMillis(DAY_MILLIS);
+        while (!sentTimestamps.isEmpty() && sentTimestamps.peekFirst().isBefore(dayAgo)) {
+            sentTimestamps.pollFirst();
+        }
+        if (sentTimestamps.size() >= MAX_OTP_PER_DAY_PER_EMAIL) {
+            throw new BadRequestException("Địa chỉ email này đã yêu cầu quá nhiều mã OTP trong ngày. Vui lòng thử lại sau 24 giờ.");
+        }
+
         int number = secureRandom.nextInt(1_000_000);
         String code = String.format("%0" + OTP_LENGTH + "d", number);
 
         Instant expiresAt = Instant.now().plusSeconds(OTP_VALIDITY_SECONDS);
         otpCache.put(normalizedEmail, new OtpEntry(code, expiresAt, new AtomicInteger(0)));
         cooldownCache.put(normalizedEmail, Instant.now().plusSeconds(COOLDOWN_SECONDS));
+        sentTimestamps.addLast(Instant.now());
 
         log.info("Generated OTP for email {} (Expires in {}s)", normalizedEmail, OTP_VALIDITY_SECONDS);
         return code;

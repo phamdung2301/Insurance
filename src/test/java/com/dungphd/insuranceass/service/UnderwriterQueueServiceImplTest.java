@@ -39,6 +39,9 @@ class UnderwriterQueueServiceImplTest {
     @Mock
     private PriceNegotiationRepository negotiationRepository;
 
+    @Mock
+    private com.dungphd.insuranceass.repository.PolicyRepository policyRepository;
+
     private final PermissionService permissionService = new PermissionService();
 
     private UnderwriterQueueServiceImpl service;
@@ -46,7 +49,7 @@ class UnderwriterQueueServiceImplTest {
     @BeforeEach
     void setUp() {
         SecurityContextHolder.clearContext();
-        service = new UnderwriterQueueServiceImpl(negotiationRepository, permissionService);
+        service = new UnderwriterQueueServiceImpl(negotiationRepository, policyRepository, permissionService);
     }
 
     @AfterEach

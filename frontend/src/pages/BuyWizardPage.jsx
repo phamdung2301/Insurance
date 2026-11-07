@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { getUserMessage } from '../utils/messages';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Flame, Scale, HardHat, Truck, MapPin, Plus, Trash2,
-  ArrowLeft, ArrowRight, Check, Save, Send,
+  ArrowLeft, ArrowRight, Check, Save, Send, FileText,
 } from 'lucide-react';
+import { TERMS_VERSION, TERMS_SECTIONS } from '../config/legal';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { policyService, publicAgentService, excelService } from '../services/api';
@@ -101,6 +103,9 @@ export function BuyWizardPage() {
   // policy server vẫn báo lỗi rõ ràng); không có agentRef → picker chọn
   // đại lý (server vẫn 400 nếu cố tạo khi chưa chọn — Q3 cấm mua vãng lai).
   const [agentRef] = useState(() => getAgentRef());
+  // Điều khoản & chính sách: bắt buộc tick đồng ý ở bước Xác nhận trước khi
+  // gửi yêu cầu (server chặn 400 nếu thiếu — không tin nút bấm).
+  const [termsAgreed, setTermsAgreed] = useState(false);
   const [agentBanner, setAgentBanner] = useState(null); // { name } | { dead: true } | null
   useEffect(() => {
     if (!agentRef) return;
@@ -274,6 +279,8 @@ export function BuyWizardPage() {
   };
 
   const buildPayload = () => ({
+    termsAccepted: termsAgreed === true,
+    termsVersion: termsAgreed ? TERMS_VERSION : null,
     policyNumber: genPolicyNumber(),
     // Track C: gửi kèm slug đại lý từ agentRef — server resolve + validate
     // (chỉ ACTIVE), gắn agentId, bỏ qua mọi agentId client gửi. Wizard đã
@@ -338,7 +345,7 @@ export function BuyWizardPage() {
       toast.success(`Đã lưu bản nháp hợp đồng ${n}.`);
       navigate(`/hop-dong/${n}`);
     } catch (err) {
-      toast.error(err.message || 'Không lưu được bản nháp.');
+      toast.error(getUserMessage(err, 'Không lưu được bản nháp.'));
     }
   };
 
@@ -353,12 +360,12 @@ export function BuyWizardPage() {
         if (isBackendMissing(tErr)) {
           toast.info('Đã lưu bản nháp. Backend chưa hỗ trợ chuyển trạng thái tự động.');
         } else {
-          toast.error(tErr.message || 'Không gửi được yêu cầu báo giá.');
+          toast.error(getUserMessage(tErr, 'Không gửi được yêu cầu báo giá.'));
         }
       }
       navigate(`/hop-dong/${n}`);
     } catch (err) {
-      toast.error(err.message || 'Không tạo được hợp đồng.');
+      toast.error(getUserMessage(err, 'Không tạo được hợp đồng.'));
     }
   };
 
@@ -648,16 +655,57 @@ export function BuyWizardPage() {
             Phí trên là ước tính, có thể thay đổi khi thẩm định. Bản nháp có thể chỉnh sửa sau.
           </p>
 
+          {/* Điều khoản & chính sách — bắt buộc đọc + đồng ý trước khi gửi
+              yêu cầu báo giá (cổng vào bước thanh toán) */}
+          <div style={{ border: '1px solid var(--border-subtle)', borderRadius: '10px', padding: '1rem 1.1rem', marginBottom: '1.25rem' }}>
+            <h4 style={{ marginTop: 0, marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+              <FileText size={16} /> Điều khoản &amp; Chính sách bảo hiểm
+              <span className="badge badge-info">{TERMS_VERSION}</span>
+            </h4>
+            <div style={{ maxHeight: 240, overflowY: 'auto', fontSize: '0.85rem', color: 'var(--text-secondary)', padding: '0.75rem 0.95rem', background: 'rgba(0,0,0,0.06)', borderRadius: '8px' }}>
+              {TERMS_SECTIONS.map((sec) => (
+                <div key={sec.title} style={{ marginBottom: '0.9rem' }}>
+                  <strong style={{ color: 'var(--text-primary)' }}>{sec.title}</strong>
+                  {sec.body.map((p, i) => <p key={i} style={{ margin: '0.35rem 0 0' }}>{p}</p>)}
+                </div>
+              ))}
+            </div>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.55rem', marginTop: '0.8rem', fontSize: '0.9rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={termsAgreed}
+                onChange={(e) => setTermsAgreed(e.target.checked)}
+                style={{ marginTop: '0.2rem' }}
+              />
+              <span>
+                Tôi đã đọc, hiểu và đồng ý <strong>Điều khoản &amp; Chính sách bảo hiểm</strong> (phiên bản {TERMS_VERSION}),
+                cam kết thông tin khai báo trung thực và chấp nhận quy trình bồi thường, thanh toán, bảo vệ dữ liệu nêu trên.
+              </span>
+            </label>
+          </div>
+
           <div className="wizard-actions" style={{ marginTop: 0 }}>
             <button type="button" className="btn btn-secondary" onClick={back} disabled={saving}>
               <ArrowLeft size={16} /> Quay lại
             </button>
             <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap' }}>
-              <button type="button" className="btn btn-ghost" onClick={saveDraft} disabled={saving}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={saveDraft}
+                disabled={saving || !termsAgreed}
+                title={termsAgreed ? undefined : 'Hãy đọc và đồng ý Điều khoản & Chính sách trước'}
+              >
                 {saving ? <span className="spinner" /> : <Save size={16} />}
                 Lưu nháp
               </button>
-              <button type="button" className="btn btn-primary" onClick={requestQuote} disabled={saving}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={requestQuote}
+                disabled={saving || !termsAgreed}
+                title={termsAgreed ? undefined : 'Hãy đọc và đồng ý Điều khoản & Chính sách trước'}
+              >
                 {saving ? <span className="spinner" /> : <Send size={16} />}
                 Gửi yêu cầu báo giá
               </button>

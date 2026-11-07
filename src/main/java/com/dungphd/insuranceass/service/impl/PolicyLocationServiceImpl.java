@@ -10,6 +10,7 @@ import com.dungphd.insuranceass.model.Policy;
 import com.dungphd.insuranceass.model.PolicyStatus;
 import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.service.PolicyLocationService;
+import com.dungphd.insuranceass.service.PremiumCalculationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,7 @@ import java.util.stream.Collectors;
 public class PolicyLocationServiceImpl implements PolicyLocationService {
 
     private final PolicyRepository policyRepository;
+    private final PremiumCalculationService premiumCalculationService;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.dungphd.insuranceass.service.TransactionLedgerService transactionLedgerService;
@@ -67,7 +69,7 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
             boolean exists = policy.getLocations().stream()
                     .anyMatch(loc -> requestedId == loc.getLocationId());
             if (exists) {
-                throw new BadRequestException("Location with ID " + requestedId + " already exists in policy " + policy.getPolicyNumber());
+                throw new BadRequestException("Địa điểm số " + requestedId + " đã tồn tại trong hợp đồng " + policy.getPolicyNumber());
             }
             newLocationId = requestedId;
         } else {
@@ -84,6 +86,7 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
         if (locationDto.getCoverages() != null) {
             coverages = locationDto.getCoverages().stream()
                     .map(CoverageDto::toEntity)
+                    .peek(this::applyServerPricing)
                     .collect(Collectors.toList());
         }
 
@@ -125,6 +128,7 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
         if (locationDto.getCoverages() != null) {
             List<Coverage> updatedCoverages = locationDto.getCoverages().stream()
                     .map(CoverageDto::toEntity)
+                    .peek(this::applyServerPricing)
                     .collect(Collectors.toList());
             existingLocation.setCoverages(updatedCoverages);
         }
@@ -151,12 +155,12 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
         validatePolicyModifiable(policy);
 
         if (policy.getLocations() == null || policy.getLocations().isEmpty()) {
-            throw new ResourceNotFoundException("Location with ID " + locationId + " not found in policy " + policy.getPolicyNumber());
+            throw new ResourceNotFoundException("Không tìm thấy địa điểm số " + locationId + " trong hợp đồng " + policy.getPolicyNumber());
         }
 
         boolean removed = policy.getLocations().removeIf(loc -> locationId.equals(loc.getLocationId()));
         if (!removed) {
-            throw new ResourceNotFoundException("Location with ID " + locationId + " not found in policy " + policy.getPolicyNumber());
+            throw new ResourceNotFoundException("Không tìm thấy địa điểm số " + locationId + " trong hợp đồng " + policy.getPolicyNumber());
         }
 
         policy.recalculateTotalPremium();
@@ -177,7 +181,7 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
 
     private Policy findPolicy(String policyIdOrNumber) {
         if (policyIdOrNumber == null || policyIdOrNumber.isBlank()) {
-            throw new BadRequestException("Policy ID or policyNumber must be provided");
+            throw new BadRequestException("Vui lòng cung cấp số hợp đồng.");
         }
 
         // Try MongoDB ObjectId / String ID first
@@ -188,22 +192,22 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
 
         // Try business policyNumber
         return policyRepository.findByPolicyNumber(policyIdOrNumber)
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with ID or PolicyNumber: " + policyIdOrNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyIdOrNumber));
     }
 
     private Location findLocationInPolicy(Policy policy, Integer locationId) {
         if (locationId == null) {
-            throw new BadRequestException("Location ID must be provided");
+            throw new BadRequestException("Vui lòng cung cấp mã địa điểm.");
         }
 
         if (policy.getLocations() == null || policy.getLocations().isEmpty()) {
-            throw new ResourceNotFoundException("No locations found in policy " + policy.getPolicyNumber());
+            throw new ResourceNotFoundException("Hợp đồng " + policy.getPolicyNumber() + " chưa có địa điểm nào.");
         }
 
         return policy.getLocations().stream()
                 .filter(loc -> locationId.equals(loc.getLocationId()))
                 .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("Location with ID " + locationId + " not found in policy " + policy.getPolicyNumber()));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy địa điểm số " + locationId + " trong hợp đồng " + policy.getPolicyNumber()));
     }
 
     private void validatePolicyModifiable(Policy policy) {
@@ -220,6 +224,16 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
                     || negotiationRepository.existsByPolicyNumberAndStatus(policy.getPolicyNumber(), com.dungphd.insuranceass.model.NegotiationStatus.PENDING_CONFIRMATION))) {
             throw new BadRequestException("Giá hợp đồng đã chốt hoặc đang chờ xác nhận qua thương lượng, không được sửa đổi phí khi còn ở trạng thái QUOTED.");
         }
+    }
+
+    /**
+     * Giá do SERVER quyết định: luôn tính lại premium theo bảng giá nội bộ,
+     * bỏ qua premium/baseRate client gửi (chống giả mạo phí bảo hiểm).
+     */
+    private void applyServerPricing(Coverage coverage) {
+        if (coverage == null) return;
+        coverage.setBaseRate(premiumCalculationService.resolveServerBaseRate(coverage.getCoverageCode()));
+        coverage.setPremium(premiumCalculationService.calculateServerPriced(coverage));
     }
 
     private void checkRead(Policy policy) {

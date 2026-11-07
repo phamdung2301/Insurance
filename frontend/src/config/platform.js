@@ -13,13 +13,15 @@
  * Lưu ý: các placeholder liên hệ được hiển thị dạng TEXT, không gắn
  * mailto:/link Zalo, cho tới khi user điền giá trị thật.
  */
-export const PLATFORM_NAME = '[Tên nền tảng]';
+export const PLATFORM_NAME = 'InsurTech';
 
-export const PLATFORM_SLOGAN = '[Slogan nền tảng]';
+export const PLATFORM_SLOGAN = 'Bảo hiểm tài sản trực tuyến — minh bạch, nhanh chóng, đúng giá';
 
-export const PLATFORM_CONTACT_EMAIL = '[Email liên hệ]';
+// LIÊN HỆ để RỖNG cho tới khi có thông tin thật — nơi hiển thị phải ẩn dòng
+// liên hệ khi giá trị rỗng (không hiện placeholder cho người dùng).
+export const PLATFORM_CONTACT_EMAIL = '';
 
-export const PLATFORM_CONTACT_ZALO = '[Zalo liên hệ]';
+export const PLATFORM_CONTACT_ZALO = '';
 
 /** Neo tới mục Hỗ trợ trên landing nền tảng (route `/`). */
 export const PLATFORM_SUPPORT_LINK = '/#ho-tro';

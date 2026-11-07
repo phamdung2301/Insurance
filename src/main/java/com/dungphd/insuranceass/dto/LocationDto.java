@@ -21,7 +21,7 @@ public class LocationDto {
 
     private Integer locationId;
 
-    @NotBlank(message = "Address is required")
+    @NotBlank(message = "Địa chỉ được bảo hiểm là bắt buộc.")
     private String address;
 
     @Valid

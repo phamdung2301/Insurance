@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { getUserMessage, statusLabel, CLAIM_STATUS } from '../utils/messages';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ShieldAlert, Plus, Search, Filter, RefreshCw, FileText,
@@ -61,7 +62,7 @@ export function ClaimsPage() {
       setTotalElements(totalEl);
     } catch (err) {
       console.error(err);
-      toast.error(err.message || 'Không thể tải danh sách yêu cầu bồi thường.');
+      toast.error(getUserMessage(err, 'Không thể tải danh sách yêu cầu bồi thường.'));
     } finally {
       setLoading(false);
     }
@@ -78,7 +79,7 @@ export function ClaimsPage() {
   };
 
   const getStatusBadge = (status) => {
-    const cfg = STATUS_CONFIG[status] || { label: status, color: '#64748b', bg: '#f1f5f9' };
+    const cfg = STATUS_CONFIG[status] || { label: statusLabel(CLAIM_STATUS, status), color: '#64748b', bg: '#f1f5f9' };
     return (
       <span style={{
         display: 'inline-flex',

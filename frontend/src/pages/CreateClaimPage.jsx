@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { getUserMessage } from '../utils/messages';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import {
   ShieldAlert, ArrowLeft, Upload, Trash2, Image,
@@ -212,7 +213,7 @@ export function CreateClaimPage() {
       navigate(`/claims/${res.id || (res.data && res.data.id)}`);
     } catch (err) {
       console.error(err);
-      toast.error(err.message || 'Không thể tạo yêu cầu bồi thường. Vui lòng kiểm tra lại quyền hạn hoặc trạng thái hợp đồng.');
+      toast.error(getUserMessage(err, 'Không thể tạo yêu cầu bồi thường. Vui lòng kiểm tra lại quyền hạn hoặc trạng thái hợp đồng.'));
     } finally {
       setSubmitting(false);
     }

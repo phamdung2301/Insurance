@@ -19,6 +19,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -256,17 +257,31 @@ public class ClaimServiceImpl implements ClaimService {
         if (principal == null) {
             throw new ForbiddenException("Bạn không có quyền xem yêu cầu bồi thường này.");
         }
-        if (permissionService.isAdmin() || permissionService.isUnderwriter()) {
+        if (permissionService.isAdmin()) {
             return;
+        }
+        // UNDERWRITER: chưa gán tenant = xem toàn hệ thống; đã gán tenant thì
+        // chỉ xem claim của hợp đồng thuộc đại lý mình.
+        if (permissionService.isUnderwriter()) {
+            Policy uwPolicy = policyRepository.findByPolicyNumber(claim.getPolicyNumber()).orElse(null);
+            if (uwPolicy != null && permissionService.tenantMatches(uwPolicy)) {
+                return;
+            }
         }
         if (claim.getClaimantEmail() != null && claim.getClaimantEmail().trim().equalsIgnoreCase(principal.trim())) {
             return;
         }
 
         Policy policy = policyRepository.findByPolicyNumber(claim.getPolicyNumber()).orElse(null);
-        if (policy != null && policy.getAssignedAgentEmail() != null
-                && policy.getAssignedAgentEmail().trim().equalsIgnoreCase(principal.trim())) {
-            return;
+        if (policy != null) {
+            // AGENT theo tenant membership (agentId) + fallback legacy email cũ.
+            if (permissionService.hasAgentRole() && permissionService.isTenantMember(policy)) {
+                return;
+            }
+            if (policy.getAssignedAgentEmail() != null
+                    && policy.getAssignedAgentEmail().trim().equalsIgnoreCase(principal.trim())) {
+                return;
+            }
         }
 
         throw new ForbiddenException("Bạn không có quyền xem yêu cầu bồi thường này.");
@@ -289,6 +304,21 @@ public class ClaimServiceImpl implements ClaimService {
 
         if (request.getClaimedAmount() == null || request.getClaimedAmount() <= 0) {
             throw new BadRequestException("Số tiền yêu cầu bồi thường phải lớn hơn 0.");
+        }
+        // Chống giả mạo số tiền: trần bồi thường = tổng số tiền bảo hiểm (limit)
+        // của các quyền lợi trên hợp đồng — không tin con số client tự khai.
+        double coverageLimitSum = sumCoverageLimits(policy);
+        if (coverageLimitSum > 0 && request.getClaimedAmount() > coverageLimitSum) {
+            throw new BadRequestException(String.format(
+                    "Số tiền yêu cầu bồi thường (%s VND) vượt quá tổng số tiền bảo hiểm của hợp đồng (%s VND).",
+                    formatVnd(request.getClaimedAmount()), formatVnd(coverageLimitSum)));
+        }
+        // Chống gửi trùng/lặp: một hợp đồng chỉ được có MỘT yêu cầu bồi thường
+        // đang mở (chưa có kết quả) tại một thời điểm.
+        List<ClaimStatus> openStatuses = List.of(ClaimStatus.SUBMITTED, ClaimStatus.UNDER_REVIEW, ClaimStatus.APPROVED);
+        if (claimRepository.existsByPolicyNumberAndStatusIn(policy.getPolicyNumber(), openStatuses)) {
+            throw new BadRequestException("Hợp đồng này đang có một yêu cầu bồi thường đang được xử lý. "
+                    + "Vui lòng chờ yêu cầu hiện tại có kết quả trước khi tạo yêu cầu mới.");
         }
         if (request.getDamageDescription() == null || request.getDamageDescription().isBlank()) {
             throw new BadRequestException("Mô tả chi tiết thiệt hại là bắt buộc.");
@@ -379,21 +409,36 @@ public class ClaimServiceImpl implements ClaimService {
 
     @Override
     public Page<ClaimResponse> listClaims(ClaimStatus status, String policyNumber, Pageable pageable) {
+        // Chống truy vấn khổng lồ: clamp page size về tối đa 100.
+        if (pageable.getPageSize() > 100) {
+            pageable = PageRequest.of(pageable.getPageNumber(), 100, pageable.getSort());
+        }
         String principal = permissionService.currentPrincipal();
         if (principal == null) {
             throw new ForbiddenException("Vui lòng đăng nhập.");
         }
 
-        if (permissionService.isAdmin() || permissionService.isUnderwriter()) {
-            if (policyNumber != null && !policyNumber.isBlank()) {
-                return claimRepository.findByPolicyNumberOrderByCreatedAtDesc(policyNumber.trim(), pageable)
-                        .map(this::mapToResponse);
+        if (permissionService.isAdmin()) {
+            return listGlobal(status, policyNumber, pageable);
+        }
+
+        // UNDERWRITER: chưa gán tenant = global; đã gán tenant = chỉ claim của
+        // hợp đồng thuộc đại lý đó (policy.agentId == TenantContext).
+        if (permissionService.isUnderwriter()) {
+            String tenantId = permissionService.currentTenantId();
+            if (tenantId == null || tenantId.isBlank()) {
+                return listGlobal(status, policyNumber, pageable);
+            }
+            List<String> tenantPolicyNumbers = policyRepository.findByAgentId(tenantId).stream()
+                    .map(Policy::getPolicyNumber).toList();
+            if (tenantPolicyNumbers.isEmpty()) {
+                return Page.empty(pageable);
             }
             if (status != null) {
-                return claimRepository.findByStatusOrderByCreatedAtDesc(status, pageable)
+                return claimRepository.findByPolicyNumberInAndStatusOrderByCreatedAtDesc(tenantPolicyNumbers, status, pageable)
                         .map(this::mapToResponse);
             }
-            return claimRepository.findAllByOrderByCreatedAtDesc(pageable)
+            return claimRepository.findByPolicyNumberInOrderByCreatedAtDesc(tenantPolicyNumbers, pageable)
                     .map(this::mapToResponse);
         }
 
@@ -407,11 +452,18 @@ public class ClaimServiceImpl implements ClaimService {
         }
 
         if (permissionService.hasAgentRole()) {
-            List<Policy> agentPolicies = policyRepository.findByAssignedAgentEmail(principal);
-            List<String> policyNumbers = agentPolicies.stream().map(Policy::getPolicyNumber).toList();
-            if (policyNumbers.isEmpty()) {
+            // Scope tenant mới (agentId) + fallback legacy assignedAgentEmail
+            // cho dữ liệu cũ chưa được migration agentId. Dedupe theo số HĐ.
+            LinkedHashSet<String> distinctNumbers = new LinkedHashSet<>();
+            String tenantId = permissionService.currentTenantId();
+            if (tenantId != null && !tenantId.isBlank()) {
+                policyRepository.findByAgentId(tenantId).forEach(p -> distinctNumbers.add(p.getPolicyNumber()));
+            }
+            policyRepository.findByAssignedAgentEmail(principal).forEach(p -> distinctNumbers.add(p.getPolicyNumber()));
+            if (distinctNumbers.isEmpty()) {
                 return Page.empty(pageable);
             }
+            List<String> policyNumbers = new ArrayList<>(distinctNumbers);
             if (status != null) {
                 return claimRepository.findByPolicyNumberInAndStatusOrderByCreatedAtDesc(policyNumbers, status, pageable)
                         .map(this::mapToResponse);
@@ -421,6 +473,20 @@ public class ClaimServiceImpl implements ClaimService {
         }
 
         return Page.empty(pageable);
+    }
+
+    /** Danh sách claim toàn hệ thống (ADMIN, hoặc UW chưa gán tenant), có filter status/policyNumber. */
+    private Page<ClaimResponse> listGlobal(ClaimStatus status, String policyNumber, Pageable pageable) {
+        if (policyNumber != null && !policyNumber.isBlank()) {
+            return claimRepository.findByPolicyNumberOrderByCreatedAtDesc(policyNumber.trim(), pageable)
+                    .map(this::mapToResponse);
+        }
+        if (status != null) {
+            return claimRepository.findByStatusOrderByCreatedAtDesc(status, pageable)
+                    .map(this::mapToResponse);
+        }
+        return claimRepository.findAllByOrderByCreatedAtDesc(pageable)
+                .map(this::mapToResponse);
     }
 
     @Override
@@ -469,10 +535,10 @@ public class ClaimServiceImpl implements ClaimService {
 
     @Override
     public ClaimResponse reviewClaim(String claimId) {
-        checkAdmin();
         String principal = permissionService.currentPrincipal();
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy yêu cầu bồi thường: " + claimId));
+        checkClaimHandler(claim);
 
         if (claim.getStatus() != ClaimStatus.SUBMITTED) {
             throw new BadRequestException("Chỉ có thể chuyển sang Đang xem xét từ trạng thái SUBMITTED (trạng thái hiện tại: " + claim.getStatus() + ").");
@@ -505,10 +571,10 @@ public class ClaimServiceImpl implements ClaimService {
      */
     @Override
     public ClaimResponse intakeClaim(String claimId) {
-        checkStaff();
         String principal = permissionService.currentPrincipal();
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy yêu cầu bồi thường: " + claimId));
+        checkClaimHandler(claim);
 
         if (claim.getStatus() != ClaimStatus.SUBMITTED) {
             throw new BadRequestException("Chỉ có thể tiếp nhận thẩm định từ trạng thái SUBMITTED (trạng thái hiện tại: " + claim.getStatus() + ").");
@@ -536,10 +602,12 @@ public class ClaimServiceImpl implements ClaimService {
 
     @Override
     public ClaimResponse approveClaim(String claimId, ApproveClaimRequest request) {
-        checkAdmin();
         String principal = permissionService.currentPrincipal();
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy yêu cầu bồi thường: " + claimId));
+        // Nghiệp vụ mới: thẩm định viên (theo tenant) là người duyệt/từ chối;
+        // ADMIN giữ quyền override nền tảng.
+        checkClaimDecider(claim);
 
         if (claim.getStatus() != ClaimStatus.UNDER_REVIEW) {
             throw new BadRequestException("Chỉ có thể duyệt yêu cầu bồi thường khi đang ở trạng thái UNDER_REVIEW (trạng thái hiện tại: " + claim.getStatus() + ").");
@@ -549,7 +617,20 @@ public class ClaimServiceImpl implements ClaimService {
             throw new BadRequestException("Số tiền duyệt bồi thường phải lớn hơn 0.");
         }
         if (request.getApprovedAmount() > claim.getClaimedAmount()) {
-            throw new BadRequestException("Số tiền duyệt bồi thường (" + request.getApprovedAmount() + " VND) không được lớn hơn số tiền yêu cầu (" + claim.getClaimedAmount() + " VND).");
+            throw new BadRequestException("Số tiền duyệt bồi thường (" + formatVnd(request.getApprovedAmount())
+                    + " VND) không được lớn hơn số tiền yêu cầu (" + formatVnd(claim.getClaimedAmount()) + " VND).");
+        }
+        // Trần tuyệt đối: số tiền duyệt không vượt tổng số tiền bảo hiểm của hợp đồng.
+        Policy claimedPolicy = policyRepository.findByPolicyNumber(claim.getPolicyNumber())
+                .or(() -> policyRepository.findById(claim.getPolicyNumber()))
+                .orElse(null);
+        if (claimedPolicy != null) {
+            double limitSum = sumCoverageLimits(claimedPolicy);
+            if (limitSum > 0 && request.getApprovedAmount() > limitSum) {
+                throw new BadRequestException(String.format(
+                        "Số tiền duyệt bồi thường (%s VND) vượt quá tổng số tiền bảo hiểm của hợp đồng (%s VND).",
+                        formatVnd(request.getApprovedAmount()), formatVnd(limitSum)));
+            }
         }
 
         claim.setStatus(ClaimStatus.APPROVED);
@@ -589,10 +670,10 @@ public class ClaimServiceImpl implements ClaimService {
 
     @Override
     public ClaimResponse rejectClaim(String claimId, RejectClaimRequest request) {
-        checkAdmin();
         String principal = permissionService.currentPrincipal();
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy yêu cầu bồi thường: " + claimId));
+        checkClaimDecider(claim);
 
         if (claim.getStatus() != ClaimStatus.UNDER_REVIEW) {
             throw new BadRequestException("Chỉ có thể từ chối yêu cầu bồi thường khi đang ở trạng thái UNDER_REVIEW (trạng thái hiện tại: " + claim.getStatus() + ").");
@@ -622,13 +703,15 @@ public class ClaimServiceImpl implements ClaimService {
 
     @Override
     public ClaimResponse payClaim(String claimId) {
-        // Chi trả bồi thường là tiền ra: FINANCE thực hiện sau khi ADMIN đã
-        // duyệt số tiền (maker-checker: duyệt ≠ chi trả). Duyệt/từ chối/
-        // review/intake vẫn chỉ ADMIN (hoặc UW theo checkStaff).
-        checkFinanceOrAdmin();
+        // Chi trả bồi thường là tiền ra: KẾ TOÁN (FINANCE) thực hiện sau khi
+        // thẩm định viên đã duyệt số tiền (maker-checker: duyệt ≠ chi trả);
+        // ADMIN giữ quyền override. Phạm vi tenant áp dụng khi staff đã được
+        // gán đại lý (tenantMatches).
         String principal = permissionService.currentPrincipal();
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy yêu cầu bồi thường: " + claimId));
+        checkFinanceOrAdmin();
+        checkTenantScope(claim);
 
         if (claim.getStatus() != ClaimStatus.APPROVED) {
             throw new BadRequestException("Chỉ có thể đánh dấu đã chi trả từ trạng thái APPROVED (trạng thái hiện tại: " + claim.getStatus() + ").");
@@ -651,27 +734,83 @@ public class ClaimServiceImpl implements ClaimService {
         return mapToResponse(saved);
     }
 
-    private void checkAdmin() {
-        if (!permissionService.isAdmin()) {
-            throw new ForbiddenException("Chỉ Quản trị viên (ADMIN) mới có quyền xử lý yêu cầu bồi thường.");
+    /**
+     * Người quyết định duyệt/từ chối bồi thường: ADMIN (override nền tảng)
+     * hoặc UNDERWRITER đúng phạm vi tenant (chưa gán tenant = toàn hệ
+     * thống; đã gán = chỉ claim của đại lý mình). AGENT/CUSTOMER/FINANCE
+     * đều 403.
+     */
+    private void checkClaimDecider(Claim claim) {
+        if (permissionService.isAdmin()) {
+            return;
         }
+        if (!permissionService.isUnderwriter()) {
+            throw new ForbiddenException("Chỉ thẩm định viên (UNDERWRITER) mới được duyệt/từ chối yêu cầu bồi thường.");
+        }
+        checkTenantScope(claim);
     }
 
-    /** Chi trả bồi thường (tiền ra): FINANCE hoặc ADMIN. */
+    /**
+     * Người tiếp nhận thẩm định: ADMIN hoặc UNDERWRITER đúng phạm vi tenant.
+     */
+    private void checkClaimHandler(Claim claim) {
+        if (permissionService.isAdmin() || permissionService.isUnderwriter()) {
+            checkTenantScope(claim);
+            return;
+        }
+        throw new ForbiddenException("Chỉ nhân viên xử lý (UNDERWRITER hoặc ADMIN) mới được tiếp nhận yêu cầu bồi thường.");
+    }
+
+    /**
+     * Chi trả bồi thường (tiền ra): FINANCE hoặc ADMIN, đúng phạm vi tenant.
+     */
     private void checkFinanceOrAdmin() {
         if (!permissionService.isAdmin() && !permissionService.hasFinanceRole()) {
             throw new ForbiddenException("Chỉ Kế toán (FINANCE) hoặc Quản trị viên (ADMIN) mới được đánh dấu chi trả bồi thường.");
         }
     }
 
-    /** Nhân viên xử lý bồi thường: UNDERWRITER hoặc ADMIN (pattern checkAdmin). */
-    private void checkStaff() {
-        if (!permissionService.isAdmin() && !permissionService.isUnderwriter()) {
-            throw new ForbiddenException("Chỉ nhân viên xử lý (UNDERWRITER hoặc ADMIN) mới được tiếp nhận yêu cầu bồi thường.");
+    /**
+     * Phạm vi tenant cho thao tác trên claim: staff chưa gán tenant = toàn
+     * hệ thống; đã gán tenant thì policy của claim phải thuộc tenant đó.
+     * ADMIN luôn vượt qua (override). Claim của hợp đồng không tồn tại
+     * (dữ liệu lỗi) thì chỉ ADMIN được chạm.
+     */
+    private void checkTenantScope(Claim claim) {
+        if (permissionService.isAdmin()) {
+            return;
+        }
+        Policy policy = policyRepository.findByPolicyNumber(claim.getPolicyNumber())
+                .or(() -> policyRepository.findById(claim.getPolicyNumber()))
+                .orElseThrow(() -> new ForbiddenException(
+                        "Không xác định được hợp đồng của yêu cầu bồi thường này. Vui lòng liên hệ quản trị viên."));
+        if (!permissionService.tenantMatches(policy)) {
+            throw new ForbiddenException("Yêu cầu bồi thường này thuộc đại lý khác, bạn chỉ được xử lý yêu cầu của đại lý mình.");
         }
     }
 
 
+
+    /** Tổng số tiền bảo hiểm (limit) của mọi quyền lợi trên hợp đồng — trần bồi thường. */
+    private static double sumCoverageLimits(Policy policy) {
+        if (policy == null || policy.getLocations() == null) {
+            return 0.0;
+        }
+        return policy.getLocations().stream()
+                .filter(Objects::nonNull)
+                .map(Location::getCoverages)
+                .filter(Objects::nonNull)
+                .flatMap(List::stream)
+                .filter(Objects::nonNull)
+                .map(Coverage::getLimit)
+                .filter(Objects::nonNull)
+                .mapToDouble(Double::doubleValue)
+                .sum();
+    }
+
+    private static String formatVnd(double amount) {
+        return String.format("%,.0f", amount);
+    }
 
     private ClaimResponse mapToResponse(Claim claim) {
         return ClaimResponse.builder()

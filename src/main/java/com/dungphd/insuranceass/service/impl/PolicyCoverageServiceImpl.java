@@ -65,20 +65,19 @@ public class PolicyCoverageServiceImpl implements PolicyCoverageService {
 
         String code = coverageDto.getCoverageCode() != null ? coverageDto.getCoverageCode().trim() : "";
         if (code.isBlank()) {
-            throw new BadRequestException("Coverage code cannot be empty");
+            throw new BadRequestException("Mã quyền lợi bảo hiểm không được để trống.");
         }
 
         boolean exists = location.getCoverages().stream()
                 .anyMatch(c -> code.equalsIgnoreCase(c.getCoverageCode()));
         if (exists) {
-            throw new BadRequestException("Coverage with code " + code + " already exists in location " + locationId);
+            throw new BadRequestException("Quyền lợi với mã " + code + " đã tồn tại tại địa điểm " + locationId);
         }
 
         Coverage coverage = coverageDto.toEntity();
-        if (coverage.getPremium() == null || coverage.getPremium() <= 0) {
-            double calculatedPremium = premiumCalculationService.calculate(coverage);
-            coverage.setPremium(calculatedPremium);
-        }
+        // Giá do SERVER quyết định: bỏ qua premium/baseRate client gửi (chống giả mạo phí).
+        coverage.setBaseRate(premiumCalculationService.resolveServerBaseRate(coverage.getCoverageCode()));
+        coverage.setPremium(premiumCalculationService.calculateServerPriced(coverage));
 
         location.getCoverages().add(coverage);
         policy.recalculateTotalPremium();
@@ -121,15 +120,11 @@ public class PolicyCoverageServiceImpl implements PolicyCoverageService {
         if (coverageDto.getTermMonths() != null) {
             existingCoverage.setTermMonths(coverageDto.getTermMonths());
         }
-        if (coverageDto.getBaseRate() != null) {
-            existingCoverage.setBaseRate(coverageDto.getBaseRate());
-        }
+        // baseRate luôn do server tra bảng theo mã coverage — không nhận giá trị client gửi.
+        existingCoverage.setBaseRate(premiumCalculationService.resolveServerBaseRate(existingCoverage.getCoverageCode()));
 
-        if (coverageDto.getPremium() != null && coverageDto.getPremium() > 0) {
-            existingCoverage.setPremium(coverageDto.getPremium());
-        } else {
-            existingCoverage.setPremium(premiumCalculationService.calculate(existingCoverage));
-        }
+        // Giá do SERVER quyết định: bỏ qua premium client gửi (chống giả mạo phí).
+        existingCoverage.setPremium(premiumCalculationService.calculateServerPriced(existingCoverage));
 
         policy.recalculateTotalPremium();
         policy.setUpdatedAt(Instant.now());
@@ -155,12 +150,12 @@ public class PolicyCoverageServiceImpl implements PolicyCoverageService {
 
         Location location = findLocationInPolicy(policy, locationId);
         if (location.getCoverages() == null || location.getCoverages().isEmpty()) {
-            throw new ResourceNotFoundException("Coverage with code " + coverageCode + " not found in location " + locationId);
+            throw new ResourceNotFoundException("Không tìm thấy quyền lợi với mã " + coverageCode + " tại địa điểm " + locationId);
         }
 
         boolean removed = location.getCoverages().removeIf(c -> coverageCode.equalsIgnoreCase(c.getCoverageCode()));
         if (!removed) {
-            throw new ResourceNotFoundException("Coverage with code " + coverageCode + " not found in location " + locationId);
+            throw new ResourceNotFoundException("Không tìm thấy quyền lợi với mã " + coverageCode + " tại địa điểm " + locationId);
         }
 
         policy.recalculateTotalPremium();
@@ -182,7 +177,7 @@ public class PolicyCoverageServiceImpl implements PolicyCoverageService {
 
     private Policy findPolicy(String policyIdOrNumber) {
         if (policyIdOrNumber == null || policyIdOrNumber.isBlank()) {
-            throw new BadRequestException("Policy ID or policyNumber must be provided");
+            throw new BadRequestException("Vui lòng cung cấp số hợp đồng.");
         }
 
         Optional<Policy> optionalPolicy = policyRepository.findById(policyIdOrNumber);
@@ -191,22 +186,22 @@ public class PolicyCoverageServiceImpl implements PolicyCoverageService {
         }
 
         return policyRepository.findByPolicyNumber(policyIdOrNumber)
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with ID or PolicyNumber: " + policyIdOrNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyIdOrNumber));
     }
 
     private Location findLocationInPolicy(Policy policy, String locationId) {
         if (locationId == null || locationId.isBlank()) {
-            throw new BadRequestException("Location ID must be provided");
+            throw new BadRequestException("Vui lòng cung cấp mã địa điểm.");
         }
 
         if (policy.getLocations() == null || policy.getLocations().isEmpty()) {
-            throw new ResourceNotFoundException("No locations found in policy " + policy.getPolicyNumber());
+            throw new ResourceNotFoundException("Hợp đồng " + policy.getPolicyNumber() + " chưa có địa điểm nào.");
         }
 
         return policy.getLocations().stream()
                 .filter(loc -> matchLocationId(loc, locationId))
                 .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("Location with ID " + locationId + " not found in policy " + policy.getPolicyNumber()));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy địa điểm số " + locationId + " trong hợp đồng " + policy.getPolicyNumber()));
     }
 
     private boolean matchLocationId(Location loc, String targetId) {
@@ -217,11 +212,11 @@ public class PolicyCoverageServiceImpl implements PolicyCoverageService {
 
     private Coverage findCoverageInLocation(Location location, String coverageCode) {
         if (coverageCode == null || coverageCode.isBlank()) {
-            throw new BadRequestException("Coverage code must be provided");
+            throw new BadRequestException("Vui lòng cung cấp mã quyền lợi.");
         }
 
         if (location.getCoverages() == null || location.getCoverages().isEmpty()) {
-            throw new ResourceNotFoundException("No coverages found in location " + location.getLocationId());
+            throw new ResourceNotFoundException("Địa điểm " + location.getLocationId() + " chưa có quyền lợi nào.");
         }
 
         return location.getCoverages().stream()

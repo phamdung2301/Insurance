@@ -206,7 +206,6 @@ class PendingEndorsementServiceImplTest {
     @Test
     void list_Admin_SeesAll_ReadOnly() {
         when(permissionService.currentPrincipal()).thenReturn("admin@x.com");
-        when(permissionService.isUnderwriter()).thenReturn(false);
         when(permissionService.isAdmin()).thenReturn(true);
         when(pendingRepository.findByStatusOrderByRequestedAtAsc(PendingEndorsementStatus.PENDING))
                 .thenReturn(List.of(pending));

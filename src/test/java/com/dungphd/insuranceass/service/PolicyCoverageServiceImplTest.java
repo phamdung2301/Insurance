@@ -88,7 +88,7 @@ class PolicyCoverageServiceImplTest {
     @Test
     void addCoverage_Success_RecalculatesTotalPremium() {
         when(policyRepository.findById("pol-1")).thenReturn(Optional.of(samplePolicy));
-        when(premiumCalculationService.calculate(any(Coverage.class))).thenReturn(1200.0);
+        when(premiumCalculationService.calculateServerPriced(any(Coverage.class))).thenReturn(1200.0);
         when(policyRepository.save(any(Policy.class))).thenAnswer(inv -> inv.getArgument(0));
 
         CoverageDto newCoverage = CoverageDto.builder()
@@ -124,7 +124,7 @@ class PolicyCoverageServiceImplTest {
     @Test
     void updateCoverage_Success() {
         when(policyRepository.findById("pol-1")).thenReturn(Optional.of(samplePolicy));
-        when(premiumCalculationService.calculate(any(Coverage.class))).thenReturn(1000.0);
+        when(premiumCalculationService.calculateServerPriced(any(Coverage.class))).thenReturn(1000.0);
         when(policyRepository.save(any(Policy.class))).thenAnswer(inv -> inv.getArgument(0));
 
         CoverageDto updateDto = CoverageDto.builder()

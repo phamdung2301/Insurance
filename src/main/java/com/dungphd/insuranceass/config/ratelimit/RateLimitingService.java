@@ -39,12 +39,28 @@ public class RateLimitingService {
     @Value("${app.security.rate-limit.general.duration-seconds:60}")
     private long generalDurationSeconds;
 
+    @Value("${app.security.rate-limit.upload.capacity:30}")
+    private long uploadCapacity;
+
+    @Value("${app.security.rate-limit.upload.duration-seconds:60}")
+    private long uploadDurationSeconds;
+
+    /**
+     * Chỉ bật khi backend đứng sau reverse proxy ĐÁNG TIN: khi true, IP client
+     * lấy từ header X-Forwarded-For/X-Real-IP (proxy phải ghi đè header này).
+     * Mặc định false — dùng remoteAddr trực tiếp để chặn giả mạo header xoay IP
+     * vượt giới hạn tần suất.
+     */
+    @Value("${app.security.rate-limit.trust-proxy:false}")
+    private boolean trustProxy;
+
     private final Map<String, TokenBucket> bucketCache = new ConcurrentHashMap<>();
     private ScheduledExecutorService cleanupExecutor;
 
     public enum RequestTier {
         AUTH,
         DOCUMENTS,
+        UPLOAD,
         GENERAL
     }
 
@@ -120,23 +136,33 @@ public class RateLimitingService {
         if (lower.contains("/documents")) {
             return RequestTier.DOCUMENTS;
         }
+        // Đường upload hồ sơ bồi thường (multipart, file nặng) — tier riêng
+        // để không tiêu chung bucket 100/phút với các request nhẹ.
+        if (lower.startsWith("/claims") || lower.startsWith("/api/claims")) {
+            return RequestTier.UPLOAD;
+        }
         return RequestTier.GENERAL;
     }
 
     public String resolveClientIp(HttpServletRequest request) {
-        String xForwardedFor = request.getHeader("X-Forwarded-For");
-        if (xForwardedFor != null && !xForwardedFor.isBlank()) {
-            // First IP in comma-separated list is the client IP
-            String[] parts = xForwardedFor.split(",");
-            String clientIp = parts[0].trim();
-            if (isValidIp(clientIp)) {
-                return clientIp;
+        // Chỉ tin header forwarding khi đã bật trust-proxy (đứng sau proxy đáng tin).
+        // Mặc định dùng remoteAddr để kẻ tấn công không thể giả mạo X-Forwarded-For
+        // xoay IP nhằm vượt giới hạn tần suất.
+        if (trustProxy) {
+            String xForwardedFor = request.getHeader("X-Forwarded-For");
+            if (xForwardedFor != null && !xForwardedFor.isBlank()) {
+                // First IP in comma-separated list is the client IP
+                String[] parts = xForwardedFor.split(",");
+                String clientIp = parts[0].trim();
+                if (isValidIp(clientIp)) {
+                    return clientIp;
+                }
             }
-        }
 
-        String xRealIp = request.getHeader("X-Real-IP");
-        if (xRealIp != null && !xRealIp.isBlank() && isValidIp(xRealIp.trim())) {
-            return xRealIp.trim();
+            String xRealIp = request.getHeader("X-Real-IP");
+            if (xRealIp != null && !xRealIp.isBlank() && isValidIp(xRealIp.trim())) {
+                return xRealIp.trim();
+            }
         }
 
         return request.getRemoteAddr() != null ? request.getRemoteAddr() : "127.0.0.1";
@@ -154,6 +180,7 @@ public class RateLimitingService {
         return switch (tier) {
             case AUTH -> new TokenBucket(authCapacity, (double) authCapacity / authDurationSeconds);
             case DOCUMENTS -> new TokenBucket(docsCapacity, (double) docsCapacity / docsDurationSeconds);
+            case UPLOAD -> new TokenBucket(uploadCapacity, (double) uploadCapacity / uploadDurationSeconds);
             case GENERAL -> new TokenBucket(generalCapacity, (double) generalCapacity / generalDurationSeconds);
         };
     }

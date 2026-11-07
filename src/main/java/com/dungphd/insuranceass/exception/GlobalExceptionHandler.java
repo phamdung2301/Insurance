@@ -13,6 +13,12 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Chuẩn hoá toàn bộ lỗi REST về một contract: {@code ApiResponse{success=false, code, message, data}}.
+ * - {@code code}  : mã máy-đọc ({@link ErrorCode}) để frontend ánh xạ.
+ * - {@code message}: thông điệp tiếng Việt cho người dùng cuối, KHÔNG chứa chi tiết kỹ thuật.
+ * Chi tiết nội bộ (stack, nguyên nhân kỹ thuật) chỉ được ghi vào log server.
+ */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -20,25 +26,25 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleResourceNotFound(ResourceNotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(ApiResponse.error(ex.getMessage()));
+                .body(ApiResponse.error(ErrorCode.NOT_FOUND, ex.getMessage()));
     }
 
     @ExceptionHandler(DuplicateResourceException.class)
     public ResponseEntity<ApiResponse<Void>> handleDuplicateResource(DuplicateResourceException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(ApiResponse.error(ex.getMessage()));
+                .body(ApiResponse.error(ErrorCode.DUPLICATE_RESOURCE, ex.getMessage()));
     }
 
     @ExceptionHandler(InvalidRequestException.class)
     public ResponseEntity<ApiResponse<Void>> handleInvalidRequest(InvalidRequestException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error(ex.getMessage()));
+                .body(ApiResponse.error(ErrorCode.INVALID_REQUEST, ex.getMessage()));
     }
 
     @ExceptionHandler(BadRequestException.class)
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(BadRequestException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error(ex.getMessage()));
+                .body(ApiResponse.error(ErrorCode.INVALID_REQUEST, ex.getMessage()));
     }
 
     /**
@@ -57,6 +63,7 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(ApiResponse.<Map<String, Object>>builder()
                         .success(false)
+                        .code(ErrorCode.PENDING_ENDORSEMENT)
                         .message(ex.getMessage())
                         .data(data)
                         .build());
@@ -65,7 +72,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ForbiddenException.class)
     public ResponseEntity<ApiResponse<Void>> handleForbidden(ForbiddenException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(ApiResponse.error(ex.getMessage()));
+                .body(ApiResponse.error(ErrorCode.FORBIDDEN, ex.getMessage()));
     }
 
     /**
@@ -77,13 +84,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AgentLinkInactiveException.class)
     public ResponseEntity<ApiResponse<Void>> handleAgentLinkInactive(AgentLinkInactiveException ex) {
         return ResponseEntity.status(HttpStatus.GONE)
-                .body(ApiResponse.error(ex.getMessage()));
+                .body(ApiResponse.error(ErrorCode.AGENT_LINK_INACTIVE, ex.getMessage()));
     }
 
     @ExceptionHandler(org.springframework.dao.OptimisticLockingFailureException.class)
     public ResponseEntity<ApiResponse<Void>> handleOptimisticLocking(org.springframework.dao.OptimisticLockingFailureException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(ApiResponse.error("Dữ liệu vừa bị thay đổi bởi người khác, vui lòng tải lại và gửi lại."));
+                .body(ApiResponse.error(ErrorCode.CONFLICT,
+                        "Dữ liệu vừa bị thay đổi bởi người khác, vui lòng tải lại và gửi lại."));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -94,14 +102,12 @@ public class GlobalExceptionHandler {
             String errorMessage = error.getDefaultMessage();
             errors.put(fieldName, errorMessage);
         });
-        String errorSummary = errors.entrySet().stream()
-                .map(e -> e.getKey() + ": " + e.getValue())
-                .collect(java.util.stream.Collectors.joining("; "));
-        log.warn("Validation failed: {}", errorSummary);
+        log.warn("Validation failed: {}", errors);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.<Map<String, String>>builder()
                         .success(false)
-                        .message("Validation failed: " + errorSummary)
+                        .code(ErrorCode.VALIDATION_ERROR)
+                        .message("Dữ liệu chưa hợp lệ, vui lòng kiểm tra lại các trường được đánh dấu.")
                         .data(errors)
                         .build());
     }
@@ -115,23 +121,32 @@ public class GlobalExceptionHandler {
      * This handler is more specific than {@code Exception}, so it wins
      * regardless of declaration order. Filter-chain 401s never reach this
      * advice and are unaffected. Body shape matches the other error handlers:
-     * {@code ApiResponse.error(message)} (success=false, message, data=null).
+     * {@code ApiResponse.error(code, message)} (success=false, code, message, data=null).
      */
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<ApiResponse<Void>> handleResponseStatus(ResponseStatusException ex) {
+        String code = ErrorCode.INTERNAL_ERROR;
+        if (ex.getStatusCode() == HttpStatus.UNAUTHORIZED) code = ErrorCode.UNAUTHORIZED;
+        else if (ex.getStatusCode() == HttpStatus.FORBIDDEN) code = ErrorCode.FORBIDDEN;
+        else if (ex.getStatusCode() == HttpStatus.NOT_FOUND) code = ErrorCode.NOT_FOUND;
+        else if (ex.getStatusCode() == HttpStatus.BAD_REQUEST) code = ErrorCode.INVALID_REQUEST;
         String message = ex.getReason();
         if (message == null || message.isBlank()) {
-            message = ex.getStatusCode() instanceof HttpStatus status
-                    ? status.getReasonPhrase()
-                    : ex.getStatusCode().toString();
+            message = "Yêu cầu không thể thực hiện. Vui lòng thử lại.";
         }
         return ResponseEntity.status(ex.getStatusCode())
-                .body(ApiResponse.error(message));
+                .body(ApiResponse.error(code, message));
     }
 
+    /**
+     * Lỗi không phân loại: trả message chung chung cho client (không lộ chi tiết
+     * kỹ thuật / nội bộ), stack trace đầy đủ chỉ ghi vào log server.
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGenericException(Exception ex) {
+        log.error("Unhandled exception", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("An unexpected error occurred: " + ex.getMessage()));
+                .body(ApiResponse.error(ErrorCode.INTERNAL_ERROR,
+                        "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau vài phút."));
     }
 }

@@ -1,7 +1,9 @@
 package com.dungphd.insuranceass.controller;
 
 import com.dungphd.insuranceass.dto.request.ChangePasswordRequest;
+import com.dungphd.insuranceass.dto.request.LinkAgentRequest;
 import com.dungphd.insuranceass.dto.request.UpdateProfileRequest;
+import com.dungphd.insuranceass.dto.response.AgentLinkResponse;
 import com.dungphd.insuranceass.dto.response.ApiResponse;
 import com.dungphd.insuranceass.dto.response.UserProfileResponse;
 import com.dungphd.insuranceass.exception.BadRequestException;
@@ -33,7 +35,7 @@ public class UserController {
     ) {
         String email = resolveEmail(principal);
         UserProfileResponse profile = userService.getProfile(email);
-        return ResponseEntity.ok(ApiResponse.success(profile, "Profile retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(profile, "Hồ sơ cá nhân."));
     }
 
     /**
@@ -48,6 +50,24 @@ public class UserController {
         String email = resolveEmail(principal);
         UserProfileResponse updatedProfile = userService.updateProfile(email, request);
         return ResponseEntity.ok(ApiResponse.success(updatedProfile, "Profile updated successfully"));
+    }
+
+    /**
+     * POST /user/agent-link — luồng 3: gắn tài khoản khách hàng (một lần)
+     * với đại lý whose link storefront đang dùng. FE gọi sau đăng nhập khi
+     * còn agentRef; đã gắn rồi thì no-op (linked=false), không lỗi.
+     */
+    @PostMapping("/agent-link")
+    public ResponseEntity<ApiResponse<AgentLinkResponse>> linkAgent(
+            @Valid @RequestBody LinkAgentRequest request,
+            Principal principal
+    ) {
+        String email = resolveEmail(principal);
+        AgentLinkResponse result = userService.linkCustomerToAgent(email, request.getAgentSlug());
+        String message = result.isLinked()
+                ? "Tài khoản đã gắn với " + result.getAgentName() + "."
+                : "Tài khoản đã gắn với một đại lý từ trước.";
+        return ResponseEntity.ok(ApiResponse.success(result, message));
     }
 
     /**
@@ -75,7 +95,7 @@ public class UserController {
     ) {
         String email = resolveEmail(principal);
         List<PolicyTransaction> transactions = userService.getUserTransactions(email);
-        return ResponseEntity.ok(ApiResponse.success(transactions, "User activity retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(transactions, "Lịch sử hoạt động của bạn."));
     }
 
     /**

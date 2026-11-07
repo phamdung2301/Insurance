@@ -49,3 +49,19 @@ export function isValidEmail(email) {
 export function isValidPhone(phone) {
   return /^[0-9+\s().-]{8,15}$/.test((phone || '').trim());
 }
+
+/**
+ * Số ngày còn lại tới ngày hết hạn (chấp nhận expiryDate hoặc expirationDate,
+ * làm tròn theo ngày lịch). Trả null nếu không có/ngày không hợp lệ.
+ */
+export function daysUntilExpiry(policy) {
+  const raw = policy?.expiryDate ?? policy?.expirationDate;
+  if (!raw) return null;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return null;
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(d);
+  endOfDay.setHours(0, 0, 0, 0);
+  return Math.round((endOfDay.getTime() - startOfToday.getTime()) / 86400000);
+}

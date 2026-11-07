@@ -1,20 +1,23 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { getUserMessage } from '../utils/messages';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   MapPin, Plus, Pencil, Trash2, ChevronDown, History,
-  FileText, ArrowLeft, CreditCard, Zap, Send, SlidersHorizontal, Download, Check, ShieldAlert, Copy,
+  FileText, ArrowLeft, CreditCard, Zap, Send, SlidersHorizontal, Check, ShieldAlert, Copy,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import {
   policyService, policyLocationService, policyCoverageService,
-  documentService, downloadBlob, negotiationService,
+  negotiationService,
 } from '../services/api';
 import { isBackendMissing, BACKEND_TODO_HINT } from '../utils/backend';
 import { StatusBadge, LifecycleStepper } from '../components/Status';
+import { LifecycleTimeline, policyTransactionsToTimeline } from '../components/LifecycleTimeline';
+import { DocumentsSection } from '../components/DocumentsSection';
 import { Modal } from '../components/Modal';
 import { EmptyState, Skeleton } from '../components/ui';
-import { formatMoney, formatDate, formatDateTime } from '../utils/format';
+import { formatMoney, formatDate, formatDateTime, daysUntilExpiry } from '../utils/format';
 
 const TABS = [
   { key: 'overview', label: 'Tổng quan' },
@@ -69,7 +72,7 @@ export function PolicyDetailPage() {
       setPolicy(res?.data ?? null);
     } catch (err) {
       if (err.status === 404) setNotFound(true);
-      else toast.error(err.message || 'Không tải được hợp đồng.');
+      else toast.error(getUserMessage(err, 'Không tải được hợp đồng.'));
     } finally {
       setLoading(false);
     }
@@ -79,7 +82,7 @@ export function PolicyDetailPage() {
 
   const failToast = (err, actionName) => {
     if (isBackendMissing(err)) toast.info(`${BACKEND_TODO_HINT}`);
-    else toast.error(err.message || `Không thực hiện được: ${actionName}.`);
+    else toast.error(getUserMessage(err, `Không thực hiện được: ${actionName}.`));
   };
 
   // ---- Vòng đời -----------------------------------------------------------
@@ -132,12 +135,12 @@ export function PolicyDetailPage() {
         // hiển thị câu riêng cho đúng luật bên cầu của endpoint này.
         toast.error('Bạn không có quyền tạo thanh toán cho hợp đồng này (chỉ người được bảo hiểm hoặc đại lý được giao mới được thanh toán qua cổng).');
       } else if (err.status === 409) {
-        toast.error(`${err.message || 'Hợp đồng không còn ở trạng thái cho phép thanh toán.'} Đang tải lại hợp đồng…`);
+        toast.error(`${getUserMessage(err, 'Hợp đồng không còn ở trạng thái cho phép thanh toán.')} Đang tải lại hợp đồng…`);
         await load();
       } else {
         // 400 (giá deal lệch) / 503 (cổng chưa cấu hình): hiện message backend
         // trả về; còn lại (kể cả lỗi mạng): message chung của interceptor.
-        toast.error(err.message || 'Không tạo được giao dịch thanh toán. Vui lòng thử lại.');
+        toast.error(getUserMessage(err, 'Không tạo được giao dịch thanh toán. Vui lòng thử lại.'));
       }
     } finally {
       setBusy(false);
@@ -154,7 +157,7 @@ export function PolicyDetailPage() {
       if (data) setSepayStatus(data);
       return data;
     } catch (err) {
-      toast.error(err.message || 'Không tra cứu được trạng thái thanh toán.');
+      toast.error(getUserMessage(err, 'Không tra cứu được trạng thái thanh toán.'));
       return null;
     } finally {
       setSepayChecking(false);
@@ -173,7 +176,7 @@ export function PolicyDetailPage() {
       const data = res?.data ?? res ?? null;
       if (data) setSepayStatus(data);
     } catch (err) {
-      toast.error(err.message || 'Không mô phỏng được thanh toán.');
+      toast.error(getUserMessage(err, 'Không mô phỏng được thanh toán.'));
     } finally {
       setSepaySimulating(false);
     }
@@ -360,6 +363,18 @@ export function PolicyDetailPage() {
         </div>
         <LifecycleStepper status={status} />
       </div>
+
+      {/* Cảnh báo sắp hết hạn: hợp đồng ACTIVE còn ≤30 ngày hiệu lực */}
+      {status === 'ACTIVE' && daysUntilExpiry(policy) != null && daysUntilExpiry(policy) <= 30 && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '0.8rem 1rem', marginBottom: '1.5rem', fontSize: '0.9rem', color: '#92400e', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <ShieldAlert size={18} />
+          <span>
+            <strong>Hợp đồng sắp hết hạn</strong> vào ngày {formatDate(policy.expiryDate ?? policy.expirationDate)}
+            {daysUntilExpiry(policy) >= 0 ? ` (còn ${daysUntilExpiry(policy)} ngày).` : ' (đã quá hạn).'}{' '}
+            Vui lòng liên hệ đại lý hoặc quản trị viên để gia hạn.
+          </span>
+        </div>
+      )}
 
       {/* Trạng thái chờ đối soát (PLAN §1.6): BOUND + đã báo trả, chưa ACTIVE */}
       {status === 'BOUND' && isPaymentClaimed && (
@@ -706,7 +721,7 @@ function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
       setUnavailable(false);
     } catch (err) {
       if (isBackendMissing(err)) setUnavailable(true);
-      else toast.error(err.message || 'Không tải được lịch sử thương lượng.');
+      else toast.error(getUserMessage(err, 'Không tải được lịch sử thương lượng.'));
     } finally {
       if (!silent) setLoading(false);
     }
@@ -2012,14 +2027,14 @@ function HistoryTab({ policyNumber, currentPolicy }) {
           const v = vRes.value?.data;
           setVersions(Array.isArray(v) ? v : v?.versions ?? []);
         } else if (!vMissing) {
-          toast.error(vRes.reason?.message || 'Không tải được lịch sử phiên bản.');
+          toast.error(getUserMessage(vRes.reason, 'Không tải được lịch sử phiên bản.'));
         }
         if (hRes.status === 'fulfilled') {
           const h = hRes.value?.data;
           const list = Array.isArray(h) ? h : h?.transactions ?? h?.history ?? [];
           setTransactions(list);
         } else if (!hMissing) {
-          toast.error(hRes.reason?.message || 'Không tải được lịch sử giao dịch.');
+          toast.error(getUserMessage(hRes.reason, 'Không tải được lịch sử giao dịch.'));
         }
       }
       setLoading(false);
@@ -2036,7 +2051,7 @@ function HistoryTab({ policyNumber, currentPolicy }) {
       setSelected({ version: ver, snapshot: pv?.policySnapshot ?? pv ?? {} });
     } catch (err) {
       if (isBackendMissing(err)) toast.info(BACKEND_TODO_HINT);
-      else toast.error(err.message || 'Không tải được chi tiết phiên bản.');
+      else toast.error(getUserMessage(err, 'Không tải được chi tiết phiên bản.'));
     }
   };
 
@@ -2095,96 +2110,12 @@ function HistoryTab({ policyNumber, currentPolicy }) {
       {/* Giao dịch */}
       <div className="glass-card">
         <h3 style={{ marginBottom: '1rem' }}>Lịch sử giao dịch</h3>
-        {transactions.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Chưa có giao dịch nào được ghi nhận.</p>
-        ) : (
-          <div className="timeline">
-            {transactions.map((t, i) => (
-              <div key={t.id ?? i} className="timeline-item">
-                <div className="t-time">{formatDateTime(t.createdAt || t.timestamp || t.at)}</div>
-                <div className="t-title">{t.type || t.title || 'Thao tác'}</div>
-                <div className="t-desc">{t.description || t.note || ''}</div>
-                {t.actor && <div className="t-desc">Người thực hiện: {t.actor}</div>}
-              </div>
-            ))}
-          </div>
-        )}
+        <LifecycleTimeline
+          items={policyTransactionsToTimeline(transactions)}
+          emptyText="Chưa có giao dịch nào được ghi nhận."
+        />
       </div>
       <DocumentsSection policyNumber={policyNumber} />
-    </div>
-  );
-}
-
-/** Tài liệu hợp đồng: chứng nhận + tóm tắt PDF. */
-function DocumentsSection({ policyNumber }) {
-  const toast = useToast();
-  const [docs, setDocs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await documentService.list(policyNumber);
-        const d = res?.data;
-        setDocs(Array.isArray(d) ? d : d?.documents ?? []);
-      } catch {
-        setDocs([]);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [policyNumber]);
-
-  const dl = async (kind, label) => {
-    setBusy(kind);
-    try {
-      const res = kind === 'cert'
-        ? await documentService.downloadCertificate(policyNumber)
-        : await documentService.downloadSummary(policyNumber);
-      downloadBlob(res?.data ?? res, `${policyNumber}-${label}.pdf`);
-      toast.success(`Đã tải ${label}.`);
-    } catch (err) {
-      toast.error(err.message || `Không tải được ${label}.`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <div className="glass-card" style={{ marginTop: '1.5rem' }}>
-      <h3 style={{ marginBottom: '1rem' }}>Tài liệu hợp đồng</h3>
-      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: docs.length ? '1rem' : 0 }}>
-        <button className="btn btn-primary" disabled={busy} onClick={() => dl('cert', 'chung-nhan')}>
-          {busy === 'cert' ? <span className="spinner" /> : <Download size={16} />} Tải chứng nhận (PDF)
-        </button>
-        <button className="btn btn-secondary" disabled={busy} onClick={() => dl('summary', 'tom-tat')}>
-          {busy === 'summary' ? <span className="spinner" /> : <Download size={16} />} Tải tóm tắt (PDF)
-        </button>
-      </div>
-      {loading ? (
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Đang tải danh sách tài liệu…</p>
-      ) : docs.length === 0 ? (
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Chưa có tài liệu đính kèm nào.</p>
-      ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr><th>Tài liệu</th><th>Loại</th><th>Phiên bản</th><th>Ngày tạo</th></tr>
-            </thead>
-            <tbody>
-              {docs.map((d, i) => (
-                <tr key={d.documentId ?? i}>
-                  <td>{d.title ?? d.fileName ?? '—'}</td>
-                  <td>{d.documentType ?? '—'}</td>
-                  <td>{d.version ?? '—'}</td>
-                  <td>{formatDateTime(d.generatedAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   );
 }

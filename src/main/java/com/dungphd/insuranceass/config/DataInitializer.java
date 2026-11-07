@@ -8,6 +8,7 @@ import com.dungphd.insuranceass.repository.PolicyVersionRepository;
 import com.dungphd.insuranceass.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -32,6 +33,14 @@ public class DataInitializer {
     private final AgentRepository agentRepository;
 
     /**
+     * Công tắc seed dữ liệu demo (app.seed.demo-data, env SEED_DEMO_DATA).
+     * Mặc định true cho dev/demo vì các tài khoản mẫu có mật khẩu công khai
+     * trong repo — deploy thật PHẢI đặt SEED_DEMO_DATA=false.
+     */
+    @Value("${app.seed.demo-data:true}")
+    private boolean seedDemoData;
+
+    /**
      * Mã cố định của agent seed — SaaS Phase 1: test không phụ thuộc thứ tự
      * sinh mã của AgentCodeGenerator (counter), và chạy lại seed không tạo
      * thêm agent (find-by-code trước khi insert).
@@ -43,6 +52,10 @@ public class DataInitializer {
     @Profile("!test")
     public CommandLineRunner initData() {
         return args -> {
+            if (!seedDemoData) {
+                log.info("Demo data seeding is disabled (app.seed.demo-data=false).");
+                return;
+            }
             try {
                 // 1. Seed Users
                 if (userRepository.count() == 0) {

@@ -64,6 +64,14 @@ class PendingEndorsementMakerCheckerTest {
         endorsementService = new EndorsementServiceImpl(
                 policyRepository, policyVersionRepository, transactionLedgerService, premiumCalculationService);
         ReflectionTestUtils.setField(endorsementService, "pendingEndorsementRepository", pendingEndorsementRepository);
+        // Giá server-authoritative: mock echo premium có sẵn trên entity —
+        // test này kiểm tra toán học maker-checker (ngưỡng 20%).
+        lenient().when(premiumCalculationService.calculateServerPriced(any(com.dungphd.insuranceass.model.Coverage.class)))
+                .thenAnswer(inv -> {
+                    com.dungphd.insuranceass.model.Coverage c = inv.getArgument(0);
+                    return c != null && c.getPremium() != null ? c.getPremium() : 0.0;
+                });
+        lenient().when(premiumCalculationService.resolveServerBaseRate(any())).thenReturn(0.1);
         Coverage cov = Coverage.builder()
                 .coverageCode("PROP_FIRE")
                 .limit(1000000.0)

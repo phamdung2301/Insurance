@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { getUserMessage } from '../utils/messages';
 import { ShieldCheck, RefreshCw, CheckCircle2, XCircle } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { useAuth, hasRoleIn } from '../context/AuthContext';
 import { pendingEndorsementService } from '../services/pendingEndorsementApi';
 import { EmptyState, Skeleton } from '../components/ui';
 import { formatDateTime } from '../utils/format';
+import { statusLabel, PENDING_ENDORSEMENT_STATUS } from '../utils/messages';
 
 const STATUS_LABEL = {
   PENDING: 'Chờ duyệt',
@@ -15,7 +17,7 @@ const STATUS_LABEL = {
 /**
  * Danh sách endorsement chờ duyệt — maker-checker (đợt 4B).
  * GET /pending-endorsements — BE đã scope theo role: UW + ADMIN thấy tất cả
- * PENDING, CUSTOMER/AGENT chỉ thấy của policy trong phạm vi mình, FINANCE 403.
+ * PENDING, CUSTOMER/AGENT chỉ thấy của policy trong phạm vi mình.
  * Chỉ UW thấy nút Duyệt/Từ chối (customer/agent chỉ thấy trạng thái); quyền
  * thật vẫn do BE enforce — nút chỉ là ẩn/hiện giao diện.
  * Trang này CHƯA được nối route/menu (coordinator nối sau) — không sửa
@@ -38,7 +40,7 @@ export function PendingEndorsementsPage() {
       const list = Array.isArray(d) ? d : (d?.items ?? []);
       setItems(list);
     } catch (err) {
-      toast.error(err.message || 'Không tải được danh sách chờ duyệt.');
+      toast.error(getUserMessage(err, 'Không tải được danh sách chờ duyệt.'));
     } finally {
       setLoading(false);
     }
@@ -57,7 +59,7 @@ export function PendingEndorsementsPage() {
         : `Đã từ chối endorsement cho ${item.policyNumber}. Hợp đồng không thay đổi.`);
       await load();
     } catch (err) {
-      toast.error(err.message || `Không ${verb} được endorsement.`);
+      toast.error(getUserMessage(err, `Không ${verb} được endorsement.`));
     } finally {
       setActing((s) => ({ ...s, [item.id]: false }));
     }
@@ -79,7 +81,7 @@ export function PendingEndorsementsPage() {
       </div>
       <p className="form-hint" style={{ marginBottom: '1.5rem' }}>
         Endorsement làm phí thay đổi quá 20% không được áp dụng ngay mà phải chờ thẩm định viên (UNDERWRITER) duyệt.
-        Chỉ UNDERWRITER mới duyệt/từ chối — quản trị viên chỉ xem, FINANCE không thấy danh sách này.
+        Chỉ thẩm định viên (UNDERWRITER) mới duyệt/từ chối — quản trị viên chỉ xem.
       </p>
       {items.length === 0 ? (
         <EmptyState

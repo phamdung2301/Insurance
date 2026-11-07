@@ -64,7 +64,7 @@ class NegotiationCreateToQueueChainTest {
     void setUp() {
         SecurityContextHolder.clearContext();
         negotiationService = new NegotiationServiceImpl(policyRepository, negotiationRepository, permissionService);
-        queueService = new UnderwriterQueueServiceImpl(negotiationRepository, permissionService);
+        queueService = new UnderwriterQueueServiceImpl(negotiationRepository, policyRepository, permissionService);
 
         quotedPolicy = Policy.builder()
                 .id("pol-chain-1")

@@ -448,7 +448,7 @@ public class PaymentServiceImpl implements PaymentService {
     private Policy findPolicy(String policyNumber) {
         return policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyNumber));
     }
 
     private static String buildTxnRef(String policyNumber) {

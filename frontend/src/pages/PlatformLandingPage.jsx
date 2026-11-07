@@ -236,11 +236,13 @@ export function PlatformLandingPage() {
             </Reveal>
           ))}
         </div>
-        <div className="pl-contact" id="lien-he-dai-ly">
-          <span><Mail size={16} /> {PLATFORM_CONTACT_EMAIL}</span>
-          <span><MessageCircle size={16} /> Zalo: {PLATFORM_CONTACT_ZALO}</span>
-        </div>
-        <p className="pl-note">Thông tin liên hệ trên là placeholder cho tới khi nền tảng công bố liên hệ chính thức (xem file cấu hình duy nhất <code>frontend/src/config/platform.js</code>). Chưa có luồng tự đăng ký đại lý — mọi tài khoản đại lý đều do quản trị viên tạo sau xét duyệt.</p>
+        {(PLATFORM_CONTACT_EMAIL || PLATFORM_CONTACT_ZALO) && (
+          <div className="pl-contact" id="lien-he-dai-ly">
+            {PLATFORM_CONTACT_EMAIL && <span><Mail size={16} /> {PLATFORM_CONTACT_EMAIL}</span>}
+            {PLATFORM_CONTACT_ZALO && <span><MessageCircle size={16} /> Zalo: {PLATFORM_CONTACT_ZALO}</span>}
+          </div>
+        )}
+        <p className="pl-note">Chưa có luồng tự đăng ký đại lý — mọi tài khoản đại lý đều do quản trị viên tạo sau xét duyệt.</p>
       </section>
 
       <section className="pl-section">

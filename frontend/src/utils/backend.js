@@ -8,4 +8,4 @@ export function isBackendMissing(err) {
 }
 
 export const BACKEND_TODO_HINT =
-  'Tính năng này cần backend bổ sung endpoint theo SRS. Xem docs/BACKEND-TODO.md để biết chi tiết.';
+  'Tính năng này hiện chưa khả dụng. Vui lòng thử lại sau hoặc liên hệ bộ phận hỗ trợ.';
