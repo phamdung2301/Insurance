@@ -19,7 +19,7 @@ import java.util.List;
 @Builder
 public class CreatePolicyRequest {
 
-    @NotBlank(message = "Policy number is required")
+    @NotBlank(message = "Số hợp đồng là bắt buộc.")
     private String policyNumber;
 
     /**

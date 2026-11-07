@@ -29,7 +29,7 @@ public class PolicyDocumentController {
             @PathVariable("policyNumber") String policyNumber
     ) {
         List<DocumentMetadataDto> docs = documentGenerationService.getAvailableDocuments(policyNumber);
-        return ResponseEntity.ok(ApiResponse.success(docs, "Available policy documents retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(docs, "Danh sách tài liệu hợp đồng."));
     }
 
     /**

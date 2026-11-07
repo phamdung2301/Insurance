@@ -71,7 +71,7 @@ public class AgentTenantUserServiceImpl implements AgentTenantUserService {
         permissionService.checkTenantWriteForStaff();
         String email = request.getEmail().trim().toLowerCase();
         if (userRepository.existsByEmail(email)) {
-            throw new DuplicateResourceException("User with email " + email + " already exists");
+            throw new DuplicateResourceException("Đã tồn tại tài khoản với email " + email + ".");
         }
         // Ép cứng: ROLE_CUSTOMER duy nhất + tenant từ context — request
         // không có field roles nên không có đường nào tạo role khác.
@@ -96,7 +96,7 @@ public class AgentTenantUserServiceImpl implements AgentTenantUserService {
         // Khóa/mở là ghi của nhân viên tenant → SUSPENDED/CLOSED chặn.
         permissionService.checkTenantWriteForStaff();
         User target = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng: " + userId));
         List<String> roles = target.getRoles() != null ? new ArrayList<>(target.getRoles()) : new ArrayList<>();
         // Chặn: khóa tài khoản không phải CUSTOMER thuần (AGENT/UW/ADMIN
         // hoặc đa role dính AGENT/UW/ADMIN đều không khóa được qua đây).

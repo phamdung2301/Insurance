@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { getUserMessage, statusLabel, CLAIM_STATUS } from '../utils/messages';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ShieldAlert, ArrowLeft, CheckCircle2, XCircle, Clock, DollarSign,
@@ -93,10 +94,13 @@ export function ClaimDetailPage() {
   const addPhotosInputRef = useRef(null);
 
   const isAdmin = hasRole('ROLE_ADMIN');
-  // Nút "Tiếp nhận thẩm định" dùng API intake mới: nhân viên xử lý
-  // (UNDERWRITER hoặc ADMIN). Phê duyệt/từ chối/chi trả vẫn ADMIN-only
-  // (service checkAdmin) nên các nút đó vẫn gate riêng bằng isAdmin.
-  const isStaff = isAdmin || hasRole('ROLE_UNDERWRITER');
+  const isUnderwriter = hasRole('ROLE_UNDERWRITER');
+  const isFinance = hasRole('ROLE_FINANCE');
+  // Ma trận nghiệp vụ: UW = tiếp nhận + duyệt/từ chối (theo tenant, BE enforce);
+  // Kế toán (FINANCE) = chi trả; ADMIN = override mọi thao tác.
+  const isStaff = isAdmin || isUnderwriter;
+  const isClaimDecider = isAdmin || isUnderwriter;
+  const isClaimPayer = isAdmin || isFinance;
 
   const loadClaim = useCallback(async () => {
     try {
@@ -105,7 +109,7 @@ export function ClaimDetailPage() {
       setClaim(res.data || res);
     } catch (err) {
       console.error(err);
-      toast.error(err.message || 'Không thể tải chi tiết yêu cầu bồi thường.');
+      toast.error(getUserMessage(err, 'Không thể tải chi tiết yêu cầu bồi thường.'));
     } finally {
       setLoading(false);
     }
@@ -123,7 +127,7 @@ export function ClaimDetailPage() {
       toast.success('Đã tiếp nhận hồ sơ sang trạng thái thẩm định.');
       await loadClaim();
     } catch (err) {
-      toast.error(err.message || 'Thao tác thất bại.');
+      toast.error(getUserMessage(err, 'Thao tác thất bại.'));
     } finally {
       setBusy(false);
     }
@@ -151,7 +155,7 @@ export function ClaimDetailPage() {
       setApproveModal(false);
       await loadClaim();
     } catch (err) {
-      toast.error(err.message || 'Thao tác phê duyệt thất bại.');
+      toast.error(getUserMessage(err, 'Thao tác phê duyệt thất bại.'));
     } finally {
       setBusy(false);
     }
@@ -173,7 +177,7 @@ export function ClaimDetailPage() {
       setRejectModal(false);
       await loadClaim();
     } catch (err) {
-      toast.error(err.message || 'Thao tác từ chối thất bại.');
+      toast.error(getUserMessage(err, 'Thao tác từ chối thất bại.'));
     } finally {
       setBusy(false);
     }
@@ -189,7 +193,7 @@ export function ClaimDetailPage() {
       toast.success('Đã xác nhận chi trả bồi thường thành công!');
       await loadClaim();
     } catch (err) {
-      toast.error(err.message || 'Thao tác chi trả thất bại.');
+      toast.error(getUserMessage(err, 'Thao tác chi trả thất bại.'));
     } finally {
       setBusy(false);
     }
@@ -218,7 +222,7 @@ export function ClaimDetailPage() {
       setAddPhotosModal(false);
       await loadClaim();
     } catch (err) {
-      toast.error(err.message || 'Không thể bổ sung ảnh.');
+      toast.error(getUserMessage(err, 'Không thể bổ sung ảnh.'));
     } finally {
       setBusy(false);
     }
@@ -263,7 +267,7 @@ export function ClaimDetailPage() {
     lineHeight: 1.3,
   });
   const canAddMorePhotos = isOwner && (claim.photos ? claim.photos.length : 0) < 10 && !['PAID', 'REJECTED'].includes(claim.status);
-  const statusCfg = STATUS_CONFIG[claim.status] || { label: claim.status, color: '#64748b', bg: '#f1f5f9' };
+  const statusCfg = STATUS_CONFIG[claim.status] || { label: statusLabel(CLAIM_STATUS, claim.status), color: '#64748b', bg: '#f1f5f9' };
 
   return (
     <div className="container" style={{ maxWidth: '1000px', margin: '0 auto', padding: '1.5rem 1rem' }}>
@@ -305,9 +309,9 @@ export function ClaimDetailPage() {
           </div>
         </div>
 
-        {/* Action bar dành cho nhân viên xử lý (UNDERWRITER/ADMIN);
-            riêng phê duyệt/từ chối/chi trả vẫn chỉ ADMIN (xem isAdmin). */}
-        {isStaff && (
+        {/* Action bar: tiếp nhận cho nhân viên xử lý; duyệt/từ chối cho
+            thẩm định viên; chi trả cho kế toán; ADMIN override toàn bộ. */}
+        {(isStaff || isClaimPayer) && (
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             {claim.status === 'SUBMITTED' && (
               <button
@@ -321,7 +325,7 @@ export function ClaimDetailPage() {
               </button>
             )}
 
-            {isAdmin && claim.status === 'UNDER_REVIEW' && (
+            {isClaimDecider && claim.status === 'UNDER_REVIEW' && (
               <>
                 <button
                   type="button"
@@ -347,7 +351,7 @@ export function ClaimDetailPage() {
               </>
             )}
 
-            {isAdmin && claim.status === 'APPROVED' && (
+            {isClaimPayer && claim.status === 'APPROVED' && (
               <button
                 type="button"
                 className="btn btn-primary"
@@ -489,7 +493,13 @@ export function ClaimDetailPage() {
                     <span>{(photo.fileSize / (1024 * 1024)).toFixed(2)} MB</span>
                     <button
                       type="button"
-                      onClick={() => setLightboxSrc(`/api/claims/${claim.id}/photos/${photo.id}`)}
+                      onClick={() => {
+                        // Endpoint ảnh cần Bearer token — lấy blob bằng fetch
+                        // đã xác thực (giống SecureImage), không dùng URL trần.
+                        claimApi.getPhotoBlobUrl(claim.id, photo.id)
+                          .then(setLightboxSrc)
+                          .catch(() => toast.error(getUserMessage(null, 'Không tải được ảnh. Vui lòng thử lại.')));
+                      }}
                       style={{ background: 'none', border: 'none', color: '#1663d9', cursor: 'pointer', padding: 0 }}
                       title="Xem phóng to"
                     >
@@ -523,7 +533,7 @@ export function ClaimDetailPage() {
               backgroundColor: 'var(--border-color, #e2e8f0)'
             }} />
             {claim.statusHistory.map((h, i) => {
-              const hCfg = STATUS_CONFIG[h.toStatus] || { label: h.toStatus, color: '#64748b', bg: '#f1f5f9' };
+              const hCfg = STATUS_CONFIG[h.toStatus] || { label: statusLabel(CLAIM_STATUS, h.toStatus), color: '#64748b', bg: '#f1f5f9' };
               return (
                 <div key={i} style={{ position: 'relative', marginBottom: '1.25rem' }}>
                   <div style={{
@@ -563,7 +573,10 @@ export function ClaimDetailPage() {
       {/* Lightbox Modal */}
       {lightboxSrc && (
         <div
-          onClick={() => setLightboxSrc(null)}
+          onClick={() => {
+            if (lightboxSrc.startsWith('blob:')) URL.revokeObjectURL(lightboxSrc);
+            setLightboxSrc(null);
+          }}
           style={{
             position: 'fixed',
             inset: 0,

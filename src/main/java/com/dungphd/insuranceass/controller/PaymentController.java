@@ -65,7 +65,7 @@ public class PaymentController {
             Principal principal) {
         String actor = principal != null && principal.getName() != null ? principal.getName() : "System";
         PaymentResponse response = paymentService.lookupStatus(txnRef, actor);
-        return ResponseEntity.ok(ApiResponse.success(response, "Payment status retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(response, "Trạng thái thanh toán."));
     }
 
     /**

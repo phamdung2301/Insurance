@@ -134,7 +134,7 @@ public class PendingEndorsementApproval {
     public PendingEndorsement applyAndMarkApproved(PendingEndorsement claimed, String actor) {
         Policy policy = policyRepository.findByPolicyNumber(claimed.getPolicyNumber())
                 .or(() -> policyRepository.findById(claimed.getPolicyNumber()))
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + claimed.getPolicyNumber()));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + claimed.getPolicyNumber()));
         endorsementService.applyEndorsementBypassingThreshold(
                 policy.getPolicyNumber(), claimed.getRequest(), actor);
         claimed.setStatus(PendingEndorsementStatus.APPROVED);

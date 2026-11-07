@@ -372,6 +372,9 @@ class ClaimServiceImplTest {
         when(claimRepository.findById("claim-1")).thenReturn(Optional.of(sampleClaim));
         when(permissionService.currentPrincipal()).thenReturn("uw@insurance.vn");
         when(permissionService.isUnderwriter()).thenReturn(true);
+        // UW chưa gán tenant = global: tenantMatches phải trả true cho policy của claim.
+        when(policyRepository.findByPolicyNumber("POL-1001")).thenReturn(Optional.of(activePolicy));
+        when(permissionService.tenantMatches(any())).thenReturn(true);
 
         ClaimResponse resp = claimService.getClaimById("claim-1");
         assertNotNull(resp);
@@ -474,6 +477,9 @@ class ClaimServiceImplTest {
     @Test
     void nonAdmin_cannotApproveRejectOrPay_throws403() {
         when(permissionService.isAdmin()).thenReturn(false);
+        // Guard mới lookup claim TRƯỚC rồi mới check role (role sai 403 trước
+        // khi chạm tới tenant scope nên không cần stub policy lookup).
+        when(claimRepository.findById("claim-1")).thenReturn(Optional.of(sampleClaim));
 
         assertThrows(ForbiddenException.class, () -> claimService.reviewClaim("claim-1"));
         assertThrows(ForbiddenException.class, () -> claimService.approveClaim("claim-1", new ApproveClaimRequest()));
@@ -491,6 +497,9 @@ class ClaimServiceImplTest {
         when(permissionService.isAdmin()).thenReturn(false);
         when(permissionService.hasFinanceRole()).thenReturn(true);
         when(permissionService.currentPrincipal()).thenReturn("finance@example.com");
+        // checkTenantScope: FINANCE chưa gán tenant = global (tenantMatches true).
+        when(policyRepository.findByPolicyNumber("POL-1001")).thenReturn(Optional.of(activePolicy));
+        when(permissionService.tenantMatches(any())).thenReturn(true);
         when(claimRepository.findById("claim-1")).thenReturn(Optional.of(sampleClaim));
         when(claimRepository.save(any(Claim.class))).thenAnswer(i -> i.getArgument(0));
 
@@ -555,6 +564,9 @@ class ClaimServiceImplTest {
         when(permissionService.isAdmin()).thenReturn(false);
         when(permissionService.isUnderwriter()).thenReturn(true);
         when(permissionService.currentPrincipal()).thenReturn("uw@insurance.vn");
+        // checkTenantScope: UW chưa gán tenant = global (tenantMatches true).
+        when(policyRepository.findByPolicyNumber("POL-1001")).thenReturn(Optional.of(activePolicy));
+        when(permissionService.tenantMatches(any())).thenReturn(true);
         when(claimRepository.findById("claim-1")).thenReturn(Optional.of(sampleClaim));
         when(claimRepository.save(any(Claim.class))).thenAnswer(i -> i.getArgument(0));
 
@@ -590,6 +602,7 @@ class ClaimServiceImplTest {
     void intakeClaim_customerOwnClaim_throws403() {
         when(permissionService.isAdmin()).thenReturn(false);
         when(permissionService.isUnderwriter()).thenReturn(false);
+        when(claimRepository.findById("claim-1")).thenReturn(Optional.of(sampleClaim));
 
         assertThrows(ForbiddenException.class, () -> claimService.intakeClaim("claim-1"));
         verify(claimRepository, never()).save(any(Claim.class));
@@ -600,6 +613,7 @@ class ClaimServiceImplTest {
     void intakeClaim_agent_throws403() {
         when(permissionService.isAdmin()).thenReturn(false);
         when(permissionService.isUnderwriter()).thenReturn(false);
+        when(claimRepository.findById("claim-1")).thenReturn(Optional.of(sampleClaim));
 
         assertThrows(ForbiddenException.class, () -> claimService.intakeClaim("claim-1"));
         verify(claimRepository, never()).save(any(Claim.class));
@@ -619,7 +633,7 @@ class ClaimServiceImplTest {
     // 27. API intake mới: claim không tồn tại -> 404.
     @Test
     void intakeClaim_notFound_throws404() {
-        when(permissionService.isAdmin()).thenReturn(true);
+        // 404 được ưu tiên trước check role (lookup claim chạy trước guard).
         when(claimRepository.findById("missing")).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class, () -> claimService.intakeClaim("missing"));

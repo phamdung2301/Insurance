@@ -29,7 +29,7 @@ public class PolicyLocationController {
             @PathVariable("policyId") String policyId
     ) {
         List<Location> locations = policyLocationService.getLocations(policyId);
-        return ResponseEntity.ok(ApiResponse.success(locations, "Locations retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(locations, "Danh sách địa điểm."));
     }
 
     /**
@@ -42,7 +42,7 @@ public class PolicyLocationController {
             @PathVariable("locationId") Integer locationId
     ) {
         Location location = policyLocationService.getLocationById(policyId, locationId);
-        return ResponseEntity.ok(ApiResponse.success(location, "Location retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(location, "Chi tiết địa điểm."));
     }
 
     /**

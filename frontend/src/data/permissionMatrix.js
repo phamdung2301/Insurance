@@ -43,13 +43,18 @@
  *   và alias /admin/finance giữ lại cho ADMIN (matcher /admin/** = ADMIN);
  *   FinanceReconciliationServiceImpl tự enforce FINANCE+ADMIN:
  *   GET /finance/refunds, GET /finance/reconciliation/export.
- *   KHÔNG CÓ UI đối soát nào — refunds API chỉ dùng qua API, và BOUND→ACTIVE
- *   do ADMIN hoặc FINANCE duyệt.
+ *   KHÔNG CÓ UI đối soát nào — refunds API chỉ dùng qua API. Thanh toán SePay
+ *   xác nhận thành công thì hợp đồng tự kích hoạt (QUOTED/BOUND → ACTIVE).
  * - ClaimServiceImpl: tạo claim chỉ CUSTOMER cho policy ACTIVE của chính
- *   mình (FINANCE tạo claim bị 403); đọc claim: ADMIN/UW mọi claim,
- *   CUSTOMER claim của mình, AGENT claim của hợp đồng được giao (FINANCE
- *   không được đọc claim); review/approve/reject claim chỉ ADMIN (checkAdmin);
- *   pay claim đã duyệt: FINANCE hoặc ADMIN (checkFinanceOrAdmin).
+ *   mình (FINANCE tạo claim bị 403); đọc claim: ADMIN mọi claim, UW mọi claim
+ *   khi chưa gán tenant (đã gán thì chỉ claim của đại lý mình), CUSTOMER
+ *   claim của mình, AGENT claim của hợp đồng thuộc đại lý (agentId) hoặc
+ *   được giao legacy (FINANCE không được đọc claim); intake/review: UW hoặc
+ *   ADMIN; approve/reject: UNDERWRITER hoặc ADMIN (ADMIN override);
+ *   pay claim đã duyệt: FINANCE hoặc ADMIN (maker-checker: duyệt ≠ chi trả).
+ * - Scope theo đại lý: UNDERWRITER/FINANCE mặc định toàn hệ thống; khi ADMIN
+ *   gán agentId (PUT /admin/users/{id}/agent) thì mọi guard tenant thu hẹp
+ *   phạm vi của họ về đúng đại lý đó (resolveTenantId mới).
  * - PolicyServiceImpl.createPolicy: UW tạo hợp đồng bị 403 (gate trước
  *   duplicate-check); FINANCE tạo hợp đồng bị 403 ngay ở matcher
  *   POST /policies; CUSTOMER bị ép insured về chính mình; AGENT tạo hộ
@@ -139,9 +144,9 @@ export const PERMISSION_MATRIX = [
   {
     id: 'transition-bound-active',
     group: 'Hợp đồng',
-    name: 'BOUND→ACTIVE (duyệt tiền)',
+    name: 'BOUND→ACTIVE (kích hoạt trực tiếp)',
     description:
-      'ADMIN hoặc FINANCE duyệt BOUND→ACTIVE, sau khi đối soát khoản đã khai báo chuyển khoản. FINANCE chỉ được duy nhất bước này trong mọi transition.',
+      'Chỉ ADMIN được chuyển tay BOUND→ACTIVE. Thanh toán SePay xác nhận thành công thì hợp đồng tự kích hoạt (không còn xác nhận tay của FINANCE).',
     source: 'PermissionService.checkTransition',
     roles: {
       CUSTOMER: 'denied',
@@ -171,7 +176,7 @@ export const PERMISSION_MATRIX = [
     group: 'Hợp đồng',
     name: 'Khai báo đã chuyển khoản',
     description:
-      'POST payment-claim: chỉ set cờ paymentClaimedAt, hợp đồng GIỮ BOUND chờ ADMIN duyệt BOUND→ACTIVE (qua checkPolicyWrite).',
+      'POST payment-claim: chỉ set cờ paymentClaimedAt, hợp đồng GIỮ BOUND chờ ADMIN kích hoạt tay hoặc webhook SePay xác nhận (tự chuyển ACTIVE).',
     source: 'PolicyServiceImpl.claimPayment + PermissionService.checkPolicyWrite',
     roles: {
       CUSTOMER: '✅ Chỉ hợp đồng của mình',
@@ -359,12 +364,12 @@ export const PERMISSION_MATRIX = [
     group: 'Bồi thường',
     name: 'Yêu cầu / xem / xử lý bồi thường (claim)',
     description:
-      'Tạo claim: chỉ CUSTOMER cho policy ACTIVE của chính mình (kèm tối đa 10 ảnh); FINANCE tạo claim bị 403. Đọc claim: ADMIN/UW mọi claim, CUSTOMER claim của mình, AGENT claim của hợp đồng được giao; FINANCE không được đọc claim. Review/approve/reject claim: chỉ ADMIN. Chi trả (pay) claim đã duyệt: FINANCE hoặc ADMIN (maker-checker: duyệt ≠ chi trả).',
-    source: 'ClaimServiceImpl (tạo: chính mình + ACTIVE, FINANCE 403; xử lý: checkAdmin, riêng pay: checkFinanceOrAdmin)',
+      'Tạo claim: chỉ CUSTOMER cho policy ACTIVE của chính mình (kèm tối đa 10 ảnh), có trần số tiền theo quyền lợi hợp đồng và không trùng yêu cầu đang mở; FINANCE tạo claim bị 403. Đọc claim: ADMIN mọi claim, UW mọi claim khi chưa gán tenant (đã gán thì chỉ claim của đại lý mình), CUSTOMER claim của mình, AGENT claim của hợp đồng thuộc đại lý/được giao. Tiếp nhận (intake) + duyệt/từ chối: UNDERWRITER hoặc ADMIN (ADMIN override). Chi trả (pay) claim đã duyệt: FINANCE hoặc ADMIN (maker-checker: duyệt ≠ chi trả).',
+    source: 'ClaimServiceImpl (checkClaimHandler, checkClaimDecider, checkFinanceOrAdmin + checkTenantScope)',
     roles: {
       CUSTOMER: '✅ Tạo cho policy ACTIVE của mình; đọc claim của mình',
-      AGENT: '✅ Chỉ đọc claim của hợp đồng được giao',
-      UNDERWRITER: '✅ Chỉ đọc mọi claim, không xử lý',
+      AGENT: '✅ Chỉ đọc claim của hợp đồng thuộc đại lý mình',
+      UNDERWRITER: '✅ Tiếp nhận + duyệt/từ chối (toàn hệ thống, hoặc đúng đại lý khi đã gán agentId)',
       ADMIN: 'allowed',
       FINANCE: '✅ Chỉ chi trả claim đã duyệt (pay)',
     },

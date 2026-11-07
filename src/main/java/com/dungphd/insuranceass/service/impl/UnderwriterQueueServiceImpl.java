@@ -5,6 +5,7 @@ import com.dungphd.insuranceass.exception.ForbiddenException;
 import com.dungphd.insuranceass.model.NegotiationRole;
 import com.dungphd.insuranceass.model.NegotiationStatus;
 import com.dungphd.insuranceass.model.PriceNegotiation;
+import com.dungphd.insuranceass.repository.PolicyRepository;
 import com.dungphd.insuranceass.repository.PriceNegotiationRepository;
 import com.dungphd.insuranceass.service.PermissionService;
 import com.dungphd.insuranceass.service.UnderwriterQueueService;
@@ -13,12 +14,15 @@ import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class UnderwriterQueueServiceImpl implements UnderwriterQueueService {
 
     private final PriceNegotiationRepository negotiationRepository;
+    private final PolicyRepository policyRepository;
     private final PermissionService permissionService;
 
     @Override
@@ -26,9 +30,22 @@ public class UnderwriterQueueServiceImpl implements UnderwriterQueueService {
         if (!permissionService.isUnderwriter() && !permissionService.isAdmin()) {
             throw new ForbiddenException("Chỉ chuyên viên thẩm định (UNDERWRITER) hoặc ADMIN mới được xem hàng đợi thương lượng.");
         }
+        // UW đã gán tenant: chỉ thương lượng của hợp đồng thuộc đại lý mình;
+        // ADMIN hoặc UW chưa gán tenant = toàn hệ thống.
+        Set<String> tenantPolicyNumbers = null;
+        if (permissionService.isUnderwriter()) {
+            String tenantId = permissionService.currentTenantId();
+            if (tenantId != null && !tenantId.isBlank()) {
+                tenantPolicyNumbers = policyRepository.findByAgentId(tenantId).stream()
+                        .map(p -> p.getPolicyNumber())
+                        .collect(Collectors.toSet());
+            }
+        }
+        Set<String> scope = tenantPolicyNumbers;
         return negotiationRepository.findByStatusInOrderByOpenedAtAsc(
                 List.of(NegotiationStatus.OPEN, NegotiationStatus.PENDING_CONFIRMATION)
         ).stream()
+                .filter(n -> scope == null || scope.contains(n.getPolicyNumber()))
                 .filter(this::isUnderwriterAwaitingAction)
                 .sorted(Comparator.comparing(PriceNegotiation::getOpenedAt,
                         Comparator.nullsLast(Comparator.naturalOrder())))

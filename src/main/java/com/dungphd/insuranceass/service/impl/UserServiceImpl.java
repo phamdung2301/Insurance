@@ -38,7 +38,7 @@ public class UserServiceImpl implements UserService {
         if (request.getFullName() != null) {
             String trimmedName = request.getFullName().trim();
             if (trimmedName.isEmpty()) {
-                throw new BadRequestException("Full name cannot be blank");
+                throw new BadRequestException("Họ tên không được để trống.");
             }
             user.setFullName(trimmedName);
         }
@@ -59,20 +59,20 @@ public class UserServiceImpl implements UserService {
 
         if (request.getConfirmPassword() != null && !request.getConfirmPassword().isEmpty()) {
             if (!request.getNewPassword().equals(request.getConfirmPassword())) {
-                throw new BadRequestException("New password and confirm password do not match");
+                throw new BadRequestException("Xác nhận mật khẩu mới không khớp.");
             }
         }
 
         if (user.getPassword() != null && !passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
             // Also check if raw passwords matched in case seed data had plain passwords
             if (!request.getOldPassword().equals(user.getPassword())) {
-                throw new BadRequestException("Current password is incorrect");
+                throw new BadRequestException("Mật khẩu hiện tại không đúng.");
             }
         }
 
         if (user.getPassword() != null && (passwordEncoder.matches(request.getNewPassword(), user.getPassword())
                 || request.getNewPassword().equals(user.getPassword()))) {
-            throw new BadRequestException("New password cannot be the same as current password");
+            throw new BadRequestException("Mật khẩu mới phải khác mật khẩu hiện tại.");
         }
 
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
@@ -89,9 +89,9 @@ public class UserServiceImpl implements UserService {
 
     private User getUserByEmail(String email) {
         if (email == null || email.isBlank()) {
-            throw new BadRequestException("User email cannot be null or empty");
+            throw new BadRequestException("Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.");
         }
         return userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with email: " + email));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng với email: " + email));
     }
 }

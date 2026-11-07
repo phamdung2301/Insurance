@@ -55,7 +55,7 @@ public class EndorsementController {
     public ResponseEntity<ApiResponse<List<PolicyTransaction>>> getHistoryDirect(
             @RequestParam(name = "policyNumber") String policyNumber) {
         List<PolicyTransaction> history = transactionLedgerService.getTransactions(policyNumber);
-        return ResponseEntity.ok(ApiResponse.success(history, "Policy transaction history retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(history, "Lịch sử giao dịch hợp đồng."));
     }
 
     /**
@@ -66,7 +66,7 @@ public class EndorsementController {
     public ResponseEntity<ApiResponse<List<PolicyVersion>>> getVersionsDirect(
             @RequestParam(name = "policyNumber") String policyNumber) {
         List<PolicyVersion> versions = endorsementService.getVersions(policyNumber);
-        return ResponseEntity.ok(ApiResponse.success(versions, "Policy versions retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(versions, "Danh sách phiên bản hợp đồng."));
     }
 
     /**
@@ -78,7 +78,7 @@ public class EndorsementController {
             @PathVariable Integer version,
             @RequestParam(name = "policyNumber") String policyNumber) {
         PolicyVersion versionDoc = endorsementService.getVersion(policyNumber, version);
-        return ResponseEntity.ok(ApiResponse.success(versionDoc, "Policy version snapshot retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(versionDoc, "Phiên bản hợp đồng."));
     }
 
     private String resolveActor(Principal principal) {

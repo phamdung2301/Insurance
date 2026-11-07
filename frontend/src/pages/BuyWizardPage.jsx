@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { getUserMessage } from '../utils/messages';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -338,7 +339,7 @@ export function BuyWizardPage() {
       toast.success(`Đã lưu bản nháp hợp đồng ${n}.`);
       navigate(`/hop-dong/${n}`);
     } catch (err) {
-      toast.error(err.message || 'Không lưu được bản nháp.');
+      toast.error(getUserMessage(err, 'Không lưu được bản nháp.'));
     }
   };
 
@@ -353,12 +354,12 @@ export function BuyWizardPage() {
         if (isBackendMissing(tErr)) {
           toast.info('Đã lưu bản nháp. Backend chưa hỗ trợ chuyển trạng thái tự động.');
         } else {
-          toast.error(tErr.message || 'Không gửi được yêu cầu báo giá.');
+          toast.error(getUserMessage(tErr, 'Không gửi được yêu cầu báo giá.'));
         }
       }
       navigate(`/hop-dong/${n}`);
     } catch (err) {
-      toast.error(err.message || 'Không tạo được hợp đồng.');
+      toast.error(getUserMessage(err, 'Không tạo được hợp đồng.'));
     }
   };
 

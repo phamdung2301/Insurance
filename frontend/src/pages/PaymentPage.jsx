@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { getUserMessage, statusLabel, PAYMENT_STATUS } from '../utils/messages';
 import { Download, Wallet } from 'lucide-react';
 import { paymentApi } from '../services/paymentApi';
 import { downloadBlob, policyService } from '../services/api';
@@ -69,7 +70,7 @@ export function PaymentPage() {
         setGatewayLoading(false);
       }
     } catch (err) {
-      toast.error(err.message || 'Không tải được lịch sử giao dịch.');
+      toast.error(getUserMessage(err, 'Không tải được lịch sử giao dịch.'));
     } finally {
       setLoading(false);
     }
@@ -84,7 +85,7 @@ export function PaymentPage() {
       downloadBlob(res?.data ?? res, `Invoice_${policyNumber}.pdf`);
       toast.success(`Đã tải invoice của ${policyNumber}.`);
     } catch (err) {
-      toast.error(err.message || `Không tải được invoice của ${policyNumber}.`);
+      toast.error(getUserMessage(err, `Không tải được invoice của ${policyNumber}.`));
     } finally {
       setBusy(null);
     }
@@ -99,7 +100,7 @@ export function PaymentPage() {
       <div className="card" style={{ padding: '0.9rem 1rem', marginBottom: '1rem', background: 'var(--surface-warn, #fffbeb)' }}>
         Lưu ý: invoice là chứng từ ghi nhận, không phải luồng tiền thật — tải invoice
         không chuyển tiền và không thay đổi trạng thái thanh toán. Việc đối soát
-        thanh toán do FINANCE thực hiện riêng.
+        thanh toán do bộ phận kế toán của công ty thực hiện riêng.
       </div>
 
       {loading && <p style={{ color: 'var(--text-muted)' }}>Đang tải lịch sử giao dịch…</p>}
@@ -177,7 +178,7 @@ export function PaymentPage() {
                 <td>{p.provider ?? '—'}</td>
                 <td>{p.txnRef ?? '—'}</td>
                 <td>{p.transferContent ?? '—'}</td>
-                <td>{GATEWAY_STATUS_LABEL[p.status] ?? p.status ?? '—'}</td>
+                <td>{GATEWAY_STATUS_LABEL[p.status] ?? statusLabel(PAYMENT_STATUS, p.status)}</td>
               </tr>
             ))}
           </tbody>

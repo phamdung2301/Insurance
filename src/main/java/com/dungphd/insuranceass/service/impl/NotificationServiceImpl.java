@@ -409,7 +409,7 @@ public class NotificationServiceImpl implements NotificationService {
         String principal = requirePrincipal(principalEmail);
         // findByIdAndRecipientEmail: sai chủ hoặc không tồn tại đều → 404, không lộ.
         Notification notification = notificationRepository.findByIdAndRecipientEmail(id, principal)
-                .orElseThrow(() -> new ResourceNotFoundException("Notification not found with id: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thông báo: " + id));
         notification.setRead(true);
         return notificationRepository.save(notification);
     }

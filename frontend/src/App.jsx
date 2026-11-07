@@ -44,7 +44,6 @@ const TITLES = {
   '/doi-mat-khau': 'Đổi mật khẩu',
   '/admin': 'Tổng quan quản trị',
   '/admin/hop-dong': 'Quản lý hợp đồng',
-  '/admin/doi-soat': 'Đối soát thanh toán',
   '/admin/users': 'Quản lý người dùng',
   '/admin/benchmark': 'Kiểm thử hiệu năng',
   '/admin/index-audit': 'Kiểm tra index DB',

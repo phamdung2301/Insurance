@@ -31,6 +31,9 @@ class PolicyLocationServiceImplTest {
     @Mock
     private PolicyRepository policyRepository;
 
+    @Mock
+    private com.dungphd.insuranceass.service.PremiumCalculationService premiumCalculationService;
+
     @InjectMocks
     private PolicyLocationServiceImpl policyLocationService;
 
@@ -57,6 +60,15 @@ class PolicyLocationServiceImplTest {
                 .locations(new ArrayList<>(List.of(location1)))
                 .totalPremium(50000.0)
                 .build();
+
+        // Giá server-authoritative: mock echo premium có sẵn trên entity để
+        // giữ nguyên fixture số cũ — test này kiểm tra CRUD location.
+        lenient().when(premiumCalculationService.calculateServerPriced(any(Coverage.class)))
+                .thenAnswer(inv -> {
+                    Coverage c = inv.getArgument(0);
+                    return c != null && c.getPremium() != null ? c.getPremium() : 0.0;
+                });
+        lenient().when(premiumCalculationService.resolveServerBaseRate(any())).thenReturn(0.1);
     }
 
     @Test
@@ -127,7 +139,7 @@ class PolicyLocationServiceImplTest {
 
         BadRequestException ex = assertThrows(BadRequestException.class,
                 () -> policyLocationService.addLocation("pol-123", duplicateDto));
-        assertTrue(ex.getMessage().contains("already exists"));
+        assertTrue(ex.getMessage().contains("đã tồn tại"));
     }
 
     @Test

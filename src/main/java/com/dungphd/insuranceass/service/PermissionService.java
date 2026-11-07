@@ -163,6 +163,24 @@ public class PermissionService {
                 && tenantId.equals(policy.getAgentId());
     }
 
+    /**
+     * Staff (UW/FINANCE) có được hành động trên policy này không theo phạm vi
+     * tenant: ADMIN luôn được (override nền tảng); staff CHƯA gán tenant
+     * (TenantContext null) = phạm vi toàn hệ thống (quyết định nghiệp vụ:
+     * mặc định global, gán agentId thì thu hẹp); đã gán tenant thì chỉ được
+     * trên policy thuộc tenant đó.
+     */
+    public boolean tenantMatches(Policy policy) {
+        if (isAdmin()) {
+            return true;
+        }
+        String tenantId = currentTenantId();
+        if (tenantId == null || tenantId.isBlank()) {
+            return true;
+        }
+        return policy != null && tenantId.equals(policy.getAgentId());
+    }
+
     /** Trạng thái của tenant hiện tại, hoặc empty nếu không có tenant / không tìm thấy Agent / không có repo. */
     public Optional<AgentStatus> currentTenantStatus() {
         String tenantId = currentTenantId();
@@ -284,8 +302,16 @@ public class PermissionService {
         if (principal == null) {
             return false;
         }
-        if (isAdmin() || isUnderwriter()) {
+        if (isAdmin()) {
             return true;
+        }
+        // UNDERWRITER: chưa gán tenant = đọc toàn hệ thống; đã gán tenant thì
+        // chỉ đọc policy thuộc tenant mình (kèm guard trạng thái tenant).
+        if (isUnderwriter()) {
+            if (currentTenantId() == null || isTenantMember(policy)) {
+                return true;
+            }
+            return false;
         }
         // Phía CUSTOMER (kể cả dual-role): hợp đồng của chính mình đọc được
         // bất kể trạng thái tenant — khách không bị khóa oan vì đại lý đóng.
@@ -321,8 +347,13 @@ public class PermissionService {
         if (principal == null) {
             return false;
         }
-        if (isAdmin() || isUnderwriter() || hasFinanceRole()) {
+        if (isAdmin()) {
             return true;
+        }
+        // UW/FINANCE đã gán tenant: chỉ đọc ngữ cảnh tiền của policy thuộc
+        // tenant mình; chưa gán tenant = toàn hệ thống (như cũ).
+        if (isUnderwriter() || hasFinanceRole()) {
+            return currentTenantId() == null || isTenantMember(policy);
         }
         return canReadPolicy(policy);
     }
@@ -354,13 +385,17 @@ public class PermissionService {
         throw new ForbiddenException("Bạn không có quyền sửa hợp đồng này.");
     }
 
-    /** Đọc negotiation: phe cầu trong phạm vi (kèm guard đọc CLOSED), UNDERWRITER, ADMIN (xem). */
+    /**
+     * Đọc negotiation: ADMIN (xem toàn hệ thống), UNDERWRITER (global khi
+     * chưa gán tenant, thu hẹp theo tenant khi đã gán), phe cầu trong phạm vi
+     * (kèm guard đọc CLOSED).
+     */
     public void checkNegotiationRead(Policy policy) {
         String principal = currentPrincipal();
         if (principal == null) {
             throw new ForbiddenException("Bạn không có quyền xem thương lượng của hợp đồng này.");
         }
-        if (isAdmin() || isUnderwriter() || canReadPolicy(policy)) {
+        if (isAdmin() || (isUnderwriter() && tenantMatches(policy)) || canReadPolicy(policy)) {
             return;
         }
         throw new ForbiddenException("Bạn không có quyền xem thương lượng của hợp đồng này.");

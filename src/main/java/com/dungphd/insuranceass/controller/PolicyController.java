@@ -64,7 +64,7 @@ public class PolicyController {
             @Valid @ModelAttribute PolicySearchCriteria criteria
     ) {
         PageResponse<Policy> response = policyService.searchPolicies(criteria);
-        return ResponseEntity.ok(ApiResponse.success(response, "Policies retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(response, "Danh sách hợp đồng."));
     }
 
     // ==========================================
@@ -81,7 +81,7 @@ public class PolicyController {
     @GetMapping("/{policyNumber}")
     public ResponseEntity<ApiResponse<PolicyResponse>> getPolicyByNumber(@PathVariable String policyNumber) {
         PolicyResponse response = policyService.getPolicyByNumber(policyNumber);
-        return ResponseEntity.ok(ApiResponse.success(response, "Policy retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(response, "Chi tiết hợp đồng."));
     }
 
     @PutMapping("/{policyNumber}")
@@ -159,7 +159,7 @@ public class PolicyController {
             Principal principal) {
         String actor = resolveActor(principal);
         List<PaymentResponse> response = paymentService.listPayments(policyNumber, actor);
-        return ResponseEntity.ok(ApiResponse.success(response, "Payment history retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(response, "Lịch sử thanh toán của hợp đồng."));
     }
 
     // ==========================================
@@ -179,7 +179,7 @@ public class PolicyController {
     @GetMapping("/{policyNumber}/versions")
     public ResponseEntity<ApiResponse<List<PolicyVersion>>> getVersions(@PathVariable String policyNumber) {
         List<PolicyVersion> versions = endorsementService.getVersions(policyNumber);
-        return ResponseEntity.ok(ApiResponse.success(versions, "Policy versions retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(versions, "Danh sách phiên bản hợp đồng."));
     }
 
     @GetMapping("/{policyNumber}/versions/{version}")
@@ -187,7 +187,7 @@ public class PolicyController {
             @PathVariable String policyNumber,
             @PathVariable Integer version) {
         PolicyVersion versionDoc = endorsementService.getVersion(policyNumber, version);
-        return ResponseEntity.ok(ApiResponse.success(versionDoc, "Policy version snapshot retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(versionDoc, "Phiên bản hợp đồng."));
     }
 
     @GetMapping("/{policyNumber}/versions/compare")
@@ -196,7 +196,7 @@ public class PolicyController {
             @RequestParam(name = "v1") Integer v1,
             @RequestParam(name = "v2") Integer v2) {
         Map<String, Object> comparison = endorsementService.compareVersions(policyNumber, v1, v2);
-        return ResponseEntity.ok(ApiResponse.success(comparison, "Policy version comparison generated successfully"));
+        return ResponseEntity.ok(ApiResponse.success(comparison, "So sánh phiên bản hợp đồng."));
     }
 
     // ==========================================
@@ -206,7 +206,7 @@ public class PolicyController {
     @GetMapping("/{policyNumber}/history")
     public ResponseEntity<ApiResponse<List<PolicyTransaction>>> getHistory(@PathVariable String policyNumber) {
         List<PolicyTransaction> history = transactionLedgerService.getTransactions(policyNumber);
-        return ResponseEntity.ok(ApiResponse.success(history, "Policy transaction history retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(history, "Lịch sử giao dịch hợp đồng."));
     }
 
     /** Chỉ lấy actor từ JWT/Principal, không tin header X-User-Email (PLAN §1.5). */

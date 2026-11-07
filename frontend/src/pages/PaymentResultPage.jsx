@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { getUserMessage, statusLabel, PAYMENT_STATUS, POLICY_STATUS } from '../utils/messages';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { policyService } from '../services/api';
 import { formatMoney } from '../utils/format';
@@ -47,7 +48,7 @@ export function PaymentResultPage() {
       if (err.status === 404) {
         setError(`Không tìm thấy giao dịch thanh toán với mã ${txnRef}.`);
       } else {
-        setError(err.message || 'Không tra cứu được kết quả thanh toán.');
+        setError(getUserMessage(err, 'Không tra cứu được kết quả thanh toán.'));
       }
     } finally {
       setLoading(false);
@@ -99,7 +100,7 @@ export function PaymentResultPage() {
       ? 'Giao dịch đang chờ xử lý'
       : isFailed
         ? 'Thanh toán thất bại hoặc đã hủy'
-        : `Trạng thái giao dịch: ${status ?? '—'}`;
+        : `Trạng thái giao dịch: ${statusLabel(PAYMENT_STATUS, status)}`;
 
   return (
     <div>
@@ -116,7 +117,7 @@ export function PaymentResultPage() {
           <dt>Nhà cung cấp</dt>
           <dd>{payment.provider ?? 'SEPAY'}</dd>
           <dt>Trạng thái thanh toán</dt>
-          <dd>{status ?? '—'}</dd>
+          <dd>{statusLabel(PAYMENT_STATUS, status)}</dd>
           {policyStatus && (<><dt>Trạng thái hợp đồng</dt><dd>{policyStatus}</dd></>)}
         </dl>
         {isSuccess && (

@@ -15,7 +15,7 @@ import java.time.Instant;
 @Builder
 public class StatusTransitionRequest {
 
-    @NotNull(message = "Target status is required")
+    @NotNull(message = "Trạng thái chuyển đổi là bắt buộc.")
     private PolicyStatus targetStatus;
 
     private String reason;

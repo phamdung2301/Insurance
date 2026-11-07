@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { getUserMessage } from '../utils/messages';
 import { Link } from 'react-router-dom';
 import { Scale, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
@@ -35,7 +36,7 @@ export function UnderwriterQueuePage() {
       const list = Array.isArray(d) ? d : (d?.items ?? d?.negotiations ?? []);
       setItems(list);
     } catch (err) {
-      toast.error(err.message || 'Không tải được hàng đợi thương lượng.');
+      toast.error(getUserMessage(err, 'Không tải được hàng đợi thương lượng.'));
     } finally {
       setLoading(false);
     }

@@ -70,7 +70,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     public AdminUserResponse createUser(AdminUserCreateRequest request, String actor) {
         String email = request.getEmail().trim().toLowerCase();
         if (userRepository.existsByEmail(email)) {
-            throw new DuplicateResourceException("User with email " + email + " already exists");
+            throw new DuplicateResourceException("Đã tồn tại tài khoản với email " + email + ".");
         }
         List<String> roles = normalizeRoles(request.getRoles());
         // Track B mục 4: gán tenant ngay lúc tạo (lấp gap Phase 1).
@@ -102,7 +102,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Override
     public AdminUserResponse setAgent(String userId, String agentId, String actor) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng: " + userId));
         String normalized = agentId != null && !agentId.isBlank() ? agentId.trim() : null;
         if (normalized != null) {
             requireAgentExists(normalized);
@@ -128,7 +128,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Override
     public AdminUserResponse updateRoles(String userId, List<String> roles, String actor) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng: " + userId));
         List<String> before = user.getRoles() != null ? new ArrayList<>(user.getRoles()) : new ArrayList<>();
         List<String> after = normalizeRoles(roles);
         // Guard (a): admin không được tự đổi vai trò của chính mình.
@@ -152,7 +152,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Override
     public AdminUserResponse setEnabled(String userId, boolean enabled, String actor) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng: " + userId));
         List<String> roles = user.getRoles() != null ? new ArrayList<>(user.getRoles()) : new ArrayList<>();
         // Guard (b): admin không được tự khóa chính mình.
         if (!enabled && isSelf(actor, user.getEmail())) {

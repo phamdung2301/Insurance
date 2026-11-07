@@ -44,7 +44,7 @@ export class ErrorBoundary extends React.Component {
         {(error?.message || errorInfo?.componentStack) && (
           <details style={{ textAlign: 'left', marginBottom: '1.25rem', fontSize: '0.8rem' }}>
             <summary style={{ cursor: 'pointer', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
-              Chi tiết kỹ thuật
+              Chi tiết kỹ thuật (đính kèm khi liên hệ hỗ trợ)
             </summary>
             <pre style={{
               background: 'rgba(0,0,0,0.06)', padding: '0.75rem', borderRadius: '0.5rem',

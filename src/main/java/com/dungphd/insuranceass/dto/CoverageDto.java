@@ -1,6 +1,7 @@
 package com.dungphd.insuranceass.dto;
 
 import com.dungphd.insuranceass.model.Coverage;
+import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -15,7 +16,7 @@ import lombok.NoArgsConstructor;
 @Builder
 public class CoverageDto {
 
-    @NotBlank(message = "Coverage code is required")
+    @NotBlank(message = "Mã quyền lợi bảo hiểm là bắt buộc.")
     private String coverageCode;
 
     private String coverageName;
@@ -23,11 +24,12 @@ public class CoverageDto {
     // STANDARD | ENHANCED | COMPREHENSIVE
     private String coverageType;
 
-    @NotNull(message = "Coverage limit is required")
-    @Min(value = 0, message = "Limit must be non-negative")
+    @NotNull(message = "Số tiền bảo hiểm (limit) là bắt buộc.")
+    @Min(value = 0, message = "Số tiền bảo hiểm không được âm.")
+    @DecimalMax(value = "10000000000", message = "Số tiền bảo hiểm tối đa 10 tỷ VND cho mỗi quyền lợi.")
     private Double limit;
 
-    @Min(value = 0, message = "Deductible must be non-negative")
+    @Min(value = 0, message = "Mức khấu trừ không được âm.")
     private Double deductible;
 
     // Term in months: 12, 24, 36. Defaults to 12 if not provided.

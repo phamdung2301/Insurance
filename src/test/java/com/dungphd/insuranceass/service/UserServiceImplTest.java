@@ -121,7 +121,7 @@ class UserServiceImplTest {
 
         BadRequestException ex = assertThrows(BadRequestException.class,
                 () -> userService.updateProfile("test@example.com", request));
-        assertEquals("Full name cannot be blank", ex.getMessage());
+        assertEquals("Họ tên không được để trống.", ex.getMessage());
     }
 
     @Test
@@ -156,7 +156,7 @@ class UserServiceImplTest {
 
         BadRequestException ex = assertThrows(BadRequestException.class,
                 () -> userService.changePassword("test@example.com", request));
-        assertEquals("Current password is incorrect", ex.getMessage());
+        assertEquals("Mật khẩu hiện tại không đúng.", ex.getMessage());
     }
 
     @Test
@@ -171,7 +171,7 @@ class UserServiceImplTest {
 
         BadRequestException ex = assertThrows(BadRequestException.class,
                 () -> userService.changePassword("test@example.com", request));
-        assertEquals("New password and confirm password do not match", ex.getMessage());
+        assertEquals("Xác nhận mật khẩu mới không khớp.", ex.getMessage());
     }
 
     @Test
@@ -187,7 +187,7 @@ class UserServiceImplTest {
 
         BadRequestException ex = assertThrows(BadRequestException.class,
                 () -> userService.changePassword("test@example.com", request));
-        assertEquals("New password cannot be the same as current password", ex.getMessage());
+        assertEquals("Mật khẩu mới phải khác mật khẩu hiện tại.", ex.getMessage());
     }
 
     @Test

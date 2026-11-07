@@ -33,7 +33,7 @@ public class UserController {
     ) {
         String email = resolveEmail(principal);
         UserProfileResponse profile = userService.getProfile(email);
-        return ResponseEntity.ok(ApiResponse.success(profile, "Profile retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(profile, "Hồ sơ cá nhân."));
     }
 
     /**
@@ -75,7 +75,7 @@ public class UserController {
     ) {
         String email = resolveEmail(principal);
         List<PolicyTransaction> transactions = userService.getUserTransactions(email);
-        return ResponseEntity.ok(ApiResponse.success(transactions, "User activity retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(transactions, "Lịch sử hoạt động của bạn."));
     }
 
     /**

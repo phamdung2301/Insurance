@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { getUserMessage } from '../utils/messages';
 import { ScrollText, RefreshCw, ShieldCheck, Search } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { auditLogService } from '../services/auditLogApi';
@@ -24,7 +25,7 @@ function RoleBadges({ roles }) {
 
 function friendlyError(err) {
   if (err?.status === 403) return 'Bạn không có quyền xem nhật ký quản trị. Chỉ tài khoản ADMIN mới truy cập được trang này.';
-  return err?.message || 'Đã xảy ra lỗi không mong đợi.';
+  return getUserMessage(err, 'Đã xảy ra lỗi không mong đợi.');
 }
 
 /**

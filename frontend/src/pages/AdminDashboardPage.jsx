@@ -241,7 +241,7 @@ export function AdminDashboardPage() {
         <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           Tổng quan quản trị
           {estimated && (
-            <span className="badge badge-info" title="Backend chưa có API báo cáo">
+            <span className="badge badge-info" title="Số liệu ước tính trên client khi API báo cáo không khả dụng">
               <Info size={12} /> Số liệu ước tính
             </span>
           )}

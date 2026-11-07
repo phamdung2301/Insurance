@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 @Builder
 public class SendOtpRequest {
 
-    @NotBlank(message = "Email is required")
-    @Email(message = "Invalid email format")
+    @NotBlank(message = "Email là bắt buộc.")
+    @Email(message = "Địa chỉ email không hợp lệ.")
     private String email;
 }

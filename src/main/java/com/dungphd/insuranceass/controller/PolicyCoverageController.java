@@ -30,7 +30,7 @@ public class PolicyCoverageController {
             @PathVariable("locationId") String locationId
     ) {
         List<Coverage> coverages = policyCoverageService.getCoverages(policyId, locationId);
-        return ResponseEntity.ok(ApiResponse.success(coverages, "Coverages retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(coverages, "Danh sách quyền lợi bảo hiểm."));
     }
 
     /**
@@ -44,7 +44,7 @@ public class PolicyCoverageController {
             @PathVariable("coverageCode") String coverageCode
     ) {
         Coverage coverage = policyCoverageService.getCoverageByCode(policyId, locationId, coverageCode);
-        return ResponseEntity.ok(ApiResponse.success(coverage, "Coverage retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(coverage, "Chi tiết quyền lợi bảo hiểm."));
     }
 
     /**

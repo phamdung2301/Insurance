@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { labelForField } from '../utils/messages';
 
 // Central Axios instance — uses Vite proxy (see vite.config.js)
 // VITE_API_BASE_URL: để trống khi dev (dùng Vite proxy), set URL backend khi deploy (VD: https://insurance-be.onrender.com)
@@ -17,8 +18,17 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+/**
+ * Chuẩn hoá mọi lỗi về một shape duy nhất: Error với
+ *   err.status  — HTTP status
+ *   err.code    — mã lỗi máy-đọc từ backend (exception/ErrorCode.java)
+ *   err.fields  — map field→message khi lỗi validation (code=VALIDATION_ERROR)
+ * Message hiển thị cho người dùng: dùng message backend (backend chuẩn hoá
+ * tiếng Việt qua GlobalExceptionHandler); KHÔNG tự chế câu sai ngữ cảnh.
+ * Page nên bọc message này bằng getUserMessage() (utils/messages.js).
+ */
 api.interceptors.response.use(
-  (response) => response.data, // backend envelope: { success, message, data }
+  (response) => response.data, // backend envelope: { success, code, message, data }
   (error) => {
     const status = error.response?.status ?? null;
     if (status === 401) {
@@ -26,20 +36,22 @@ api.interceptors.response.use(
       localStorage.removeItem('iuser');
       window.dispatchEvent(new CustomEvent('auth:unauthorized'));
     }
-    if (status === 403) {
-      const err403 = new Error('Bạn không có quyền thực hiện thao tác này (yêu cầu quyền quản trị viên).');
-      err403.status = 403;
-      return Promise.reject(err403);
-    }
-    const serverMessage = error.response?.data?.message;
-    const validationErrors = error.response?.data?.data;
-    let message = serverMessage || error.message || 'Đã xảy ra lỗi không mong đợi';
-    if (validationErrors && typeof validationErrors === 'object') {
-      const fields = Object.values(validationErrors).join(', ');
-      if (fields) message = `${message}: ${fields}`;
-    }
-    const err = new Error(message);
+    const body = error.response?.data || {};
+    const validationFields =
+      body.code === 'VALIDATION_ERROR' && body.data && typeof body.data === 'object'
+        ? body.data
+        : null;
+    const err = new Error(body.message || error.message || 'Đã xảy ra lỗi không mong đợi');
     err.status = status;
+    err.code = body.code || null;
+    err.fields = validationFields;
+    // Ghép chi tiết lỗi theo trường vào câu thông báo với nhãn tiếng Việt.
+    if (validationFields) {
+      const parts = Object.entries(validationFields)
+        .filter(([, msg]) => msg != null && String(msg).trim() !== '')
+        .map(([field, msg]) => `${labelForField(field)}: ${msg}`);
+      if (parts.length) err.message = `Dữ liệu chưa hợp lệ — ${parts.join('; ')}`;
+    }
     return Promise.reject(err);
   }
 );

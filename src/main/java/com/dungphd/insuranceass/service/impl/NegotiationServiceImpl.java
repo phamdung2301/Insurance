@@ -515,12 +515,12 @@ public class NegotiationServiceImpl implements NegotiationService {
     private Policy resolvePolicy(String policyNumber) {
         return policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyNumber));
     }
 
     private PriceNegotiation resolveNegotiation(Policy policy, String negotiationId) {
         return negotiationRepository.findByIdAndPolicyNumber(negotiationId, policy.getPolicyNumber())
-                .orElseThrow(() -> new ResourceNotFoundException("Negotiation not found with id: " + negotiationId));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phiên thương lượng: " + negotiationId));
     }
 
     private NegotiationResponse mapToResponse(PriceNegotiation negotiation, String principal, Policy policy) {

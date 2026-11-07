@@ -2,7 +2,9 @@ package com.dungphd.insuranceass.dto.request;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import com.dungphd.insuranceass.util.PasswordPolicy;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Pattern;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -20,7 +22,8 @@ public class AdminUserCreateRequest {
     @Email(message = "Email không hợp lệ")
     private String email;
 
-    @NotBlank(message = "Password là bắt buộc")
+    @NotBlank(message = "Mật khẩu là bắt buộc")
+    @Pattern(regexp = PasswordPolicy.PATTERN, message = PasswordPolicy.VIOLATION_MESSAGE)
     private String password;
 
     private String fullName;

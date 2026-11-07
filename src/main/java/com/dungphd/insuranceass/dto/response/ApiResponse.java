@@ -17,6 +17,10 @@ public class ApiResponse<T> {
     @Builder.Default
     private boolean success = true;
 
+    /** Mã lỗi máy-đọc (xem {@link com.dungphd.insuranceass.exception.ErrorCode}), chỉ có trên response lỗi. */
+    private String code;
+
+    /** Thông điệp thân thiện tiếng Việt dành cho người dùng cuối. */
     private String message;
 
     private T data;
@@ -36,6 +40,15 @@ public class ApiResponse<T> {
     public static <T> ApiResponse<T> error(String message) {
         return ApiResponse.<T>builder()
                 .success(false)
+                .message(message)
+                .timestamp(Instant.now())
+                .build();
+    }
+
+    public static <T> ApiResponse<T> error(String code, String message) {
+        return ApiResponse.<T>builder()
+                .success(false)
+                .code(code)
                 .message(message)
                 .timestamp(Instant.now())
                 .build();

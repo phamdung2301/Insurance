@@ -137,9 +137,12 @@ class JwtAuthenticationFilterTenantTest {
     }
 
     @Test
-    void underwriterWithAgentId_bypassesToEmpty() throws Exception {
-        assertNull(tenantSeenDownstream(
+    void underwriterWithAgentId_getsTenantContext() throws Exception {
+        // Nghiệp vụ mới: UW gán agentId thì tenant context được set (thu hẹp
+        // phạm vi theo đại lý); chỉ ADMIN mới bypass.
+        assertEquals("tenant-1", tenantSeenDownstream(
                 user("uw@example.com", "tenant-1", List.of("ROLE_UNDERWRITER"))));
+        // Finally của filter đã clear: request sau không thấy tenant cũ.
         assertNull(TenantContext.getTenantId());
     }
 

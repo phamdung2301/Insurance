@@ -36,14 +36,14 @@ public class NotificationController {
             Principal principal) {
         String email = resolveEmail(principal);
         return ResponseEntity.ok(ApiResponse.success(
-                notificationService.listForPrincipal(email, unreadOnly), "Notifications retrieved successfully"));
+                notificationService.listForPrincipal(email, unreadOnly), "Danh sách thông báo."));
     }
 
     @GetMapping("/unread-count")
     public ResponseEntity<ApiResponse<Long>> unreadCount(Principal principal) {
         String email = resolveEmail(principal);
         return ResponseEntity.ok(ApiResponse.success(
-                notificationService.unreadCount(email), "Unread count retrieved successfully"));
+                notificationService.unreadCount(email), "Số thông báo chưa đọc."));
     }
 
     @PostMapping("/{id}/read")

@@ -98,14 +98,14 @@ public class EndorsementServiceImpl implements EndorsementService {
     private PolicyResponse applyEndorsementInternal(String policyNumber, EndorsementRequest request, String actor, boolean bypassThreshold) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyNumber));
 
         if (!bypassThreshold && permissionService != null) {
             permissionService.checkPolicyWrite(policy);
         }
 
         if (policy.getStatus() != PolicyStatus.ACTIVE) {
-            throw new BadRequestException("Endorsement can only be applied to ACTIVE policies. Current status is " + policy.getStatus());
+            throw new BadRequestException("Chỉ có thể điều chỉnh hợp đồng đang có hiệu lực (ACTIVE). Trạng thái hiện tại: " + policy.getStatus());
         }
 
         // Đợt 4B — Maker-checker, TÍNH TRƯỚC KHI SAVE: build policy SAU
@@ -229,7 +229,7 @@ public class EndorsementServiceImpl implements EndorsementService {
     public List<PolicyVersion> getVersions(String policyNumber) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyNumber));
 
         if (permissionService != null) {
             permissionService.checkPolicyRead(policy);
@@ -242,7 +242,7 @@ public class EndorsementServiceImpl implements EndorsementService {
     public PolicyVersion getVersion(String policyNumber, Integer version) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyNumber));
 
         if (permissionService != null) {
             permissionService.checkPolicyRead(policy);
@@ -256,7 +256,7 @@ public class EndorsementServiceImpl implements EndorsementService {
     public Map<String, Object> compareVersions(String policyNumber, Integer v1, Integer v2) {
         Policy policy = policyRepository.findByPolicyNumber(policyNumber)
                 .or(() -> policyRepository.findById(policyNumber))
-                .orElseThrow(() -> new ResourceNotFoundException("Policy not found with number or ID: " + policyNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng: " + policyNumber));
 
         if (permissionService != null) {
             permissionService.checkPolicyRead(policy);
@@ -316,6 +316,14 @@ public class EndorsementServiceImpl implements EndorsementService {
     private void applyRequestToPolicy(Policy policy, EndorsementRequest request) {
         if (request.getInsured() != null) {
             policy.setInsured(mapToInsured(request.getInsured()));
+            // Chống chiếm quyền hợp đồng: CUSTOMER không được đổi người được bảo hiểm
+            // sang email khác qua endorsement (AGENT/UW/ADMIN giữ hành vi hiện tại).
+            if (permissionService != null && permissionService.hasCustomerRole() && !permissionService.isAdmin()) {
+                String principal = permissionService.currentPrincipal();
+                if (principal != null && policy.getInsured() != null) {
+                    policy.getInsured().setEmail(principal.trim().toLowerCase());
+                }
+            }
         }
         if (request.getLocations() != null) {
             List<Location> updatedLocations = request.getLocations().stream()
@@ -506,9 +514,9 @@ public class EndorsementServiceImpl implements EndorsementService {
         if (dto.getCoverages() != null) {
             for (CoverageDto cdto : dto.getCoverages()) {
                 Coverage c = cdto.toEntity();
-                if (c.getPremium() == null || c.getPremium() <= 0) {
-                    c.setPremium(premiumCalculationService.calculate(c));
-                }
+                // Giá do SERVER quyết định: bỏ qua premium/baseRate client gửi (chống giả mạo phí).
+                c.setBaseRate(premiumCalculationService.resolveServerBaseRate(c.getCoverageCode()));
+                c.setPremium(premiumCalculationService.calculateServerPriced(c));
                 coverages.add(c);
             }
         }

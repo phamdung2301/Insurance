@@ -112,23 +112,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Resolve tenant của caller từ User đã load (SaaS Phase 1).
-     * ADMIN, UNDERWRITER và FINANCE đứng ngoài mọi tenant → null (bypass
-     * marker), kể cả khi document user của họ lỡ có agentId (scope vẫn
-     * bypass theo role, PLAN §3.2).
-     * Các role còn lại (AGENT, CUSTOMER, ...) → user.agentId (có thể null: user
-     * chưa được gán tenant; Phase 1 KHÔNG fail-closed trường hợp này — đó là
-     * hành vi Phase 2, cấm làm đợt này).
+     * Resolve tenant của caller từ User đã load.
+     * - ADMIN: nền tảng, đứng ngoài mọi tenant → null (bypass), kể cả khi
+     *   document user lỡ có agentId.
+     * - UNDERWRITER / FINANCE (nhân sự nghiệp vụ): MẶC ĐỊNH global (agentId
+     *   null = xem/thao tác toàn hệ thống); khi ADMIN gán agentId (PUT
+     *   /admin/users/{id}/agent) thì tenant context được set và mọi guard
+     *   theo tenant sẽ thu hẹp phạm vi của họ về đúng đại lý đó.
+     * - AGENT / CUSTOMER → user.agentId (có thể null: chưa được gán tenant;
+     *   các guard theo tenant đã fail-closed riêng cho AGENT).
      */
     static String resolveTenantId(User user) {
         if (user == null) {
             return null;
         }
         List<String> roles = user.getRoles();
-        if (roles != null
-                && (roles.contains(Role.ROLE_ADMIN.name())
-                || roles.contains(Role.ROLE_UNDERWRITER.name())
-                || roles.contains(Role.ROLE_FINANCE.name()))) {
+        if (roles != null && roles.contains(Role.ROLE_ADMIN.name())) {
             return null;
         }
         String agentId = user.getAgentId();

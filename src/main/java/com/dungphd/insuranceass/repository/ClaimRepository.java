@@ -29,5 +29,8 @@ public interface ClaimRepository extends MongoRepository<Claim, String> {
     Page<Claim> findByPolicyNumberInAndStatusOrderByCreatedAtDesc(List<String> policyNumbers, ClaimStatus status, Pageable pageable);
 
     Page<Claim> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    /** Chống trùng yêu cầu bồi thường: còn claim đang mở (chưa có kết quả) trên cùng hợp đồng? */
+    boolean existsByPolicyNumberAndStatusIn(String policyNumber, List<ClaimStatus> statuses);
 }
 

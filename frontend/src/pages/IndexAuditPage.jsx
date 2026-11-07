@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getUserMessage, statusLabel, INDEX_SYNC_STATUS } from '../utils/messages';
 import { Database, RefreshCw, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
 import { indexAuditService } from '../services/api';
 import { BACKEND_TODO_HINT, isBackendMissing } from '../utils/backend';
@@ -27,7 +28,7 @@ export function IndexAuditPage() {
       setReport(res?.data ?? null);
     } catch (err) {
       if (isBackendMissing(err)) setMissing(true);
-      else toast.error(err.message || 'Không tải được báo cáo kiểm tra index.');
+      else toast.error(getUserMessage(err, 'Không tải được báo cáo kiểm tra index.'));
     } finally {
       setLoading(false);
     }
@@ -42,7 +43,7 @@ export function IndexAuditPage() {
       toast.success(res?.data?.message ?? res?.data ?? 'Đã đồng bộ index.');
       await load();
     } catch (err) {
-      toast.error(err.message || 'Đồng bộ index thất bại.');
+      toast.error(getUserMessage(err, 'Đồng bộ index thất bại.'));
     } finally {
       setSyncing(false);
     }
@@ -96,7 +97,7 @@ export function IndexAuditPage() {
           {report.auditTimestamp && (
             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
               Kiểm tra lúc: {formatDateTime(report.auditTimestamp)}
-              {report.status && <> · Trạng thái: <strong>{report.status}</strong></>}
+              {report.status && <> · Trạng thái: <strong>{statusLabel(INDEX_SYNC_STATUS, report.status)}</strong></>}
             </p>
           )}
 
@@ -131,7 +132,7 @@ export function IndexAuditPage() {
                   </thead>
                   <tbody>
                     {(c.indexes ?? []).map((ix, i) => {
-                      const meta = STATUS_META[ix.status] ?? { label: ix.status ?? '—', cls: 'badge-info' };
+                      const meta = STATUS_META[ix.status] ?? { label: statusLabel(INDEX_SYNC_STATUS, ix.status) ?? '—', cls: 'badge-info' };
                       const kinds = [
                         ix.isCompound && 'Phức hợp',
                         ix.isMultikeyElemMatch && 'Multikey',

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getUserMessage } from '../utils/messages';
 import axios from 'axios';
 import { Play, FlaskConical } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
@@ -90,7 +91,7 @@ export function ApiTesterPage() {
       if (err.response) {
         setResult({ ok: false, status: err.response.status, ms, data: err.response.data });
       } else {
-        setResult({ ok: false, status: null, ms, data: { message: err.message || 'Không kết nối được máy chủ.' } });
+        setResult({ ok: false, status: null, ms, data: { message: getUserMessage(err, 'Không kết nối được máy chủ.') } });
       }
     } finally {
       setRunning(false);

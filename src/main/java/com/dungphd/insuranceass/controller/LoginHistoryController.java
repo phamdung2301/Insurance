@@ -32,7 +32,7 @@ public class LoginHistoryController {
     public ResponseEntity<ApiResponse<List<LoginHistory>>> list(Principal principal) {
         String email = resolveEmail(principal);
         return ResponseEntity.ok(ApiResponse.success(
-                loginHistoryService.listRecentForPrincipal(email), "Login history retrieved successfully"));
+                loginHistoryService.listRecentForPrincipal(email), "Lịch sử đăng nhập."));
     }
 
     /**

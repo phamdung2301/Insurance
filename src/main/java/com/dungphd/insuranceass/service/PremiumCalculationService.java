@@ -83,21 +83,41 @@ public class PremiumCalculationService {
      * @return Premium (VND), floored at MINIMUM_PREMIUM
      */
     public double calculate(Coverage coverage) {
+        return compute(coverage, coverage != null ? coverage.getBaseRate() : null);
+    }
+
+    /**
+     * Giá do SERVER quyết định — luồng BẮT BUỘC khi ghi dữ liệu hợp đồng
+     * (tạo/sửa coverage). Luôn tra bảng BASE_RATES nội bộ theo coverageCode,
+     * TUYỆT ĐỐI bỏ qua baseRate/premium do client gửi để không ai có thể
+     * tự định giá một hợp đồng limit lớn với phí 1 đồng.
+     */
+    public double calculateServerPriced(Coverage coverage) {
+        return compute(coverage, null);
+    }
+
+    /** Tra bảng giá nội bộ theo mã coverage (0.1% nếu mã lạ) — dùng để gán baseRate chuẩn cho entity. */
+    public double resolveServerBaseRate(String coverageCode) {
+        return BASE_RATES.getOrDefault(
+                coverageCode != null ? coverageCode.toUpperCase() : "",
+                0.100 // default 0.1% if unknown coverage type
+        );
+    }
+
+    private double compute(Coverage coverage, Double clientBaseRate) {
         if (coverage == null || coverage.getLimit() == null || coverage.getLimit() <= 0) {
             return 0.0;
         }
 
         double limit = coverage.getLimit();
 
-        // 1. Get base rate
+        // 1. Get base rate — clientBaseRate chỉ dùng cho luồng tính thử/preview,
+        //    không bao giờ dùng khi ghi dữ liệu (xem calculateServerPriced).
         double baseRate;
-        if (coverage.getBaseRate() != null && coverage.getBaseRate() > 0) {
-            baseRate = coverage.getBaseRate(); // use provided rate
+        if (clientBaseRate != null && clientBaseRate > 0) {
+            baseRate = clientBaseRate; // use provided rate
         } else {
-            baseRate = BASE_RATES.getOrDefault(
-                coverage.getCoverageCode() != null ? coverage.getCoverageCode().toUpperCase() : "",
-                0.100 // default 0.1% if unknown coverage type
-            );
+            baseRate = resolveServerBaseRate(coverage.getCoverageCode());
         }
 
         // 2. Term factor
