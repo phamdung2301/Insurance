@@ -26,6 +26,14 @@ pie title Tổng thể task (Phase 1 + Phase 2)
 ```
 
 ```mermaid
+xychart-beta
+    title "Task theo thành viên (Phase 1 + Phase 2)"
+    x-axis ["Dũng", "Huy", "Team"]
+    y-axis "Số task" 0 --> 50
+    bar [43, 37, 3]
+```
+
+```mermaid
 gantt
     title Timeline Phase 2 · SaaS Upgrade & Hardening (2026)
     dateFormat DD/MM
@@ -44,7 +52,7 @@ gantt
     Refresh token + Legal thật + Docs + Hoàn tiền + Reports :m8c, 10/11, 11/11
 ```
 
-**Nhân sự Phase 2:** Dũng (BE+FE+tracking) — Git: 2 nhánh `feat/saas-*`, `feat/hardening-claim-flow-tenant-roles`, PR review workflow giữ nguyên chuẩn S05 của Phase 1.
+**Nhân sự Phase 2:** Dũng & Huy (chia đều 17/17 task Phase 2) — Git: 2 nhánh `feat/saas-*`, `feat/hardening-claim-flow-tenant-roles`, PR review workflow giữ nguyên chuẩn S05 của Phase 1.
 
 ---
 
