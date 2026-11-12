@@ -18,6 +18,9 @@ import { DocumentsSection } from '../components/DocumentsSection';
 import { Modal } from '../components/Modal';
 import { EmptyState, Skeleton } from '../components/ui';
 import { formatMoney, formatDate, formatDateTime, daysUntilExpiry } from '../utils/format';
+import MoneyInput from '../components/MoneyInput';
+import { isValidAddress, isValidLocationName, normalizeSpaces, MAX_LIMIT } from '../utils/validation';
+import { estimatePremium } from '../utils/premium';
 
 const TABS = [
   { key: 'overview', label: 'Tổng quan' },
@@ -28,12 +31,40 @@ const TABS = [
 // Danh mục coverage dùng chung (đồng bộ với BuyWizardPage)
 const COVERAGE_CATALOG = [
   { code: 'PROP_FIRE', name: 'Cháy nổ tài sản', baseRate: 0.075, type: 'PROPERTY' },
-  { code: 'PROP_WATER', name: 'Ngập nước', baseRate: 0.05, type: 'PROPERTY' },
+  { code: 'PROP_WATER', name: 'Ngập nước', baseRate: 0.06, type: 'PROPERTY' },
   { code: 'LIAB_PUBLIC', name: 'Trách nhiệm công cộng', baseRate: 0.12, type: 'LIABILITY' },
-  { code: 'WCOMP', name: 'Tai nạn lao động', baseRate: 0.2, type: 'WORKERS_COMP' },
+  { code: 'WCOMP', name: 'Tai nạn lao động', baseRate: 0.13, type: 'WORKERS_COMP' },
 ];
 
 const safeList = (v) => (Array.isArray(v) ? v : []);
+
+// --- Rule validate dùng chung cho mọi modal trong file (N-08) ---
+// limit: số nguyên, 1..MAX_LIMIT (10 tỷ). deductible: số nguyên, 0 <= ded < limit.
+const LIMIT_OVER_MAX_MSG = 'Hạn mức tối đa 10 tỷ VND cho mỗi quyền lợi.';
+const toNum = (v) => (v === '' || v == null ? NaN : Number(v));
+const limitError = (v) => {
+  const n = toNum(v);
+  if (v === '' || v == null || Number.isNaN(n)) return 'Hạn mức bảo hiểm phải lớn hơn 0.';
+  if (!Number.isInteger(n)) return 'Hạn mức chỉ nhập số nguyên (VND), không nhập số lẻ.';
+  if (n <= 0) return 'Hạn mức bảo hiểm phải lớn hơn 0.';
+  if (n > MAX_LIMIT) return LIMIT_OVER_MAX_MSG;
+  return '';
+};
+const deductibleError = (ded, limit) => {
+  if (ded === '' || ded == null) return '';
+  const d = Number(ded);
+  if (Number.isNaN(d) || !Number.isInteger(d) || d < 0) return 'Mức khấu trừ không được âm.';
+  const l = toNum(limit);
+  if (Number.isFinite(l) && l > 0 && d >= l) return 'Mức khấu trừ phải nhỏ hơn hạn mức.';
+  return '';
+};
+const locationNameError = (name) => (
+  isValidLocationName(normalizeSpaces(name || '')) ? '' : 'Tên địa điểm phải từ 3 đến 100 ký tự.'
+);
+const locationAddressError = (address) => (
+  isValidAddress(normalizeSpaces(address || ''))
+    ? '' : 'Địa chỉ cần ghi rõ số nhà, đường, phường/xã, quận/huyện, tỉnh/thành (tối thiểu 10 ký tự).'
+);
 
 /**
  * Chi tiết hợp đồng: xem, sửa địa điểm/gói bảo hiểm, chuyển trạng thái vòng đời.
@@ -457,6 +488,9 @@ export function PolicyDetailPage() {
         onClose={() => setCovModal(null)}
         mode={covModal?.mode}
         existing={covModal?.mode === 'edit' ? covModal.cov : null}
+        existingCodes={covModal?.mode === 'add'
+          ? safeList(locations.find((l) => l.locationId === covModal.locId)?.coverages).map((c) => c.coverageCode)
+          : []}
         onSubmit={(data) => submitCoverage(covModal.locId, data)}
         busy={busy}
       />
@@ -1105,12 +1139,13 @@ function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
                 Giá sàn chỉ được đặt 1 lần duy nhất trước phản hồi đầu tiên của bạn. Khách hàng và đại lý sẽ không thấy giá sàn.
               </p>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <input
-                  type="number" min="1" max={listPremium ?? undefined} className="form-control"
-                  style={{ maxWidth: 220 }} placeholder="Nhập giá sàn (VND)"
-                  value={floorInput} onChange={(e) => setFloorInput(e.target.value)}
-                  disabled={busy}
-                />
+                <div style={{ maxWidth: 220 }}>
+                  <MoneyInput
+                    className="form-control" placeholder="Nhập giá sàn (VND)"
+                    value={floorInput} onChange={(v) => setFloorInput(v)}
+                    max={listPremium ?? undefined} disabled={busy}
+                  />
+                </div>
                 <button type="button" className="btn btn-primary btn-sm" disabled={busy || !floorInput} onClick={handleSetFloor}>
                   {busy ? <span className="spinner" /> : null} Đặt giá sàn
                 </button>
@@ -1127,9 +1162,9 @@ function NegotiationPanel({ policy, user, onPolicyReload, failToast }) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label" htmlFor="neg-input-premium">Mức giá đề xuất (VND) *</label>
-                  <input
-                    id="neg-input-premium" type="number" min="1" max={listPremium ?? undefined}
-                    className="form-control" value={premium} onChange={(e) => setPremium(e.target.value)}
+                  <MoneyInput
+                    id="neg-input-premium" className="form-control" value={premium}
+                    onChange={(v) => setPremium(v)} max={listPremium ?? undefined}
                     placeholder={`Tối đa ${formatMoney(listPremium)}`} disabled={busy}
                   />
                 </div>
@@ -1377,6 +1412,7 @@ function OverviewTab({ policy, locations }) {
       <div className="glass-card">
         <h3 style={{ marginBottom: '1rem' }}>Chi tiết phí</h3>
         <dl className="kv">
+          <dt>Sản phẩm</dt><dd>{policy.product || '—'}</dd>
           {locations.map((l, i) => (
             <React.Fragment key={l.locationId ?? i}>
               <dt>{l.name || `Địa điểm ${i + 1}`}</dt>
@@ -1527,16 +1563,22 @@ function LocationsTab({ locations, onAddLocation, onEditLocation, onDeleteLocati
 function LocationFormModal({ open, onClose, initial, onSubmit, busy }) {
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
+  const [touched, setTouched] = useState({});
   useEffect(() => {
     if (open) {
       setName(initial?.name || '');
       setAddress(initial?.address || '');
+      setTouched({});
     }
   }, [open, initial]);
+  const nameErr = locationNameError(name);
+  const addressErr = locationAddressError(address);
+  const valid = !nameErr && !addressErr;
   const submit = (e) => {
     e.preventDefault();
-    if (!name.trim() || !address.trim()) return;
-    onSubmit({ name: name.trim(), address: address.trim() });
+    setTouched({ name: true, address: true });
+    if (!valid) return;
+    onSubmit({ name: normalizeSpaces(name), address: normalizeSpaces(address) });
   };
   return (
     <Modal
@@ -1546,7 +1588,7 @@ function LocationFormModal({ open, onClose, initial, onSubmit, busy }) {
       footer={
         <>
           <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Hủy</button>
-          <button className="btn btn-primary" onClick={submit} disabled={busy || !name.trim() || !address.trim()}>
+          <button className="btn btn-primary" onClick={submit} disabled={busy || !valid}>
             {busy ? <span className="spinner" /> : null} Lưu
           </button>
         </>
@@ -1554,35 +1596,52 @@ function LocationFormModal({ open, onClose, initial, onSubmit, busy }) {
     >
       <div className="form-group">
         <label className="form-label" htmlFor="loc-name">Tên địa điểm *</label>
-        <input id="loc-name" className="form-control" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ví dụ: Kho hàng Quận 7" />
+        <input id="loc-name" className="form-control" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => setTouched((t) => ({ ...t, name: true }))} placeholder="Ví dụ: Kho hàng Quận 7" maxLength={100} />
+        {touched.name && nameErr && <div className="form-error">{nameErr}</div>}
       </div>
       <div className="form-group">
         <label className="form-label" htmlFor="loc-addr">Địa chỉ *</label>
-        <input id="loc-addr" className="form-control" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Số nhà, đường, phường/xã…" />
+        <input id="loc-addr" className="form-control" value={address} onChange={(e) => setAddress(e.target.value)} onBlur={() => setTouched((t) => ({ ...t, address: true }))} placeholder="Số nhà, đường, phường/xã…" maxLength={255} />
+        {touched.address && addressErr && <div className="form-error">{addressErr}</div>}
       </div>
     </Modal>
   );
 }
 
-function CoverageFormModal({ open, onClose, mode, existing, onSubmit, busy }) {
+function CoverageFormModal({ open, onClose, mode, existing, existingCodes = [], onSubmit, busy }) {
   const [code, setCode] = useState(COVERAGE_CATALOG[0].code);
   const [limit, setLimit] = useState('');
   const [deductible, setDeductible] = useState('');
   const [termMonths, setTermMonths] = useState(12);
+  const [touched, setTouched] = useState({});
   useEffect(() => {
     if (open) {
       setCode(existing?.coverageCode || COVERAGE_CATALOG[0].code);
       setLimit(existing?.limit ?? '');
       setDeductible(existing?.deductible ?? '');
-      setTermMonths(existing?.termMonths ?? 12);
+      const t = existing?.termMonths ?? 12;
+      setTermMonths([12, 24, 36].includes(Number(t)) ? Number(t) : 12);
+      setTouched({});
     }
   }, [open, existing]);
-  const limitNum = Number(limit);
-  const dedNum = Number(deductible) || 0;
-  const valid = Number.isFinite(limitNum) && limitNum > 0 && dedNum < limitNum;
+  const limitNum = toNum(limit);
+  const dedNum = deductible === '' || deductible == null ? 0 : Number(deductible);
+  const limitErr = limitError(limit);
+  const dedErr = deductibleError(deductible, limit);
+  const dupErr = mode !== 'edit' && existingCodes.includes(code) ? 'Gói này đã có ở địa điểm này.' : '';
+  const valid = !limitErr && !dedErr && !dupErr;
   const catSelected = COVERAGE_CATALOG.find((x) => x.code === code) || {};
-  const estPremium = valid ? Math.round(limitNum * (catSelected.baseRate || 0)) : 0;
+  const estPremium = valid
+    ? Math.round(estimatePremium({
+        limit: limitNum,
+        baseRate: catSelected.baseRate || 0,
+        termMonths: Number(termMonths) || 12,
+        coverageType: catSelected.type,
+        deductible: dedNum,
+      }))
+    : 0;
   const submit = () => {
+    setTouched({ code: true, limit: true, deductible: true });
     if (!valid) return;
     const cat = COVERAGE_CATALOG.find((x) => x.code === code) || {};
     onSubmit({
@@ -1613,35 +1672,48 @@ function CoverageFormModal({ open, onClose, mode, existing, onSubmit, busy }) {
         <label className="form-label" htmlFor="cov-code">Gói bảo hiểm</label>
         <select
           id="cov-code" className="form-control" value={code}
-          onChange={(e) => setCode(e.target.value)} disabled={mode === 'edit'}
+          onChange={(e) => { setCode(e.target.value); setTouched((t) => ({ ...t, code: true })); }} disabled={mode === 'edit'}
         >
           {COVERAGE_CATALOG.map((c) => (
             <option key={c.code} value={c.code}>{c.name} ({c.code})</option>
           ))}
         </select>
+        {touched.code && dupErr && <div className="form-error">{dupErr}</div>}
       </div>
       <div className="form-group">
         <label className="form-label" htmlFor="cov-limit">Hạn mức bảo hiểm (VND) *</label>
-        <input id="cov-limit" type="number" min="1" className="form-control" value={limit} onChange={(e) => setLimit(e.target.value)} />
+        <MoneyInput
+          id="cov-limit" className="form-control" value={limit}
+          onChange={(v) => setLimit(v)} onBlur={() => setTouched((t) => ({ ...t, limit: true }))} max={MAX_LIMIT} disabled={busy}
+        />
+        {touched.limit && limitErr && <div className="form-error">{limitErr}</div>}
       </div>
       <div className="form-group">
         <label className="form-label" htmlFor="cov-ded">Mức khấu trừ (VND)</label>
-        <input id="cov-ded" type="number" min="0" className="form-control" value={deductible} onChange={(e) => setDeductible(e.target.value)} />
+        <MoneyInput
+          id="cov-ded" className="form-control" value={deductible}
+          onChange={(v) => setDeductible(v)} onBlur={() => setTouched((t) => ({ ...t, deductible: true }))} disabled={busy}
+        />
+        {touched.deductible && dedErr && <div className="form-error">{dedErr}</div>}
       </div>
       <div className="form-group">
         <label className="form-label" htmlFor="cov-term">Thời hạn (tháng)</label>
-        <input id="cov-term" type="number" min="1" className="form-control" value={termMonths} onChange={(e) => setTermMonths(e.target.value)} />
+        <select
+          id="cov-term" className="form-control" value={termMonths}
+          onChange={(e) => setTermMonths(Number(e.target.value))} disabled={busy}
+        >
+          <option value={12}>12 tháng</option>
+          <option value={24}>24 tháng</option>
+          <option value={36}>36 tháng</option>
+        </select>
       </div>
       <div style={{ background: '#f0f7ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '0.8rem 1rem', marginBottom: '1rem' }}>
-        <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>Phí dự kiến (tạm tính = hạn mức × tỉ lệ)</div>
+        <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>Phí dự kiến (tạm tính)</div>
         <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1663d9' }}>
           {valid ? formatMoney(estPremium) : '—'}
         </div>
         <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>Phí chính thức do hệ thống tính khi lưu.</div>
       </div>
-      {!valid && limit !== '' && (
-        <div className="form-error">Hạn mức phải lớn hơn 0 và lớn hơn mức khấu trừ.</div>
-      )}
     </Modal>
   );
 }
@@ -1651,15 +1723,19 @@ function CoverageFormModal({ open, onClose, mode, existing, onSubmit, busy }) {
 // Lưu ý contract BE: POST /policies/{n}/endorsements nhận {reason*, description, locations[]}
 // và REPLACE toàn bộ locations → FE phải gửi lại FULL danh sách (cũ đã sửa + mới).
 function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
+  const toast = useToast();
   const [step, setStep] = useState(1);
   const [mode, setMode] = useState('add-location'); // 'add-location' | 'edit-coverage'
 
   // Bước 2a: địa điểm mới
+  const [newName, setNewName] = useState('');
   const [newAddress, setNewAddress] = useState('');
+  const [touchedNew, setTouchedNew] = useState({});
   const [newCoverages, setNewCoverages] = useState([]); // [{coverageCode, limit, deductible}]
   const [ncCode, setNcCode] = useState(COVERAGE_CATALOG[0].code);
   const [ncLimit, setNcLimit] = useState('');
   const [ncDeduct, setNcDeduct] = useState('');
+  const [ncError, setNcError] = useState('');
 
   // Bước 2b: sửa địa điểm hiện có
   const [editLocId, setEditLocId] = useState('');
@@ -1667,6 +1743,7 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
   const [ecCode, setEcCode] = useState(COVERAGE_CATALOG[0].code);
   const [ecLimit, setEcLimit] = useState('');
   const [ecDeduct, setEcDeduct] = useState('');
+  const [ecError, setEcError] = useState('');
 
   // Bước 3: xác nhận
   const [reason, setReason] = useState('');
@@ -1680,10 +1757,10 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
     if (open) {
       setStep(1);
       setMode(hasLocations ? 'add-location' : 'add-location');
-      setNewAddress(''); setNewCoverages([]);
-      setNcCode(COVERAGE_CATALOG[0].code); setNcLimit(''); setNcDeduct('');
+      setNewName(''); setNewAddress(''); setNewCoverages([]); setTouchedNew({});
+      setNcCode(COVERAGE_CATALOG[0].code); setNcLimit(''); setNcDeduct(''); setNcError('');
       setEditLocId(locations[0]?.locationId != null ? String(locations[0].locationId) : '');
-      setEcCode(COVERAGE_CATALOG[0].code); setEcLimit(''); setEcDeduct('');
+      setEcCode(COVERAGE_CATALOG[0].code); setEcLimit(''); setEcDeduct(''); setEcError('');
       setReason(''); setDescription('');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1696,23 +1773,28 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editLocId, open]);
 
-  const fmtMoney = (v) => (v == null || v === '' ? '—' : Number(v).toLocaleString('vi-VN') + ' ₫');
-
   // --- Bước 2a handlers ---
   const addNewCoverage = () => {
-    if (newCoverages.some((c) => c.coverageCode === ncCode)) return;
-    const limit = Number(ncLimit);
-    if (!ncLimit || Number.isNaN(limit) || limit <= 0) return;
-    const deduct = Number(ncDeduct);
+    if (newCoverages.some((c) => c.coverageCode === ncCode)) {
+      setNcError('Gói này đã có ở địa điểm này.');
+      toast.error('Gói này đã có ở địa điểm này.');
+      return;
+    }
+    const le = limitError(ncLimit);
+    if (le) { setNcError(le); toast.error(le); return; }
+    const de = deductibleError(ncDeduct, ncLimit);
+    if (de) { setNcError(de); toast.error(de); return; }
     setNewCoverages([...newCoverages, {
       coverageCode: ncCode,
-      limit,
-      deductible: Number.isNaN(deduct) || deduct < 0 ? 0 : deduct,
+      limit: Number(ncLimit),
+      deductible: ncDeduct === '' || ncDeduct == null ? 0 : Number(ncDeduct),
     }]);
-    setNcLimit(''); setNcDeduct('');
+    setNcLimit(''); setNcDeduct(''); setNcError('');
   };
   const removeNewCoverage = (code) => setNewCoverages(newCoverages.filter((c) => c.coverageCode !== code));
-  const canGoStep3FromAdd = newAddress.trim() !== '' && newCoverages.length > 0;
+  const newNameErr = locationNameError(newName);
+  const newAddressErr = locationAddressError(newAddress);
+  const canGoStep3FromAdd = !newNameErr && !newAddressErr && newCoverages.length > 0;
 
   // --- Bước 2b handlers ---
   const updateEditCoverage = (code, field, value) => {
@@ -1720,28 +1802,43 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
   };
   const removeEditCoverage = (code) => setEditCoverages(editCoverages.filter((c) => c.coverageCode !== code));
   const addEditCoverage = () => {
-    if (editCoverages.some((c) => c.coverageCode === ecCode)) return;
-    const limit = Number(ecLimit);
-    if (!ecLimit || Number.isNaN(limit) || limit <= 0) return;
+    if (editCoverages.some((c) => c.coverageCode === ecCode)) {
+      setEcError('Gói này đã có ở địa điểm này.');
+      toast.error('Gói này đã có ở địa điểm này.');
+      return;
+    }
+    const le = limitError(ecLimit);
+    if (le) { setEcError(le); toast.error(le); return; }
+    const de = deductibleError(ecDeduct, ecLimit);
+    if (de) { setEcError(de); toast.error(de); return; }
     const cat = COVERAGE_CATALOG.find((x) => x.code === ecCode);
-    const deduct = Number(ecDeduct);
     setEditCoverages([...editCoverages, {
       coverageCode: ecCode,
       coverageName: cat?.name || ecCode,
       coverageType: cat?.type || 'PROPERTY',
-      limit,
-      deductible: Number.isNaN(deduct) || deduct < 0 ? 0 : deduct,
+      limit: Number(ecLimit),
+      deductible: ecDeduct === '' || ecDeduct == null ? 0 : Number(ecDeduct),
       termMonths: 12,
       baseRate: cat?.baseRate || 0,
     }]);
-    setEcLimit(''); setEcDeduct('');
+    setEcLimit(''); setEcDeduct(''); setEcError('');
   };
+  // Validation cho mọi coverage đang sửa inline (B-03): hạn mức/khấu trừ sai
+  // thì chặn nút "Tiếp tục" sang bước 3 và hiện message ngay dưới từng dòng.
+  const editErrors = {};
+  editCoverages.forEach((c) => {
+    const le = limitError(c.limit);
+    const de = deductibleError(c.deductible, c.limit);
+    if (le || de) editErrors[c.coverageCode] = { limit: le, deductible: de };
+  });
+  const editCoveragesValid = Object.keys(editErrors).length === 0;
   const selectedLocation = locations.find((l) => String(l.locationId) === String(editLocId));
 
   // --- Dựng full locations gửi BE ---
   const buildLocations = () => {
     const base = locations.map((l) => ({
       locationId: l.locationId,
+      name: l.name,
       address: l.address,
       coverages: (l.coverages || []).map((c) => ({
         coverageCode: c.coverageCode,
@@ -1757,7 +1854,8 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
       const maxId = base.reduce((m, l) => Math.max(m, Number(l.locationId) || 0), 0);
       base.push({
         locationId: maxId + 1,
-        address: newAddress.trim(),
+        name: normalizeSpaces(newName),
+        address: normalizeSpaces(newAddress),
         coverages: newCoverages.map((nc) => {
           const cat = COVERAGE_CATALOG.find((x) => x.code === nc.coverageCode);
           return {
@@ -1789,7 +1887,17 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
   };
 
   const handleConfirm = () => {
-    if (!reason.trim() || busy) return;
+    if (busy) return;
+    if (!reason.trim()) { toast.error('Vui lòng nhập lý do điều chỉnh.'); return; }
+    if (mode === 'add-location') {
+      if (newNameErr) { toast.error(newNameErr); setStep(2); return; }
+      if (newAddressErr) { toast.error(newAddressErr); setStep(2); return; }
+      if (newCoverages.length === 0) { toast.error('Thêm ít nhất 1 coverage cho địa điểm mới.'); setStep(2); return; }
+    } else if (!editCoveragesValid) {
+      toast.error('Vui lòng kiểm tra lại hạn mức và mức khấu trừ của các gói bảo hiểm.');
+      setStep(2);
+      return;
+    }
     onSubmit({ reason: reason.trim(), description: description.trim(), locations: buildLocations() });
   };
 
@@ -1811,7 +1919,7 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
     </div>
   );
 
-  const coverageRow = (c, onRemove, onLimitChange, onDeductChange, editable) => {
+  const coverageRow = (c, onRemove, onLimitChange, onDeductChange, editable, errors) => {
     const cat = COVERAGE_CATALOG.find((x) => x.code === c.coverageCode);
     return (
       <div key={c.coverageCode} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', border: '1px solid #e5e7eb', borderRadius: '8px', marginBottom: '0.5rem' }}>
@@ -1820,16 +1928,30 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
           <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{c.coverageCode}</div>
         </div>
         {editable ? (
-          <>
-            <input type="number" min="0" className="form-control" style={{ width: '130px' }} placeholder="Hạn mức"
-              value={c.limit ?? ''} onChange={(e) => onLimitChange(c.coverageCode, e.target.value)} />
-            <input type="number" min="0" className="form-control" style={{ width: '110px' }} placeholder="Khấu trừ"
-              value={c.deductible ?? ''} onChange={(e) => onDeductChange(c.coverageCode, e.target.value)} />
-          </>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ width: '130px' }}>
+                <MoneyInput
+                  className="form-control" placeholder="Hạn mức"
+                  value={c.limit ?? ''} onChange={(v) => onLimitChange(c.coverageCode, v)}
+                  max={MAX_LIMIT} disabled={busy}
+                />
+              </div>
+              <div style={{ width: '110px' }}>
+                <MoneyInput
+                  className="form-control" placeholder="Khấu trừ"
+                  value={c.deductible ?? ''} onChange={(v) => onDeductChange(c.coverageCode, v)}
+                  disabled={busy}
+                />
+              </div>
+            </div>
+            {errors?.limit && <div className="form-error">{errors.limit}</div>}
+            {errors?.deductible && <div className="form-error">{errors.deductible}</div>}
+          </div>
         ) : (
           <div style={{ fontSize: '0.8rem', color: '#374151', textAlign: 'right' }}>
-            <div>Hạn mức: {fmtMoney(c.limit)}</div>
-            <div>Khấu trừ: {fmtMoney(c.deductible)}</div>
+            <div>Hạn mức: {formatMoney(c.limit)}</div>
+            <div>Khấu trừ: {formatMoney(c.deductible)}</div>
           </div>
         )}
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => onRemove(c.coverageCode)} disabled={busy}>Xóa</button>
@@ -1852,7 +1974,8 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
               title={!canGoStep3FromAdd ? 'Nhập địa chỉ và thêm ít nhất 1 coverage' : ''}>Tiếp tục</button>
           )}
           {step === 2 && mode === 'edit-coverage' && (
-            <button className="btn btn-primary" onClick={() => setStep(3)} disabled={busy || !editLocId}>Tiếp tục</button>
+            <button className="btn btn-primary" onClick={() => setStep(3)} disabled={busy || !editLocId || !editCoveragesValid}
+              title={!editCoveragesValid ? 'Vui lòng kiểm tra lại hạn mức và mức khấu trừ của các gói bảo hiểm' : ''}>Tiếp tục</button>
           )}
           {step === 3 && (
             <button className="btn btn-primary" onClick={handleConfirm} disabled={busy || !reason.trim()}
@@ -1889,9 +2012,16 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
       {step === 2 && mode === 'add-location' && (
         <>
           <div className="form-group">
+            <label className="form-label" htmlFor="end-new-name">Tên địa điểm mới *</label>
+            <input id="end-new-name" className="form-control" value={newName}
+              onChange={(e) => setNewName(e.target.value)} onBlur={() => setTouchedNew((t) => ({ ...t, name: true }))} placeholder="Ví dụ: Kho hàng Quận 7" maxLength={100} />
+            {touchedNew.name && newNameErr && <div className="form-error">{newNameErr}</div>}
+          </div>
+          <div className="form-group">
             <label className="form-label" htmlFor="end-new-addr">Địa chỉ địa điểm mới *</label>
             <input id="end-new-addr" className="form-control" value={newAddress}
-              onChange={(e) => setNewAddress(e.target.value)} placeholder="Ví dụ: Kho hàng KCN Tân Bình, Lô B2…" />
+              onChange={(e) => setNewAddress(e.target.value)} onBlur={() => setTouchedNew((t) => ({ ...t, address: true }))} placeholder="Ví dụ: Kho hàng KCN Tân Bình, Lô B2…" maxLength={255} />
+            {touchedNew.address && newAddressErr && <div className="form-error">{newAddressErr}</div>}
           </div>
           <div className="form-group">
             <label className="form-label">Thêm coverage cho địa điểm này</label>
@@ -1899,10 +2029,15 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
               <select className="form-control" style={{ flex: 1, minWidth: '160px' }} value={ncCode} onChange={(e) => setNcCode(e.target.value)}>
                 {COVERAGE_CATALOG.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
               </select>
-              <input type="number" min="0" className="form-control" style={{ width: '130px' }} placeholder="Hạn mức *" value={ncLimit} onChange={(e) => setNcLimit(e.target.value)} />
-              <input type="number" min="0" className="form-control" style={{ width: '110px' }} placeholder="Khấu trừ" value={ncDeduct} onChange={(e) => setNcDeduct(e.target.value)} />
+              <div style={{ width: '130px' }}>
+                <MoneyInput className="form-control" placeholder="Hạn mức *" value={ncLimit} onChange={(v) => setNcLimit(v)} max={MAX_LIMIT} disabled={busy} />
+              </div>
+              <div style={{ width: '110px' }}>
+                <MoneyInput className="form-control" placeholder="Khấu trừ" value={ncDeduct} onChange={(v) => setNcDeduct(v)} disabled={busy} />
+              </div>
               <button type="button" className="btn btn-secondary" onClick={addNewCoverage} disabled={busy}>Thêm</button>
             </div>
+            {ncError && <div className="form-error">{ncError}</div>}
             {newCoverages.length === 0
               ? <p className="form-hint">Chưa có coverage nào — thêm ít nhất 1 coverage để tiếp tục.</p>
               : newCoverages.map((c) => coverageRow(c, removeNewCoverage, null, null, false))}
@@ -1915,7 +2050,7 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
           <div className="form-group">
             <label className="form-label" htmlFor="end-edit-loc">Chọn địa điểm</label>
             <select id="end-edit-loc" className="form-control" value={editLocId} onChange={(e) => setEditLocId(e.target.value)}>
-              {locations.map((l) => <option key={l.locationId} value={l.locationId}>#{l.locationId} — {l.address}</option>)}
+              {locations.map((l) => <option key={l.locationId} value={l.locationId}>#{l.locationId} — {l.name || l.address}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -1926,15 +2061,20 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
                   c, removeEditCoverage,
                   (code, v) => updateEditCoverage(code, 'limit', v),
                   (code, v) => updateEditCoverage(code, 'deductible', v),
-                  true))}
+                  true, editErrors[c.coverageCode]))}
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
               <select className="form-control" style={{ flex: 1, minWidth: '160px' }} value={ecCode} onChange={(e) => setEcCode(e.target.value)}>
                 {COVERAGE_CATALOG.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
               </select>
-              <input type="number" min="0" className="form-control" style={{ width: '130px' }} placeholder="Hạn mức *" value={ecLimit} onChange={(e) => setEcLimit(e.target.value)} />
-              <input type="number" min="0" className="form-control" style={{ width: '110px' }} placeholder="Khấu trừ" value={ecDeduct} onChange={(e) => setEcDeduct(e.target.value)} />
+              <div style={{ width: '130px' }}>
+                <MoneyInput className="form-control" placeholder="Hạn mức *" value={ecLimit} onChange={(v) => setEcLimit(v)} max={MAX_LIMIT} disabled={busy} />
+              </div>
+              <div style={{ width: '110px' }}>
+                <MoneyInput className="form-control" placeholder="Khấu trừ" value={ecDeduct} onChange={(v) => setEcDeduct(v)} disabled={busy} />
+              </div>
               <button type="button" className="btn btn-secondary" onClick={addEditCoverage} disabled={busy}>Thêm coverage</button>
             </div>
+            {ecError && <div className="form-error">{ecError}</div>}
           </div>
         </>
       )}
@@ -1945,23 +2085,23 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
             <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Tóm tắt yêu cầu</div>
             {mode === 'add-location' ? (
               <>
-                <div>Thêm địa điểm: <b>{newAddress.trim()}</b></div>
+                <div>Thêm địa điểm: <b>{normalizeSpaces(newName)} — {normalizeSpaces(newAddress)}</b></div>
                 <div style={{ marginTop: '0.35rem', fontSize: '0.9rem' }}>
                   {newCoverages.map((c) => {
                     const cat = COVERAGE_CATALOG.find((x) => x.code === c.coverageCode);
-                    return <div key={c.coverageCode}>• {cat?.name || c.coverageCode} — hạn mức {fmtMoney(c.limit)}, khấu trừ {fmtMoney(c.deductible)}</div>;
+                    return <div key={c.coverageCode}>• {cat?.name || c.coverageCode} — hạn mức {formatMoney(c.limit)}, khấu trừ {formatMoney(c.deductible)}</div>;
                   })}
                 </div>
               </>
             ) : (
               <>
-                <div>Địa điểm: <b>#{selectedLocation?.locationId} — {selectedLocation?.address}</b></div>
+                <div>Địa điểm: <b>#{selectedLocation?.locationId} — {selectedLocation?.name || selectedLocation?.address}</b></div>
                 <div style={{ marginTop: '0.35rem', fontSize: '0.9rem' }}>
                   {editCoverages.length === 0
                     ? <div>Xóa toàn bộ coverage tại địa điểm này.</div>
                     : editCoverages.map((c) => {
                         const cat = COVERAGE_CATALOG.find((x) => x.code === c.coverageCode);
-                        return <div key={c.coverageCode}>• {cat?.name || c.coverageName || c.coverageCode} — hạn mức {fmtMoney(c.limit)}, khấu trừ {fmtMoney(c.deductible)}</div>;
+                        return <div key={c.coverageCode}>• {cat?.name || c.coverageName || c.coverageCode} — hạn mức {formatMoney(c.limit)}, khấu trừ {formatMoney(c.deductible)}</div>;
                       })}
                 </div>
               </>
@@ -1972,12 +2112,12 @@ function EndorseModal({ open, onClose, onSubmit, busy, policy }) {
           </div>
           <div className="form-group">
             <label className="form-label" htmlFor="end-reason">Lý do điều chỉnh *</label>
-            <input id="end-reason" className="form-control" value={reason}
+            <input id="end-reason" className="form-control" value={reason} maxLength={200}
               onChange={(e) => setReason(e.target.value)} placeholder="Ví dụ: Mở rộng kho hàng mới phục vụ mùa cao điểm" />
           </div>
           <div className="form-group">
             <label className="form-label" htmlFor="end-desc">Mô tả thêm</label>
-            <textarea id="end-desc" className="form-control" rows={3} value={description}
+            <textarea id="end-desc" className="form-control" rows={3} value={description} maxLength={1000}
               onChange={(e) => setDescription(e.target.value)} placeholder="Thông tin bổ sung cho đội thẩm định (không bắt buộc)…" />
           </div>
         </>

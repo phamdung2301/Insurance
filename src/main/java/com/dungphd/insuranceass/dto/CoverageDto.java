@@ -2,6 +2,7 @@ package com.dungphd.insuranceass.dto;
 
 import com.dungphd.insuranceass.model.Coverage;
 import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -25,7 +26,7 @@ public class CoverageDto {
     private String coverageType;
 
     @NotNull(message = "Số tiền bảo hiểm (limit) là bắt buộc.")
-    @Min(value = 0, message = "Số tiền bảo hiểm không được âm.")
+    @DecimalMin(value = "1", message = "Số tiền bảo hiểm phải lớn hơn 0.")
     @DecimalMax(value = "10000000000", message = "Số tiền bảo hiểm tối đa 10 tỷ VND cho mỗi quyền lợi.")
     private Double limit;
 

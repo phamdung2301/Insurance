@@ -88,7 +88,7 @@ class PolicyLocationControllerTest {
 
         when(policyLocationService.addLocation(eq("pol-123"), any(LocationDto.class))).thenReturn(policy);
 
-        String jsonPayload = "{\"address\":\"456 Nguyen Hue\",\"coverages\":[]}";
+        String jsonPayload = "{\"name\":\"Kho hang Quan 7\",\"address\":\"456 Nguyen Hue, Q1, HCMC\",\"coverages\":[{\"coverageCode\":\"PROP_FIRE\",\"limit\":1000000.0}]}";
 
         mockMvc.perform(post("/policies/pol-123/locations")
                         .contentType(MediaType.APPLICATION_JSON)

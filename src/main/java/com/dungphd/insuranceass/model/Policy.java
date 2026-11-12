@@ -51,6 +51,13 @@ public class Policy {
     @Indexed(unique = true)
     private String policyNumber;
 
+    /**
+     * Sản phẩm bảo hiểm khách chọn ở wizard, lưu dạng label chuỗi
+     * (vd "Cháy nổ tài sản") — phương án Y. Nullable để tương thích
+     * dữ liệu cũ; không validation bắt buộc.
+     */
+    private String product;
+
     @Indexed
     private PolicyStatus status;
 

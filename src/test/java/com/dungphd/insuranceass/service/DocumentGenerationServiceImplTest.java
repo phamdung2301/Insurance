@@ -71,7 +71,7 @@ class DocumentGenerationServiceImplTest {
                 .name("Global Enterprise Solutions Corp")
                 .type("CORPORATION")
                 .email("contact@globalsolutions.vn")
-                .phone("02838229988")
+                .phone("0903822998")
                 .address("123 Nguyen Hue, Ben Nghe, Q1, HCMC")
                 .build();
 

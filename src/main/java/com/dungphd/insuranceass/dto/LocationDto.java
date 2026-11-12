@@ -4,6 +4,7 @@ import com.dungphd.insuranceass.model.Coverage;
 import com.dungphd.insuranceass.model.Location;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -21,10 +22,16 @@ public class LocationDto {
 
     private Integer locationId;
 
+    /** Tên địa điểm (B-01): FE đã gửi từ trước, nay BE lưu thật. */
+    @Size(max = 100, message = "Tên địa điểm tối đa 100 ký tự.")
+    private String name;
+
     @NotBlank(message = "Địa chỉ được bảo hiểm là bắt buộc.")
+    @Size(min = 10, max = 255, message = "Địa chỉ phải từ 10 đến 255 ký tự.")
     private String address;
 
     @Valid
+    @Size(min = 1, message = "Hợp đồng phải có ít nhất một địa điểm và một gói bảo hiểm.")
     @Builder.Default
     private List<CoverageDto> coverages = new ArrayList<>();
 
@@ -36,6 +43,7 @@ public class LocationDto {
 
         return LocationDto.builder()
                 .locationId(location.getLocationId())
+                .name(location.getName())
                 .address(location.getAddress())
                 .coverages(coverageDtos)
                 .build();
@@ -48,6 +56,7 @@ public class LocationDto {
 
         return Location.builder()
                 .locationId(locationId)
+                .name(name)
                 .address(address)
                 .coverages(coverageEntities)
                 .build();

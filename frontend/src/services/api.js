@@ -196,7 +196,8 @@ export const excelService = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
-  calculate: (payload) => api.post('/excel/calculate', payload),
+  // N-09: entry `calculate` (POST /excel/calculate) đã xóa — không có controller
+  // nào map /excel/calculate trong BE, wizard chỉ dùng công thức FE (utils/premium.js).
   getRates: () => api.get('/excel/rates'),
 };
 

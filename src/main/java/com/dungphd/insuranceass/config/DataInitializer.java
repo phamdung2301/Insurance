@@ -161,7 +161,7 @@ public class DataInitializer {
                             .name("Công ty TNHH Giải Pháp Công Nghệ Toàn Cầu")
                             .type("BUSINESS")
                             .email("contact@globalsolutions.vn")
-                            .phone("02838229988")
+                            .phone("0903822998")
                             .address("123 Đường Nguyễn Huệ, Quận 1, TP. Hồ Chí Minh")
                             .build();
 

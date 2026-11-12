@@ -14,6 +14,8 @@ import java.util.List;
 @Builder
 public class Location {
     private Integer locationId;
+    /** Tên địa điểm do khách nhập ở wizard (B-01); nullable với dữ liệu cũ. */
+    private String name;
     private String address;
     @Builder.Default
     private List<Coverage> coverages = new ArrayList<>();

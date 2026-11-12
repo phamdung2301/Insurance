@@ -211,6 +211,8 @@ public class PolicyServiceImpl implements PolicyService {
                 ? request.getTermsVersion().trim() : null;
         Policy policy = Policy.builder()
                 .policyNumber(request.getPolicyNumber())
+                .product(request.getProduct() != null && !request.getProduct().isBlank()
+                        ? request.getProduct().trim() : null)
                 .status(PolicyStatus.DRAFT)
                 .agentId(agentId)
                 .assignedAgentEmail(assignedAgentEmail)
@@ -828,6 +830,7 @@ public class PolicyServiceImpl implements PolicyService {
         return PolicyResponse.builder()
                 .id(policy.getId())
                 .policyNumber(policy.getPolicyNumber())
+                .product(policy.getProduct())
                 .status(policy.getStatus())
                 .insured(mapToInsuredDto(policy.getInsured()))
                 .locations(policy.getLocations() != null ?
@@ -898,6 +901,7 @@ public class PolicyServiceImpl implements PolicyService {
         if (dto == null) return null;
         return Location.builder()
                 .locationId(dto.getLocationId())
+                .name(dto.getName())
                 .address(dto.getAddress())
                 .coverages(dto.getCoverages() != null ?
                         dto.getCoverages().stream().map(this::mapToCoverage).collect(Collectors.toList()) : new ArrayList<>())
@@ -908,6 +912,7 @@ public class PolicyServiceImpl implements PolicyService {
         if (entity == null) return null;
         return LocationDto.builder()
                 .locationId(entity.getLocationId())
+                .name(entity.getName())
                 .address(entity.getAddress())
                 .coverages(entity.getCoverages() != null ?
                         entity.getCoverages().stream().map(this::mapToCoverageDto).collect(Collectors.toList()) : new ArrayList<>())
