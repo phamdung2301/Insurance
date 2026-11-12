@@ -9,13 +9,26 @@ import {
 import { TERMS_VERSION, TERMS_SECTIONS } from '../config/legal';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { policyService, publicAgentService, excelService } from '../services/api';
+import { policyService, publicAgentService } from '../services/api';
 import { getAgentRef } from '../utils/agentRef';
 import { AgentPicker } from '../components/AgentPicker';
 import { isBackendMissing } from '../utils/backend';
-import { formatMoney, isValidEmail, isValidPhone } from '../utils/format';
+import { formatMoney, isValidEmail } from '../utils/format';
+import {
+  MAX_LIMIT,
+  normalizePhone,
+  normalizeSpaces,
+  isValidAddress,
+  isValidLocationName,
+  isValidPersonName,
+  isValidVnPhone,
+} from '../utils/validation';
+import { COVERAGE_RATES, estimatePremium } from '../utils/premium';
+import MoneyInput from '../components/MoneyInput';
 
 const TERM_MONTHS = 12;
+/** Tối đa 10 địa điểm mỗi hợp đồng (N-07). */
+const MAX_LOCATIONS = 10;
 
 /** 4 sản phẩm bảo hiểm ở bước 1. */
 const PRODUCTS = [
@@ -25,12 +38,12 @@ const PRODUCTS = [
   { key: 'hang-hoa-van-chuyen', name: 'Bảo hiểm hàng hóa vận chuyển', desc: 'Bảo vệ hàng hóa trong quá trình vận chuyển', icon: Truck },
 ];
 
-/** Catalog gói bảo hiểm ở bước 3. */
+/** Catalog gói bảo hiểm ở bước 3 — baseRate đồng bộ BE PremiumCalculationService.BASE_RATES. */
 const COVERAGE_CATALOG = [
-  { code: 'PROP_FIRE', name: 'Cháy nổ tài sản', baseRate: 0.075, type: 'PROPERTY' },
-  { code: 'PROP_WATER', name: 'Ngập nước', baseRate: 0.05, type: 'PROPERTY' },
-  { code: 'LIAB_PUBLIC', name: 'Trách nhiệm công cộng', baseRate: 0.12, type: 'LIABILITY' },
-  { code: 'WCOMP', name: 'Tai nạn lao động', baseRate: 0.2, type: 'WORKERS_COMP' },
+  { code: 'PROP_FIRE', name: 'Cháy nổ tài sản', baseRate: COVERAGE_RATES.PROP_FIRE, type: 'PROPERTY' },
+  { code: 'PROP_WATER', name: 'Ngập nước', baseRate: COVERAGE_RATES.PROP_WATER, type: 'PROPERTY' },
+  { code: 'LIAB_PUBLIC', name: 'Trách nhiệm công cộng', baseRate: COVERAGE_RATES.LIAB_PUBLIC, type: 'LIABILITY' },
+  { code: 'WCOMP', name: 'Tai nạn lao động', baseRate: COVERAGE_RATES.WCOMP, type: 'WORKERS_COMP' },
 ];
 
 const STEP_LABELS = ['Chọn sản phẩm', 'Thông tin & địa điểm', 'Gói bảo hiểm & phí', 'Xác nhận'];
@@ -42,41 +55,7 @@ const emptyLocation = () => ({
   coverages: Object.fromEntries(COVERAGE_CATALOG.map((c) => [c.code, emptyCoverage()])),
 });
 
-/**
- * Công thức ước tính phí nội bộ (dùng khi backend chưa có API tính phí):
- * premium = limit × baseRate/100 × (1 − min(deductible/limit, 0.5) × 0.5)
- */
-export function estimatePremium(limit, baseRate, termMonths = TERM_MONTHS, deductible = 0) {
-  const L = Number(limit);
-  const D = Number(deductible) || 0;
-  const T = Number(termMonths) || TERM_MONTHS;
-  if (!Number.isFinite(L) || L <= 0 || !Number.isFinite(baseRate)) return 0;
-  const ratio = L > 0 ? Math.min(D / L, 0.5) : 0;
-  return (L * (baseRate / 100) * (1 - ratio * 0.5) * (T / 12));
-}
-
-/** Bóc tách kết quả POST /excel/calculate theo vài dạng envelope có thể có. */
-function parseServerPremiums(data) {
-  if (!data || typeof data !== 'object') return null;
-  const body = data.premiums ?? data.data ?? null;
-  const out = {};
-  if (Array.isArray(body)) {
-    let ok = false;
-    for (const it of body) {
-      const key = it.locationId != null ? `${it.locationId}|${it.coverageCode}` : it.coverageCode;
-      if (key && Number.isFinite(Number(it.premium))) { out[key] = Number(it.premium); ok = true; }
-    }
-    return ok ? out : null;
-  }
-  if (body && typeof body === 'object') {
-    let ok = false;
-    for (const [k, v] of Object.entries(body)) {
-      if (Number.isFinite(Number(v))) { out[k] = Number(v); ok = true; }
-    }
-    return ok ? out : null;
-  }
-  return null;
-}
+/** Ước tính phí dùng chung — xem utils/premium.js (đồng bộ công thức BE). */
 
 export function BuyWizardPage() {
   const { user } = useAuth();
@@ -94,8 +73,9 @@ export function BuyWizardPage() {
   });
   const [locations, setLocations] = useState([emptyLocation()]);
   const [errors, setErrors] = useState({});
+  const [dupWarnings, setDupWarnings] = useState({});
+  const [termsError, setTermsError] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [serverPrem, setServerPrem] = useState({});
 
   // SaaS Phase 2 Track C: dấu đại lý từ link /a/<slug> (localStorage
   // 'agentRef'). Banner minh bạch: resolve tên đại lý để khách biết mình mua
@@ -147,68 +127,38 @@ export function BuyWizardPage() {
       ? { ...l, coverages: { ...l.coverages, [code]: { ...l.coverages[code], [k]: v } } }
       : l)));
 
-  const addLocation = () => setLocations((p) => [...p, emptyLocation()]);
-  const removeLocation = (i) => setLocations((p) => (p.length <= 1 ? p : p.filter((_, j) => j !== i)));
+  const addLocation = () => {
+    if (locations.length >= MAX_LOCATIONS) {
+      toast.error('Mỗi hợp đồng tối đa 10 địa điểm.');
+      return;
+    }
+    setLocations((p) => [...p, emptyLocation()]);
+  };
+  // N-05: xóa địa điểm có dữ liệu thì hỏi xác nhận trước (không hoàn tác được).
+  const removeLocation = (i) => {
+    if (locations.length <= 1) return;
+    const target = locations[i];
+    const hasData = normalizeSpaces(target.tenDiaDiem) || normalizeSpaces(target.diaChi)
+      || Object.values(target.coverages).some((c) => c.checked || c.limit !== '' || c.deductible !== '');
+    if (hasData && !window.confirm(
+      `Xóa địa điểm ${i + 1}${target.tenDiaDiem ? ` (${target.tenDiaDiem})` : ''} cùng toàn bộ gói bảo hiểm đã nhập?`,
+    )) return;
+    setLocations((p) => p.filter((_, j) => j !== i));
+  };
 
   // ---- Ước tính phí -------------------------------------------------------
-  const flatKey = useMemo(
-    () => JSON.stringify(locations.map((l) => Object.entries(l.coverages)
-      .filter(([, c]) => c.checked)
-      .map(([code, c]) => [code, c.limit, c.deductible]))),
-    [locations],
-  );
-
-  // Thử tính phí bằng backend (debounce); thất bại thì giữ công thức nội bộ.
-  useEffect(() => {
-    const checked = [];
-    locations.forEach((l, li) => {
-      Object.entries(l.coverages).forEach(([code, c]) => {
-        if (c.checked && Number(c.limit) > 0) {
-          checked.push({
-            locationId: li + 1,
-            coverageCode: code,
-            limit: Number(c.limit),
-            deductible: Number(c.deductible) || 0,
-            termMonths: TERM_MONTHS,
-          });
-        }
-      });
-    });
-    if (checked.length === 0) { setServerPrem({}); return; }
-    const t = setTimeout(async () => {
-      try {
-        // Backend /excel/calculate chỉ nhận 1 coverage/lần -> gọi từng cái rồi gộp
-        const results = await Promise.all(
-          checked.map((c) =>
-            excelService.calculate({
-              coverageCode: c.coverageCode,
-              limit: c.limit,
-              deductible: c.deductible,
-              termMonths: c.termMonths,
-            }).then((res) => ({ key: `${c.locationId}|${c.coverageCode}`, data: res?.data }))
-             .catch(() => null)
-          )
-        );
-        const merged = {};
-        for (const r of results) {
-          if (!r) continue;
-          const d = r.data;
-          const premium = d?.calculatedPremium ?? d?.premium ?? d?.totalPremium;
-          if (Number.isFinite(Number(premium))) merged[r.key] = Number(premium);
-        }
-        if (Object.keys(merged).length) setServerPrem(merged);
-      } catch {
-        setServerPrem({}); // lỗi -> dùng ước tính nội bộ
-      }
-    }, 700);
-    return () => clearTimeout(t);
-  }, [flatKey]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  // Chỉ dùng công thức FE đã đồng bộ BE (utils/premium.js). Luồng gọi phí
+  // server POST /excel/calculate đã bỏ (N-09): không có controller nào map
+  // /excel/** trong BE nên phí server không bao giờ về được.
   const coveragePremium = (li, code, c) => {
-    const key = `${li + 1}|${code}`;
-    if (Number.isFinite(serverPrem[key])) return serverPrem[key];
     const cat = COVERAGE_CATALOG.find((x) => x.code === code);
-    return estimatePremium(c.limit, cat.baseRate, TERM_MONTHS, c.deductible);
+    return estimatePremium({
+      limit: c.limit,
+      baseRate: cat.baseRate,
+      termMonths: TERM_MONTHS,
+      coverageType: cat.type,
+      deductible: c.deductible,
+    });
   };
 
   const totalPremium = useMemo(() => {
@@ -219,22 +169,81 @@ export function BuyWizardPage() {
       });
     });
     return total;
-  }, [locations, serverPrem]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [locations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- Validate -----------------------------------------------------------
-  const validateStep = (s) => {
+  /** Lỗi của 1 coverage đã tick: { limit?: string, deductible?: string }. */
+  const coverageFieldErrors = (c) => {
+    const limit = Number(c.limit);
+    const ded = Number(c.deductible) || 0;
+    if (c.limit === '' || c.limit == null || !Number.isFinite(limit) || limit <= 0) {
+      return { limit: 'Hạn mức phải lớn hơn 0.' };
+    }
+    if (!Number.isInteger(limit)) {
+      return { limit: 'Hạn mức chỉ nhập số nguyên (VND), không nhập số lẻ.' };
+    }
+    if (limit > MAX_LIMIT) {
+      return { limit: 'Hạn mức tối đa 10 tỷ VND cho mỗi quyền lợi.' };
+    }
+    if (!Number.isInteger(ded)) {
+      return { deductible: 'Mức khấu trừ chỉ nhập số nguyên (VND), không nhập số lẻ.' };
+    }
+    if (ded < 0) {
+      return { deductible: 'Mức khấu trừ không được âm.' };
+    }
+    if (ded >= limit) {
+      return { deductible: 'Mức khấu trừ phải nhỏ hơn hạn mức.' };
+    }
+    return {};
+  };
+
+  /** Cảnh báo nhẹ (không chặn) khi trùng tên/địa chỉ trong cùng hợp đồng (N-11). */
+  const findDuplicateWarnings = () => {
+    const w = {};
+    const seenNames = new Map();
+    const seenAddrs = new Map();
+    locations.forEach((l, i) => {
+      const nm = normalizeSpaces(l.tenDiaDiem).toLowerCase();
+      const ad = normalizeSpaces(l.diaChi).toLowerCase();
+      if (nm) {
+        if (seenNames.has(nm)) {
+          w[`loc${i}_name`] = 'Tên địa điểm này trùng với một địa điểm khác trong hợp đồng.';
+          w[`loc${seenNames.get(nm)}_name`] = 'Tên địa điểm này trùng với một địa điểm khác trong hợp đồng.';
+        } else seenNames.set(nm, i);
+      }
+      if (ad) {
+        if (seenAddrs.has(ad)) {
+          w[`loc${i}_addr`] = 'Địa chỉ này trùng với một địa điểm khác trong hợp đồng.';
+          w[`loc${seenAddrs.get(ad)}_addr`] = 'Địa chỉ này trùng với một địa điểm khác trong hợp đồng.';
+        } else seenAddrs.set(ad, i);
+      }
+    });
+    return w;
+  };
+
+  /** Thu thập lỗi của 1 bước (không set state, không toast) — dùng chung cho gate từng bước và validate toàn bộ lúc submit. */
+  const collectStepErrors = (s) => {
     const e = {};
     if (s === 0) {
       if (!product) e.product = 'Vui lòng chọn một sản phẩm bảo hiểm.';
     }
     if (s === 1) {
-      if (!insured.hoTen.trim()) e.hoTen = 'Vui lòng nhập họ tên người được bảo hiểm.';
+      const name = normalizeSpaces(insured.hoTen);
+      if (!name) e.hoTen = 'Vui lòng nhập họ tên người được bảo hiểm.';
+      else if (!isValidPersonName(name)) e.hoTen = 'Tên phải từ 2 đến 100 ký tự, chỉ gồm chữ cái và khoảng trắng.';
       if (!isValidEmail(insured.email)) e.email = 'Email chưa đúng định dạng.';
-      if (!isValidPhone(insured.phone)) e.phone = 'Số điện thoại chưa hợp lệ.';
-      if (!insured.diaChi.trim()) e.diaChi = 'Vui lòng nhập địa chỉ liên hệ.';
+      else if (insured.email.trim().length > 100) e.email = 'Email tối đa 100 ký tự.';
+      if (!isValidVnPhone(insured.phone)) e.phone = 'Số điện thoại phải là số di động Việt Nam 10 chữ số, bắt đầu bằng 03, 05, 07, 08 hoặc 09.';
+      const addr = normalizeSpaces(insured.diaChi);
+      if (!addr) e.diaChi = 'Vui lòng nhập địa chỉ liên hệ.';
+      else if (!isValidAddress(addr)) e.diaChi = 'Địa chỉ cần ghi rõ số nhà, đường, phường/xã, quận/huyện, tỉnh/thành (tối thiểu 10 ký tự).';
       locations.forEach((l, i) => {
-        if (!l.tenDiaDiem.trim()) e[`loc${i}_name`] = 'Vui lòng nhập tên địa điểm.';
-        if (!l.diaChi.trim()) e[`loc${i}_addr`] = 'Vui lòng nhập địa chỉ của địa điểm.';
+        const locName = normalizeSpaces(l.tenDiaDiem);
+        if (!locName) e[`loc${i}_name`] = 'Vui lòng nhập tên địa điểm.';
+        else if (!isValidLocationName(locName)) e[`loc${i}_name`] = 'Tên địa điểm phải từ 3 đến 100 ký tự.';
+        const locAddr = normalizeSpaces(l.diaChi);
+        if (!locAddr) e[`loc${i}_addr`] = 'Vui lòng nhập địa chỉ của địa điểm.';
+        else if (!isValidAddress(locAddr)) e[`loc${i}_addr`] = 'Địa chỉ cần ghi rõ số nhà, đường, phường/xã, quận/huyện, tỉnh/thành (tối thiểu 10 ký tự).';
       });
     }
     if (s === 2) {
@@ -243,20 +252,68 @@ export function BuyWizardPage() {
         Object.entries(l.coverages).forEach(([code, c]) => {
           if (!c.checked) return;
           anyChecked = true;
-          const limit = Number(c.limit);
-          const ded = Number(c.deductible) || 0;
-          if (!Number.isFinite(limit) || limit <= 0) {
-            e[`cov${i}_${code}_limit`] = 'Hạn mức phải lớn hơn 0.';
-          } else if (ded >= limit) {
-            e[`cov${i}_${code}_deductible`] = 'Mức khấu trừ phải nhỏ hơn hạn mức.';
-          }
+          const ce = coverageFieldErrors(c);
+          if (ce.limit) e[`cov${i}_${code}_limit`] = ce.limit;
+          if (ce.deductible) e[`cov${i}_${code}_deductible`] = ce.deductible;
         });
       });
       if (!anyChecked) e.coverages = 'Vui lòng chọn ít nhất một gói bảo hiểm cho ít nhất một địa điểm.';
     }
+    return e;
+  };
+
+  const validateStep = (s) => {
+    const e = collectStepErrors(s);
     setErrors(e);
+    setDupWarnings(s === 1 ? findDuplicateWarnings() : {});
     if (Object.keys(e).length > 0) toast.error('Vui lòng kiểm tra lại các thông tin chưa hợp lệ.');
     return Object.keys(e).length === 0;
+  };
+
+  /** Validate toàn bộ các bước (B-04) — gọi trước doCreate() ở cả 2 nút submit; lỗi thì quay về bước đầu tiên có lỗi. */
+  const validateAll = () => {
+    const e = { ...collectStepErrors(0), ...collectStepErrors(1), ...collectStepErrors(2) };
+    setErrors(e);
+    setDupWarnings(findDuplicateWarnings());
+    if (Object.keys(e).length === 0) return true;
+    toast.error('Vui lòng kiểm tra lại các thông tin chưa hợp lệ.');
+    dirRef.current = -1;
+    if (e.product) setStep(0);
+    else if (Object.keys(e).some((k) => ['hoTen', 'email', 'phone', 'diaChi'].includes(k) || k.startsWith('loc'))) setStep(1);
+    else setStep(2);
+    return false;
+  };
+
+  /** Validate 1 field lúc blur (N-03): email/SĐT. */
+  const validateField = (key) => {
+    setErrors((prev) => {
+      const next = { ...prev };
+      if (key === 'email') {
+        if (!isValidEmail(insured.email)) next.email = 'Email chưa đúng định dạng.';
+        else if (insured.email.trim().length > 100) next.email = 'Email tối đa 100 ký tự.';
+        else delete next.email;
+      }
+      if (key === 'phone') {
+        if (!isValidVnPhone(insured.phone)) next.phone = 'Số điện thoại phải là số di động Việt Nam 10 chữ số, bắt đầu bằng 03, 05, 07, 08 hoặc 09.';
+        else delete next.phone;
+      }
+      return next;
+    });
+  };
+
+  /** Validate 1 coverage lúc blur khỏi ô tiền (N-03). */
+  const validateMoneyField = (i, code) => {
+    const c = locations[i]?.coverages[code];
+    if (!c || !c.checked) return;
+    const ce = coverageFieldErrors(c);
+    setErrors((prev) => {
+      const next = { ...prev };
+      const lk = `cov${i}_${code}_limit`;
+      const dk = `cov${i}_${code}_deductible`;
+      if (ce.limit) next[lk] = ce.limit; else delete next[lk];
+      if (ce.deductible) next[dk] = ce.deductible; else delete next[dk];
+      return next;
+    });
   };
 
   const dirRef = useRef(1); // hướng chuyển bước: 1 = tới, -1 = lui
@@ -281,6 +338,8 @@ export function BuyWizardPage() {
   const buildPayload = () => ({
     termsAccepted: termsAgreed === true,
     termsVersion: termsAgreed ? TERMS_VERSION : null,
+    // Sản phẩm đã chọn ở bước 1 (label hiển thị) — trước đây không gửi lên server.
+    product: PRODUCTS.find((p) => p.key === product)?.name ?? null,
     policyNumber: genPolicyNumber(),
     // Track C: gửi kèm slug đại lý từ agentRef — server resolve + validate
     // (chỉ ACTIVE), gắn agentId, bỏ qua mọi agentId client gửi. Wizard đã
@@ -289,16 +348,16 @@ export function BuyWizardPage() {
     // cuối — không phải nơi đầu tiên user biết mình thiếu đại lý.
     agentSlug: agentRef || undefined,
     insured: {
-      name: insured.hoTen.trim(),
+      name: normalizeSpaces(insured.hoTen),
       email: insured.email.trim().toLowerCase(),
-      phone: insured.phone.trim(),
-      address: insured.diaChi.trim(),
+      phone: normalizePhone(insured.phone),
+      address: normalizeSpaces(insured.diaChi),
       type: insured.loaiKH,
     },
     locations: locations.map((l, i) => ({
       locationId: i + 1,
-      name: l.tenDiaDiem.trim(),
-      address: l.diaChi.trim(),
+      name: normalizeSpaces(l.tenDiaDiem),
+      address: normalizeSpaces(l.diaChi),
       coverages: Object.entries(l.coverages)
         .filter(([, c]) => c.checked && Number(c.limit) > 0)
         .map(([code, c]) => {
@@ -338,8 +397,17 @@ export function BuyWizardPage() {
     return false;
   };
 
+  // B-04/N-02: kiểm tra lại điều khoản trong code (không chỉ dựa nút disabled).
+  const guardTermsForSubmit = () => {
+    if (termsAgreed === true) { setTermsError(null); return true; }
+    setTermsError('Vui lòng đọc và đồng ý Điều khoản & Chính sách bảo hiểm trước khi gửi.');
+    return false;
+  };
+
   const saveDraft = async () => {
     if (!guardAgentForSubmit()) return;
+    if (!validateAll()) return;
+    if (!guardTermsForSubmit()) return;
     try {
       const n = await doCreate();
       toast.success(`Đã lưu bản nháp hợp đồng ${n}.`);
@@ -351,6 +419,8 @@ export function BuyWizardPage() {
 
   const requestQuote = async () => {
     if (!guardAgentForSubmit()) return;
+    if (!validateAll()) return;
+    if (!guardTermsForSubmit()) return;
     try {
       const n = await doCreate();
       try {
@@ -370,6 +440,7 @@ export function BuyWizardPage() {
   };
 
   const err = (k) => errors[k] && <div className="form-error">{errors[k]}</div>;
+  const warn = (k) => dupWarnings[k] && <div className="form-hint" style={{ color: '#f59e0b' }}>{dupWarnings[k]}</div>;
 
   return (
     <>
@@ -465,17 +536,17 @@ export function BuyWizardPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.75rem' }}>
             <div className="form-group">
               <label className="form-label" htmlFor="ins-name">Họ và tên *</label>
-              <input id="ins-name" className="form-control" value={insured.hoTen} onChange={(e) => setIns('hoTen', e.target.value)} placeholder="Nguyễn Văn A" />
+              <input id="ins-name" className="form-control" value={insured.hoTen} onChange={(e) => setIns('hoTen', e.target.value)} placeholder="Nguyễn Văn A" maxLength={100} />
               {err('hoTen')}
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="ins-email">Email *</label>
-              <input id="ins-email" type="email" className="form-control" value={insured.email} onChange={(e) => setIns('email', e.target.value)} placeholder="ban@example.com" />
+              <input id="ins-email" type="email" className="form-control" value={insured.email} onChange={(e) => setIns('email', e.target.value)} onBlur={() => validateField('email')} placeholder="ban@example.com" maxLength={100} />
               {err('email')}
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="ins-phone">Số điện thoại *</label>
-              <input id="ins-phone" className="form-control" value={insured.phone} onChange={(e) => setIns('phone', e.target.value)} placeholder="09xxxxxxxx" />
+              <input id="ins-phone" type="tel" inputMode="tel" maxLength={13} className="form-control" value={insured.phone} onChange={(e) => setIns('phone', e.target.value)} onBlur={() => validateField('phone')} placeholder="09xxxxxxxx" />
               {err('phone')}
             </div>
             <div className="form-group">
@@ -487,14 +558,20 @@ export function BuyWizardPage() {
             </div>
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
               <label className="form-label" htmlFor="ins-addr">Địa chỉ liên hệ *</label>
-              <input id="ins-addr" className="form-control" value={insured.diaChi} onChange={(e) => setIns('diaChi', e.target.value)} placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành" />
+              <input id="ins-addr" className="form-control" value={insured.diaChi} onChange={(e) => setIns('diaChi', e.target.value)} placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành" maxLength={255} />
               {err('diaChi')}
             </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
             <h3>Địa điểm được bảo hiểm</h3>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={addLocation}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={addLocation}
+              disabled={locations.length >= MAX_LOCATIONS}
+              title={locations.length >= MAX_LOCATIONS ? 'Mỗi hợp đồng tối đa 10 địa điểm.' : undefined}
+            >
               <Plus size={15} /> Thêm địa điểm
             </button>
           </div>
@@ -519,17 +596,22 @@ export function BuyWizardPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label" htmlFor={`loc${i}-name`}>Tên địa điểm *</label>
-                  <input id={`loc${i}-name`} className="form-control" value={l.tenDiaDiem} onChange={(e) => setLoc(i, 'tenDiaDiem', e.target.value)} placeholder="Ví dụ: Kho hàng Quận 7" />
+                  <input id={`loc${i}-name`} className="form-control" value={l.tenDiaDiem} onChange={(e) => setLoc(i, 'tenDiaDiem', e.target.value)} placeholder="Ví dụ: Kho hàng Quận 7" maxLength={100} />
                   {err(`loc${i}_name`)}
+                  {warn(`loc${i}_name`)}
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label" htmlFor={`loc${i}-addr`}>Địa chỉ *</label>
-                  <input id={`loc${i}-addr`} className="form-control" value={l.diaChi} onChange={(e) => setLoc(i, 'diaChi', e.target.value)} placeholder="Số nhà, đường, phường/xã…" />
+                  <input id={`loc${i}-addr`} className="form-control" value={l.diaChi} onChange={(e) => setLoc(i, 'diaChi', e.target.value)} placeholder="Số nhà, đường, phường/xã…" maxLength={255} />
                   {err(`loc${i}_addr`)}
+                  {warn(`loc${i}_addr`)}
                 </div>
               </div>
             </div>
           ))}
+          {locations.length >= MAX_LOCATIONS && (
+            <p className="form-hint">Đã đạt tối đa 10 địa điểm cho mỗi hợp đồng.</p>
+          )}
         </div>
       )}
 
@@ -561,21 +643,24 @@ export function BuyWizardPage() {
                       <div className="coverage-fields">
                         <div className="form-group" style={{ marginBottom: 0 }}>
                           <label className="form-label">Hạn mức bảo hiểm (VND) *</label>
-                          <input
-                            type="number" min="1" className="form-control"
+                          <MoneyInput
+                            className="form-control"
                             value={c.limit}
-                            onChange={(e) => setCov(i, cat.code, 'limit', e.target.value)}
-                            placeholder="Ví dụ: 1000000000"
+                            onChange={(v) => setCov(i, cat.code, 'limit', v)}
+                            onBlur={() => validateMoneyField(i, cat.code)}
+                            placeholder="Ví dụ: 1.000.000.000"
+                            max={MAX_LIMIT}
                           />
                           {err(`cov${i}_${cat.code}_limit`)}
                         </div>
                         <div className="form-group" style={{ marginBottom: 0 }}>
                           <label className="form-label">Mức khấu trừ (VND)</label>
-                          <input
-                            type="number" min="0" className="form-control"
+                          <MoneyInput
+                            className="form-control"
                             value={c.deductible}
-                            onChange={(e) => setCov(i, cat.code, 'deductible', e.target.value)}
-                            placeholder="Ví dụ: 10000000"
+                            onChange={(v) => setCov(i, cat.code, 'deductible', v)}
+                            onBlur={() => validateMoneyField(i, cat.code)}
+                            placeholder="Ví dụ: 10.000.000"
                           />
                           {err(`cov${i}_${cat.code}_deductible`)}
                         </div>
@@ -615,6 +700,7 @@ export function BuyWizardPage() {
             <dt>Địa chỉ</dt><dd>{insured.diaChi}</dd>
             <dt>Loại khách hàng</dt><dd>{insured.loaiKH === 'DOANH_NGHIEP' ? 'Doanh nghiệp' : 'Cá nhân'}</dd>
             <dt>Sản phẩm</dt><dd>{PRODUCTS.find((p) => p.key === product)?.name}</dd>
+            <dt>Thời hạn</dt><dd>12 tháng</dd>
           </dl>
 
           <h4 style={{ marginBottom: '0.6rem' }}>Địa điểm & gói bảo hiểm</h4>
@@ -674,7 +760,7 @@ export function BuyWizardPage() {
               <input
                 type="checkbox"
                 checked={termsAgreed}
-                onChange={(e) => setTermsAgreed(e.target.checked)}
+                onChange={(e) => { setTermsAgreed(e.target.checked); if (e.target.checked) setTermsError(null); }}
                 style={{ marginTop: '0.2rem' }}
               />
               <span>
@@ -711,6 +797,14 @@ export function BuyWizardPage() {
               </button>
             </div>
           </div>
+          {!termsAgreed && (
+            <p className="form-hint" style={{ marginTop: '0.75rem' }}>
+              Vui lòng đọc và đồng ý Điều khoản &amp; Chính sách bảo hiểm trước khi gửi.
+            </p>
+          )}
+          {termsError && (
+            <p className="form-error" style={{ marginTop: '0.75rem' }}>{termsError}</p>
+          )}
         </div>
       )}
 

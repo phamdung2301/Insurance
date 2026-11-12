@@ -453,6 +453,7 @@ public class EndorsementServiceImpl implements EndorsementService {
                 }
                 clonedLocations.add(Location.builder()
                         .locationId(loc.getLocationId())
+                        .name(loc.getName())
                         .address(loc.getAddress())
                         .coverages(clonedCovs)
                         .build());
@@ -474,6 +475,7 @@ public class EndorsementServiceImpl implements EndorsementService {
         return Policy.builder()
                 .id(origin.getId())
                 .policyNumber(origin.getPolicyNumber())
+                .product(origin.getProduct())
                 .status(origin.getStatus())
                 .insured(clonedInsured)
                 .locations(clonedLocations)
@@ -522,6 +524,7 @@ public class EndorsementServiceImpl implements EndorsementService {
         }
         return Location.builder()
                 .locationId(dto.getLocationId())
+                .name(dto.getName())
                 .address(dto.getAddress())
                 .coverages(coverages)
                 .build();
@@ -549,6 +552,7 @@ public class EndorsementServiceImpl implements EndorsementService {
         return PolicyResponse.builder()
                 .id(policy.getId())
                 .policyNumber(policy.getPolicyNumber())
+                .product(policy.getProduct())
                 .status(policy.getStatus())
                 .insured(policy.getInsured() != null ? InsuredDto.builder()
                         .insuredId(policy.getInsured().getInsuredId())

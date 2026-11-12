@@ -19,6 +19,8 @@ import java.util.List;
 public class PolicyResponse {
     private String id;
     private String policyNumber;
+    /** Sản phẩm bảo hiểm khách chọn ở wizard (label chuỗi, vd "Cháy nổ tài sản"); null với dữ liệu cũ. */
+    private String product;
     private PolicyStatus status;
     private InsuredDto insured;
     private List<LocationDto> locations;

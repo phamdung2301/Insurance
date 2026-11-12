@@ -92,6 +92,7 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
 
         Location newLocation = Location.builder()
                 .locationId(newLocationId)
+                .name(locationDto.getName() != null ? locationDto.getName().trim() : null)
                 .address(locationDto.getAddress() != null ? locationDto.getAddress().trim() : "")
                 .coverages(coverages)
                 .build();
@@ -120,6 +121,10 @@ public class PolicyLocationServiceImpl implements PolicyLocationService {
         validatePolicyModifiable(policy);
 
         Location existingLocation = findLocationInPolicy(policy, locationId);
+
+        if (locationDto.getName() != null && !locationDto.getName().isBlank()) {
+            existingLocation.setName(locationDto.getName().trim());
+        }
 
         if (locationDto.getAddress() != null && !locationDto.getAddress().isBlank()) {
             existingLocation.setAddress(locationDto.getAddress().trim());

@@ -23,6 +23,14 @@ public class CreatePolicyRequest {
     private String policyNumber;
 
     /**
+     * Sản phẩm bảo hiểm khách chọn ở wizard, lưu dạng label chuỗi
+     * (vd "Cháy nổ tài sản") — phương án Y. Nullable để tương thích
+     * dữ liệu cũ; không validation bắt buộc.
+     */
+    @jakarta.validation.constraints.Size(max = 100, message = "Tên sản phẩm tối đa 100 ký tự.")
+    private String product;
+
+    /**
      * Tenant sở hữu policy (Agent.id) — CHỈ ADMIN được chọn khi tạo hộ.
      * AGENT tạo hộ: server bỏ qua field này và ép theo tenant của caller
      * (TenantContext); CUSTOMER tự tạo: luôn bị bỏ qua, tenant lấy từ
@@ -51,6 +59,10 @@ public class CreatePolicyRequest {
     private InsuredDto insured;
 
     @Valid
+    @jakarta.validation.constraints.Size.List({
+            @jakarta.validation.constraints.Size(min = 1, message = "Hợp đồng phải có ít nhất một địa điểm và một gói bảo hiểm."),
+            @jakarta.validation.constraints.Size(max = 10, message = "Hợp đồng tối đa 10 địa điểm.")
+    })
     @Builder.Default
     private List<LocationDto> locations = new ArrayList<>();
 

@@ -1,4 +1,5 @@
 /** Chuẩn hóa hiển thị tiền tệ & ngày giờ (vi-VN). */
+import { normalizePhone } from './validation';
 
 export function formatVND(value) {
   const n = Number(value);
@@ -46,8 +47,9 @@ export function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test((email || '').trim());
 }
 
+/** SĐT di động VN: chuẩn hóa (+84… → 0…) rồi kiểm tra 10 số, đầu 03/05/07/08/09. */
 export function isValidPhone(phone) {
-  return /^[0-9+\s().-]{8,15}$/.test((phone || '').trim());
+  return /^0[35789][0-9]{8}$/.test(normalizePhone(phone));
 }
 
 /**
